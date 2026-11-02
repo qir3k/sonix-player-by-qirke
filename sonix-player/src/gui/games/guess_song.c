@@ -1,10 +1,14 @@
 // guess_song.c -- Minimalist "Guess the Song" audio quiz for Sonix Player.
 #include "guess_song.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "lvgl/lvgl.h"
 #include "src/gui/board_profile.h"
@@ -13,21 +17,29 @@
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/icons.h"
 #include "src/gui/shell/theme.h"
+#include "src/system/audio/audio.h"
 #include "src/system/core/config.h"
 #include "src/system/core/lang.h"
+#include "src/system/device/system.h"
 #include "src/system/library/library.h"
 
 #define SECTION "guess_song"
-#define MAX_POOL 64
+#define MAX_POOL 128
 #define CHOICES 4
 #define ROUND_TIME_MS 10000
+
+typedef struct {
+	char title[128];
+	char path[256];
+	char artist[128];
+} song_entry_t;
 
 lv_obj_t *guess_song_screen;
 
 static game_frame_t frame;
 static gui_config_t *guess_cfg;
 
-static char track_pool[MAX_POOL][256];
+static song_entry_t track_pool[MAX_POOL];
 static int pool_count = 0;
 
 static int correct_choice = -1;
@@ -45,7 +57,7 @@ static lv_timer_t *round_timer = NULL;
 static lv_timer_t *next_timer = NULL;
 
 static void stop_audio(void) {
-	player_pause_for_loading();
+	audio_pause();
 }
 
 static void update_hint(void) {
@@ -54,8 +66,74 @@ static void update_hint(void) {
 	game_frame_set_hint(&frame, buf);
 }
 
+static bool collect_track_cb(const char *name, const char *path, const char *artist, void *user) {
+	(void)user;
+	if (!path || !path[0] || pool_count >= MAX_POOL) {
+		return false;
+	}
+	if (access(path, R_OK) != 0) {
+		return true;
+	}
+	snprintf(track_pool[pool_count].path, sizeof(track_pool[pool_count].path), "%s", path);
+	snprintf(track_pool[pool_count].title, sizeof(track_pool[pool_count].title), "%s", (name && name[0]) ? name : "Unknown");
+	snprintf(track_pool[pool_count].artist, sizeof(track_pool[pool_count].artist), "%s", (artist && artist[0]) ? artist : "");
+	pool_count++;
+	return true;
+}
+
+static bool is_audio_file(const char *name) {
+	const char *ext = strrchr(name, '.');
+	if (!ext) return false;
+	return (strcasecmp(ext, ".flac") == 0 || strcasecmp(ext, ".mp3") == 0 ||
+			strcasecmp(ext, ".wav") == 0 || strcasecmp(ext, ".m4a") == 0 ||
+			strcasecmp(ext, ".ogg") == 0 || strcasecmp(ext, ".ape") == 0 ||
+			strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 ||
+			strcasecmp(ext, ".opus") == 0);
+}
+
+static void scan_dir_recursive(const char *dir_path, int depth) {
+	if (depth > 4 || pool_count >= MAX_POOL) return;
+	DIR *d = opendir(dir_path);
+	if (!d) return;
+	struct dirent *de;
+	while ((de = readdir(d)) != NULL && pool_count < MAX_POOL) {
+		if (de->d_name[0] == '.') continue;
+		char full[300];
+		snprintf(full, sizeof(full), "%s/%s", dir_path, de->d_name);
+		struct stat st;
+		if (stat(full, &st) == 0) {
+			if (S_ISDIR(st.st_mode)) {
+				scan_dir_recursive(full, depth + 1);
+			} else if (S_ISREG(st.st_mode) && is_audio_file(de->d_name)) {
+				snprintf(track_pool[pool_count].path, sizeof(track_pool[pool_count].path), "%s", full);
+				char title[128];
+				snprintf(title, sizeof(title), "%s", de->d_name);
+				char *dot = strrchr(title, '.');
+				if (dot) *dot = '\0';
+				snprintf(track_pool[pool_count].title, sizeof(track_pool[pool_count].title), "%s", title);
+				track_pool[pool_count].artist[0] = '\0';
+				pool_count++;
+			}
+		}
+	}
+	closedir(d);
+}
+
 static void load_library_tracks(void) {
-	pool_count = library_list(LIBRARY_LIST_TRACKS, track_pool, MAX_POOL);
+	pool_count = 0;
+	library_for_each(LIBRARY_LIST_TRACKS, LIBRARY_FILTER_NONE, NULL, collect_track_cb, NULL);
+	if (pool_count < CHOICES) {
+		const char *root = storage_sd_root();
+		if (root && root[0]) {
+			char music_dir[256];
+			snprintf(music_dir, sizeof(music_dir), "%s/Music", root);
+			scan_dir_recursive(music_dir, 0);
+			if (pool_count < CHOICES) {
+				scan_dir_recursive(root, 0);
+			}
+		}
+	}
+	printf("guess_song: loaded %d playable tracks\n", pool_count);
 }
 
 static void start_round(void);
@@ -131,20 +209,9 @@ static void start_round(void) {
 	correct_choice = rand() % CHOICES;
 
 	for (int i = 0; i < CHOICES; i++) {
-		const char *path = track_pool[picked[i]];
-		snprintf(choice_paths[i], sizeof(choice_paths[i]), "%s", path);
-
-		char title[128] = {0};
-		if (!library_track_title(path, title, sizeof(title)) || !title[0]) {
-			// Fallback: extract filename without extension
-			const char *slash = strrchr(path, '/');
-			const char *fn = slash ? slash + 1 : path;
-			snprintf(title, sizeof(title), "%s", fn);
-			char *dot = strrchr(title, '.');
-			if (dot) *dot = '\0';
-		}
-
-		snprintf(choice_titles[i], sizeof(choice_titles[i]), "%s", title);
+		int pidx = picked[i];
+		snprintf(choice_paths[i], sizeof(choice_paths[i]), "%s", track_pool[pidx].path);
+		snprintf(choice_titles[i], sizeof(choice_titles[i]), "%s", track_pool[pidx].title);
 		lv_label_set_text(choice_lbl[i], choice_titles[i]);
 
 		lv_obj_set_style_bg_color(choice_btn[i], lv_color_hex(0x222226), 0);
@@ -155,6 +222,7 @@ static void start_round(void) {
 	update_hint();
 
 	// Play snippet of correct song
+	printf("guess_song: playing '%s'\n", choice_paths[correct_choice]);
 	player_play_file(choice_paths[correct_choice]);
 
 	if (round_timer) {
