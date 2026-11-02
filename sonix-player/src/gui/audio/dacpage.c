@@ -30,6 +30,7 @@ static unsigned last_serial = (unsigned)-1;
 // set_format() and dacpage_init().
 static bool hide_empty_format;
 static lv_color_t status_normal_color; // the theme's colour, captured at build time
+static gui_config_t *dac_cfg;
 
 // The pills follow the equalisers, not the finger: they are the same three
 // settings the control centre switches, and either place may have changed them
@@ -120,6 +121,9 @@ static void refresh_charge_glyph(void) {
 	// A lightning bolt when the cable is allowed to charge, the struck-through
 	// one when it is not.
 	lv_image_set_src(charge_glyph, usbdac_charging_enabled() ? &icon_zap : &icon_zap_off);
+	if (dac_cfg) {
+		settingsrow_scale_corner_icon(charge_glyph, dac_cfg);
+	}
 }
 
 static void refresh(void) {
@@ -327,6 +331,7 @@ static void loaded_cb(lv_event_t *e) {
 }
 
 void dacpage_init(gui_config_t *cfg) {
+	dac_cfg = cfg;
 	const bool compact = cfg->screen_width < 320;
 	lv_obj_t *container = settingsrow_page(dacpage_screen, cfg, "dac");
 

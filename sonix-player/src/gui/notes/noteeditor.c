@@ -29,6 +29,7 @@ static lv_obj_t *title_label;
 static lv_obj_t *field;
 static lv_obj_t *edit_button;
 static lv_obj_t *edit_glyph;
+static gui_config_t *editor_cfg;
 static keyboard_t *keyboard;
 static lv_timer_t *autosave_timer;
 
@@ -193,6 +194,9 @@ static void set_editing(bool on) {
 		// and a tap into the text still moves the caret where it is wanted.
 		lv_textarea_set_cursor_pos(field, LV_TEXTAREA_CURSOR_LAST);
 		lv_image_set_src(edit_glyph, &icon_check);
+		if (editor_cfg) {
+			settingsrow_scale_corner_icon(edit_glyph, editor_cfg);
+		}
 		return;
 	}
 
@@ -201,6 +205,9 @@ static void set_editing(bool on) {
 	lv_textarea_set_cursor_click_pos(field, false);
 	lv_obj_remove_state(field, LV_STATE_FOCUSED);
 	lv_image_set_src(edit_glyph, &icon_pencil);
+	if (editor_cfg) {
+		settingsrow_scale_corner_icon(edit_glyph, editor_cfg);
+	}
 }
 
 // Reads the note into the field and shows it, to be read. Setting a textarea's
@@ -283,6 +290,7 @@ bool noteeditor_new(const char *note_dir, const char *note_name) {
 }
 
 void noteeditor_init(gui_config_t *cfg) {
+	editor_cfg = cfg;
 	lv_obj_add_style(noteeditor_screen, &theme_style_screen, 0);
 	title_label = settingsrow_title(noteeditor_screen, cfg, "");
 	settingsrow_title_corner_slots(title_label, cfg, 1);
