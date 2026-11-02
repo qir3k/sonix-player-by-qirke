@@ -66,7 +66,7 @@ static bool games_tokyo_icon(const char *label, const lv_image_dsc_t **icon, the
 		*tone = THEME_SEMANTIC_GREEN;
 	} else if (strcmp(label, "pebble_deluxe") == 0) {
 		*icon = &icon_game_pebble;
-		*tone = THEME_SEMANTIC_ORANGE;
+		*tone = THEME_SEMANTIC_AMBER;
 	} else {
 		return false;
 	}
