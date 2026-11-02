@@ -139,7 +139,9 @@ static void drop_block(void) {
 		overlap = base_w;
 		combo++;
 		game_frame_add_score(&frame, 5); // bonus
-		game_frame_set_hint(&frame, "PERFECT! Combo x%d", combo);
+		char cbuf[32];
+		snprintf(cbuf, sizeof(cbuf), "PERFECT! Combo x%d", combo);
+		game_frame_set_hint(&frame, cbuf);
 	} else {
 		combo = 0;
 		game_frame_set_hint(&frame, "Tap anywhere to drop block");

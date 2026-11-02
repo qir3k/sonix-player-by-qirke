@@ -124,6 +124,22 @@ static int games_entries_build(grid_entry_t *out, int max) {
 	return count;
 }
 
+void games_screen_build(gui_config_t *cfg) {
+	games_cfg = cfg;
+	gamespage_screen = lv_obj_create(NULL);
+	lv_obj_add_style(gamespage_screen, &theme_style_screen, 0);
+
+	grid_entry_t entries[GAMES_MAX];
+	int count = games_entries_build(entries, GAMES_MAX);
+
+	games_grid = gridpage_build(gamespage_screen, cfg, entries, count, 2, LV_MAX((count + 1) / 2, 1), true);
+	games_list = settingsrow_page(gamespage_screen, cfg, "games");
+
+	for (int i = 0; i < count; i++) {
+		games_list_add_entry(&entries[i]);
+	}
+}
+
 static void games_refresh_theme(void) {
 	bool tokyo_v1 = bp_is_tempotec_v1() && theme_uses_function_glyphs();
 	if (games_grid) {
@@ -140,22 +156,6 @@ static void games_build(gui_config_t *cfg) {
 	games_refresh_theme();
 }
 
-void games_screen_build(gui_config_t *cfg) {
-	games_cfg = cfg;
-	gamespage_screen = lv_obj_create(NULL);
-	lv_obj_add_style(gamespage_screen, &theme_style_screen, 0);
-
-	grid_entry_t entries[GAMES_MAX];
-	int count = games_entries_build(entries, GAMES_MAX);
-
-	games_grid = gridpage_create(gamespage_screen, cfg, "games", entries, count, 2, 3);
-	games_list = settingsrow_page(gamespage_screen, cfg, "games");
-
-	for (int i = 0; i < count; i++) {
-		games_list_add_entry(&entries[i]);
-	}
-}
-
 void gamespage_refresh_layout(void) {
 	if (!games_cfg) {
 		return;
@@ -164,7 +164,7 @@ void gamespage_refresh_layout(void) {
 	int count = games_entries_build(entries, GAMES_MAX);
 
 	if (games_grid) {
-		gridpage_replace_entries(games_grid, games_cfg, entries, count, 2, 3);
+		gridpage_replace_entries(games_grid, games_cfg, entries, count, 2, LV_MAX((count + 1) / 2, 1));
 	}
 	if (games_list) {
 		lv_obj_clean(games_list);
