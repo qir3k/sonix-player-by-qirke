@@ -90,7 +90,9 @@ static void update_speed_button(void);
 static bool current_yt_song(char *id, size_t size) {
 	device_state_t state;
 	device_state_get(&state);
-	return state.current_file[0] && ytmusic_cache_track_id(state.current_file, id, size);
+	if (!state.current_file[0]) return false;
+	if (strstr(state.current_file, "/Music/YouTube Music/") != NULL) return true;
+	return ytmusic_cache_track_id(state.current_file, id, size);
 }
 static void update_format_label(const device_state_t *state);
 static void update_repeat_button(void);
@@ -5260,6 +5262,7 @@ static void refresh_live_texts(const device_state_t *state) {
 	alt_pills_sync();
 	update_fav_button();
 	update_format_label(state);
+	update_qobuz_badge();
 
 	if (strcmp(cover_shown_path, state->live_cover) != 0) {
 		refresh_cover(state->live_cover);
@@ -5354,10 +5357,12 @@ static void update_qobuz_badge(void) {
 	// from one service only. So which one shows is decided here, rather than
 	// leaving each badge to hide itself -- which is how they would eventually
 	// have overlapped.
+	device_state_t state;
+	device_state_get(&state);
 	bool from_qobuz = !live_mode && current_qobuz_track() != 0;
 	bool from_tidal = !live_mode && !from_qobuz && current_tidal_track() != 0;
 	bool from_podcast = !live_mode && !from_qobuz && !from_tidal && current_podcast_episode();
-	bool from_ytmusic = !live_mode && !from_qobuz && !from_tidal && !from_podcast && current_yt_song(NULL, 0);
+	bool from_ytmusic = !live_mode && !from_qobuz && !from_tidal && !from_podcast && (current_yt_song(NULL, 0) || (state.current_file[0] && ytmusic_cache_owns(state.current_file)));
 
 	if (qobuz_badge) {
 		if (from_qobuz) {
@@ -6685,6 +6690,7 @@ void player_sheet_open(bool animate) {
 	sheet_open = true;
 	back_btn_player_mode(true);
 	lyrics_screen_hold_update();
+	update_qobuz_badge();
 
 	// Explicitly the bottom-most thing on the top layer: it covers the page it
 	// slides over, while the status bar and the floating back button stay drawn
