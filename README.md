@@ -1,7 +1,7 @@
 # Sonix Player for TempoTec Variations V1 (by qirke)
 
-[![Build and Release](https://github.com/qir3k/sonix-player-tempotec-v1/actions/workflows/build-tempotec-v1.yml/badge.svg)](https://github.com/qir3k/sonix-player-tempotec-v1/actions)
-[![Latest Release](https://img.shields.io/github/v/release/qir3k/sonix-player-tempotec-v1?include_prereleases&label=release)](https://github.com/qir3k/sonix-player-tempotec-v1/releases)
+[![Build and Release](https://github.com/qir3k/sonix-player-by-qirke/actions/workflows/build-tempotec-v1.yml/badge.svg)](https://github.com/qir3k/sonix-player-by-qirke/actions)
+[![Latest Release](https://img.shields.io/github/v/release/qir3k/sonix-player-by-qirke?include_prereleases&label=release)](https://github.com/qir3k/sonix-player-by-qirke/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 An advanced, modern, audiophile custom firmware for the **TempoTec Variations V1** digital audio player.
@@ -113,7 +113,7 @@ Formats are recognised by their actual header contents, not by file extension. E
 > [!IMPORTANT]
 > This firmware is tested specifically on the **TempoTec Variations V1**. Do not flash on other models or unverified revisions without a recovery backup.
 
-1. Download **`v1.upt`** and **`v1_md5.txt`** from the latest release on the [Releases page](https://github.com/qir3k/sonix-player-tempotec-v1/releases).
+1. Download **`v1.upt`** and **`v1_md5.txt`** from the latest release on the [Releases page](https://github.com/qir3k/sonix-player-by-qirke/releases).
 2. Copy both files to the **root directory** of your microSD card (formatted as FAT32 or exFAT).
 3. Insert the card into your V1, ensure the battery is charged above 50%, and go to the system update menu in settings.
 4. Let the firmware installer complete and reboot automatically.
