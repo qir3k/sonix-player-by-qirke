@@ -7,7 +7,11 @@
 #include "src/gui/board_profile.h"
 #include "src/gui/flappybird/flappybird.h"
 #include "src/gui/games/game2048.h"
-#include "src/gui/pocket_arcade/pocket_arcade.h"
+#include "src/gui/games/minesweeper.h"
+#include "src/gui/games/sudoku.h"
+#include "src/gui/games/guess_song.h"
+#include "src/gui/games/stack_it.h"
+#include "src/gui/games/brick_breaker.h"
 #if GB_CORE
 #include "src/gui/gearboy/gearboypage.h"
 #endif
@@ -44,10 +48,21 @@ static bool games_tokyo_icon(const char *label, const lv_image_dsc_t **icon, the
 	} else if (strcmp(label, "2048") == 0) {
 		*icon = &icon_game_2048;
 		*tone = THEME_SEMANTIC_BLUE;
-
-	} else if (strncmp(label, "arcade", 6) == 0) {
-		*icon = &icon_menu_arcade;
+	} else if (strcmp(label, "minesweeper") == 0) {
+		*icon = &icon_game_mines;
+		*tone = THEME_SEMANTIC_RED;
+	} else if (strcmp(label, "sudoku") == 0) {
+		*icon = &icon_game_sudoku;
+		*tone = THEME_SEMANTIC_CYAN;
+	} else if (strcmp(label, "guess_song") == 0) {
+		*icon = &icon_game_guess_song;
 		*tone = THEME_SEMANTIC_PURPLE;
+	} else if (strcmp(label, "stack_it") == 0) {
+		*icon = &icon_game_stack;
+		*tone = THEME_SEMANTIC_AMBER;
+	} else if (strcmp(label, "brick_breaker") == 0) {
+		*icon = &icon_game_bricks;
+		*tone = THEME_SEMANTIC_GREEN;
 	} else {
 		return false;
 	}
@@ -71,18 +86,11 @@ static const grid_entry_t ALL_GAMES[] = {
 #endif
 	{"flappy_bird", &icon_menu_flappy_bird, NULL, flappybird_open},
 	{"2048", &icon_game_2048, NULL, game2048_open},
-	{"arcade", &icon_menu_arcade, NULL, pocket_arcade_open},
-	{"arcade_mines", &icon_menu_arcade, NULL, arcade_mines_open},
-	{"arcade_bricks", &icon_menu_arcade, NULL, arcade_bricks_open},
-	{"arcade_racer", &icon_menu_arcade, NULL, arcade_racer_open},
-	{"arcade_stack", &icon_menu_arcade, NULL, arcade_stack_open},
-	{"arcade_boxes", &icon_menu_arcade, NULL, arcade_boxes_open},
-	{"arcade_golf", &icon_menu_arcade, NULL, arcade_golf_open},
-	{"arcade_orbit", &icon_menu_arcade, NULL, arcade_orbit_open},
-	{"arcade_melody", &icon_menu_arcade, NULL, arcade_melody_open},
-	{"arcade_quiz", &icon_menu_arcade, NULL, arcade_quiz_open},
-	{"arcade_beat", &icon_menu_arcade, NULL, arcade_beat_open},
-	{"arcade_dungeon", &icon_menu_arcade, NULL, arcade_dungeon_open},
+	{"minesweeper", &icon_game_mines, NULL, minesweeper_open},
+	{"sudoku", &icon_game_sudoku, NULL, sudoku_open},
+	{"guess_song", &icon_game_guess_song, NULL, guess_song_open},
+	{"stack_it", &icon_game_stack, NULL, stack_it_open},
+	{"brick_breaker", &icon_game_bricks, NULL, brick_breaker_open},
 };
 
 #define GAMES_MAX 24
@@ -98,11 +106,16 @@ static int games_entries_build(grid_entry_t *out, int max) {
 			enabled = addons_enabled("flappy");
 		} else if (strcmp(label, "2048") == 0) {
 			enabled = addons_enabled("game2048");
-
-		} else if (strcmp(label, "arcade") == 0) {
-			enabled = addons_enabled("pocket_arcade");
-		} else if (strncmp(label, "arcade_", 7) == 0) {
-			enabled = addons_enabled(label);
+		} else if (strcmp(label, "minesweeper") == 0) {
+			enabled = addons_enabled("minesweeper");
+		} else if (strcmp(label, "sudoku") == 0) {
+			enabled = addons_enabled("sudoku");
+		} else if (strcmp(label, "guess_song") == 0) {
+			enabled = addons_enabled("guess_song");
+		} else if (strcmp(label, "stack_it") == 0) {
+			enabled = addons_enabled("stack_it");
+		} else if (strcmp(label, "brick_breaker") == 0) {
+			enabled = addons_enabled("brick_breaker");
 		}
 		if (enabled) {
 			out[count++] = ALL_GAMES[i];
@@ -121,34 +134,13 @@ static void games_refresh_theme(void) {
 	}
 }
 
-static void games_entries_refresh(void) {
-	grid_entry_t entries[GAMES_MAX];
-	int count = games_entries_build(entries, GAMES_MAX);
-
-	if (games_grid) {
-		int cols = count > 4 ? 3 : 2;
-		int rows = LV_MAX((count + cols - 1) / cols, 1);
-		gridpage_replace_entries(games_grid, games_cfg, entries, count, cols, rows);
-	}
-	if (games_list) {
-		lv_obj_clean(games_list);
-		for (int i = 0; i < count; i++) {
-			games_list_add_entry(&entries[i]);
-		}
-	}
+static void games_build(gui_config_t *cfg) {
+	games_screen_build(cfg);
+	theme_register_refresh(games_refresh_theme);
+	games_refresh_theme();
 }
 
-static void games_screen_loaded_cb(lv_event_t *e) {
-	(void)e;
-	games_entries_refresh();
-}
-
-void gamespage_open(void) {
-	games_entries_refresh();
-	switch_screen(gamespage_screen);
-}
-
-void gamespage_init(gui_config_t *cfg) {
+void games_screen_build(gui_config_t *cfg) {
 	games_cfg = cfg;
 	gamespage_screen = lv_obj_create(NULL);
 	lv_obj_add_style(gamespage_screen, &theme_style_screen, 0);
@@ -156,22 +148,43 @@ void gamespage_init(gui_config_t *cfg) {
 	grid_entry_t entries[GAMES_MAX];
 	int count = games_entries_build(entries, GAMES_MAX);
 
-	int cols = count > 4 ? 3 : 2;
-	int rows = LV_MAX((count + cols - 1) / cols, 1);
-	games_grid = gridpage_build(gamespage_screen, cfg, entries, count, cols, rows, true);
+	games_grid = gridpage_create(gamespage_screen, cfg, "games", entries, count, 2, 3);
+	games_list = settingsrow_page(gamespage_screen, cfg, "games");
 
-	if (bp_is_tempotec_v1()) {
-		games_list = settingsrow_page(gamespage_screen, cfg, "games");
+	for (int i = 0; i < count; i++) {
+		games_list_add_entry(&entries[i]);
+	}
+}
+
+void gamespage_refresh_layout(void) {
+	if (!games_cfg) {
+		return;
+	}
+	grid_entry_t entries[GAMES_MAX];
+	int count = games_entries_build(entries, GAMES_MAX);
+
+	if (games_grid) {
+		gridpage_replace_entries(games_grid, games_cfg, entries, count, 2, 3);
+	}
+	if (games_list) {
+		lv_obj_clean(games_list);
 		for (int i = 0; i < count; i++) {
 			games_list_add_entry(&entries[i]);
 		}
-	} else {
-		settingsrow_title(gamespage_screen, cfg, "games");
 	}
-
 	games_refresh_theme();
-	theme_register_refresh(games_refresh_theme);
+}
 
-	lv_obj_add_event_cb(gamespage_screen, games_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
-	switcher_attach_back_gesture(gamespage_screen);
+void gamespage_init(gui_config_t *cfg) {
+	games_cfg = cfg;
+	games_build(cfg);
+}
+
+void gamespage_open(void) {
+	if (games_cfg) {
+		gamespage_refresh_layout();
+	}
+	if (gamespage_screen) {
+		switch_screen(gamespage_screen);
+	}
 }

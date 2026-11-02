@@ -839,8 +839,8 @@ static void game2048_build(gui_config_t *cfg) {
 	// back on top of them.
 	lv_obj_move_foreground(frame.overlay);
 
-	game_frame_add_header_button(&frame, &icon_reset, undo_pressed);
-	game_frame_add_header_button(&frame, &icon_refresh, new_game_pressed);
+	game_frame_add_header_button(&frame, &icon_game_undo, undo_pressed);
+	game_frame_add_header_button(&frame, &icon_game_restart, new_game_pressed);
 
 	recolour();
 	layout();
