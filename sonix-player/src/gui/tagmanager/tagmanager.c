@@ -141,6 +141,8 @@ typedef struct {
 
 static unsigned browse_generation;
 static bool browsing;
+static void build(void);
+static void hide_editor(void);
 static void browse_launch(const char *target_dir, bool open_screen);
 static void show_details(void);
 static void find_cover_cb(lv_event_t *e);

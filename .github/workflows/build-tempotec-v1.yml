@@ -496,22 +496,12 @@ jobs:
           {
             echo "## Sonix OS ${NEW_TAG} for TempoTec Variations V1"
             echo
-            echo "A major release bringing extensive audio upgrades, UI refinements, memory optimizations, and a full minimalist game suite."
-            echo
-            echo "### Highlights & Changes since ${OLD_TAG}:"
-            echo "- **Audio & Bluetooth Upgrades:** Bluetooth sample rate selector (Auto / 44.1 / 48 / 96 kHz), Speex resampler, LDAC Quality profiles, SSC, SBC-XQ, and real-time USB DAC bit depth display."
-            echo "- **Now Playing & Podcast Enhancements:** Real-time bitrate and format display, creator info, aligned vertical layout, and YouTube Music watermark badge."
-            echo "- **Control Center Polish:** Horizontal swipe paging for extra quickpanel tiles (replaces vertical handle) and fixed PEQ profile icon."
-            echo "- **Fresh Install Optimization & First-Run Hint:** Non-essential addons (games, extra tools) default to OFF to keep RAM free (~23MB footprint); friendly onboarding popup guides users to *Settings → Plugins*."
-            echo "- **Cache & Card Cleanliness:** Fully canonicalized cache folders; automatic removal of legacy empty \`qobuz-art\` and \`radio-art\` directories."
-            echo "- **Minimalist Games Suite:** Minimalist Sudoku, Minesweeper (tap to reveal, hold to flag), Brick Breaker (continuous paddle drag), Guess the Song (audio quiz with local library playback), and Stack It."
-            echo "- **Streaming & Navigation:** Streamlined Tidal headers with persistent download/settings icons, corrected podcast episode sort icon scale, and locked unconfigured YouTube Music page."
-            echo
-            echo "### Commit Log (${range})"
+            echo "### Changes since ${OLD_TAG}:"
             echo
             # shellcheck disable=SC2086
             git log --no-merges --invert-grep --grep='^ci:' --pretty='- %s (`%h`)' $range
             echo
+            echo "---"
             echo "Built from \`$(git rev-parse --short "${NEW_TAG}^{commit}")\` on the \`personal\` branch."
           } > "$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
