@@ -170,7 +170,7 @@ static void gain_toggle_cb(lv_event_t *e) {
 
 // ---------------------------------------------------------------------------
 // MSEB: the stock player's MageSound tuning (see eq.c for the engine and the
-// mapping); nine character sliders, -10..+10 around flat.
+// mapping); ten character sliders around flat.
 // ---------------------------------------------------------------------------
 
 static lv_obj_t *mseb_screen;
