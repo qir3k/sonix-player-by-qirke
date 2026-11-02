@@ -489,6 +489,9 @@ static void sort_button_update(void) {
 	}
 	if (list_mode == LIST_TERMS) {
 		lv_image_set_src(sort_icon, terms_desc(list_browse) ? &icon_sort_za : &icon_sort_az);
+		if (g_cfg) {
+			settingsrow_scale_corner_icon(sort_icon, g_cfg);
+		}
 		lv_obj_set_hidden(sort_btn, false);
 	} else {
 		lv_obj_set_hidden(sort_btn, true);

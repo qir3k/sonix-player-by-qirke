@@ -281,6 +281,7 @@ typedef struct {
 
 static lv_obj_t *books_title;
 static lv_obj_t *books_sort_icon;
+static gui_config_t *g_cfg;
 static lv_obj_t *book_list; // the scrollable viewport
 static lv_obj_t *book_body; // the fixed-height canvas the rows are placed on
 static lv_obj_t *empty_label;
@@ -643,6 +644,9 @@ static void reload_books(void) {
 	lv_label_set_text(empty_label, books_empty_text());
 	show_empty(empty_label, entry_count);
 	lv_image_set_src(books_sort_icon, sort_icon(list_sort(books_list)));
+	if (g_cfg) {
+		settingsrow_scale_corner_icon(books_sort_icon, g_cfg);
+	}
 
 	refresh_playmarks();
 	window_update();
@@ -958,6 +962,9 @@ static void reload_names(void) {
 	lv_label_set_text(names_empty, tr(names_kind == LIST_SERIES ? "audiobook_series_empty" : "audiobook_empty_note"));
 	show_empty(names_empty, name_count);
 	lv_image_set_src(names_sort_icon, sort_icon(choice));
+	if (g_cfg) {
+		settingsrow_scale_corner_icon(names_sort_icon, g_cfg);
+	}
 	names_window_update();
 }
 
@@ -1961,6 +1968,7 @@ static void build_scan_page(gui_config_t *cfg) {
 }
 
 void audiobooks_init(gui_config_t *cfg) {
+	g_cfg = cfg;
 	books_screen = lv_obj_create(NULL);
 	names_screen = lv_obj_create(NULL);
 	build_section_page(cfg);

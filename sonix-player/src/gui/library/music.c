@@ -852,6 +852,7 @@ void music_refresh_layout(void) {
 	bool playlists_first = musicsettings_playlists_first();
 	if (playlists_icon) {
 		lv_image_set_src(playlists_icon, playlists_first ? &icon_folder_corner : &icon_list_music);
+		settingsrow_scale_corner_icon(playlists_icon, music_cfg);
 	}
 	music_refresh_theme();
 }
