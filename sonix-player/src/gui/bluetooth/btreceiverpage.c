@@ -128,8 +128,12 @@ static void refresh(void) {
 	char rate[24];
 	format_rate(st.sample_rate, rate, sizeof(rate));
 	char text[64];
+	const char *codec_disp = st.codec;
+	if (strcasecmp(st.codec, "samsung-SC") == 0) {
+		codec_disp = "SSC";
+	}
 	if (st.codec[0]) {
-		snprintf(text, sizeof(text), "%s  %s", st.codec, rate);
+		snprintf(text, sizeof(text), "%s  %s", codec_disp, rate);
 	} else {
 		snprintf(text, sizeof(text), "%s", rate);
 	}
@@ -254,15 +258,21 @@ static void codec_btn_cb(lv_event_t *e) {
 	if (count > CODEC_MENU_MAX) {
 		count = CODEC_MENU_MAX;
 	}
+	static char codec_targets[CODEC_MENU_MAX][BT_CODEC_MAX];
 	for (int i = 0; i < count; i++) {
-		// Copied: the popover calls back after it has closed, so the strings it
-		// was given have to still be there.
-		memcpy(codec_labels[i], offered[i], sizeof(codec_labels[i]));
-		codec_labels[i][sizeof(codec_labels[i]) - 1] = '\0';
+		memcpy(codec_targets[i], offered[i], sizeof(codec_targets[i]));
+		codec_targets[i][sizeof(codec_targets[i]) - 1] = '\0';
+
+		if (strcasecmp(offered[i], "samsung-SC") == 0) {
+			snprintf(codec_labels[i], sizeof(codec_labels[i]), "SSC");
+		} else {
+			memcpy(codec_labels[i], offered[i], sizeof(codec_labels[i]));
+			codec_labels[i][sizeof(codec_labels[i]) - 1] = '\0';
+		}
 		codec_items[i].label = codec_labels[i];
 		codec_items[i].action = codec_chosen;
-		codec_items[i].user = codec_labels[i];
-		codec_items[i].checked = selected[0] && strcasecmp(selected, codec_labels[i]) == 0;
+		codec_items[i].user = codec_targets[i];
+		codec_items[i].checked = selected[0] && strcasecmp(selected, offered[i]) == 0;
 	}
 
 	popover_show(lv_event_get_current_target(e), codec_items, count);

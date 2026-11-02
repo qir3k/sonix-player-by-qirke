@@ -4274,6 +4274,7 @@ static lv_obj_t *home_container;
 static lv_obj_t *settings_btn;
 static lv_obj_t *search_btn;
 static lv_obj_t *downloads_btn;
+static lv_obj_t *logout_row;
 static gui_config_t *tidal_cfg;
 
 // The showcases Tidal offers, with the short name tidal.c expects.
@@ -4429,10 +4430,11 @@ static void update_corner_buttons(void) {
 	bool configured = tidal_configured() && tidal_logged_in() && !selecting;
 	bool search = configured && tidal_network_up();
 	bool downloads = tidalcache_ready() && !selecting;
+	bool settings = !selecting;
 	int slot = 0;
 	if (settings_btn) {
-		lv_obj_set_hidden(settings_btn, !configured);
-		if (configured) {
+		lv_obj_set_hidden(settings_btn, !settings);
+		if (settings) {
 			settingsrow_place_corner_button(settings_btn, tidal_cfg, slot++);
 		}
 	}
@@ -4765,6 +4767,9 @@ static void open_settings_cb(lv_event_t *e) {
 	// The timer can have been started or stopped from the control centre
 	// while this page was elsewhere.
 	tidal_sleep_refresh();
+	if (logout_row) {
+		lv_obj_set_hidden(logout_row, !tidal_logged_in());
+	}
 	switch_screen(tsettings_screen);
 }
 
@@ -4822,7 +4827,7 @@ static void build_settings_page(gui_config_t *cfg) {
 
 	// "Leave" said nothing about what would be left: this row signs the
 	// account out. The confirmation follows the same word.
-	settingsrow_action(container, "sign_out_of_tidal", logout_cb, NULL);
+	logout_row = settingsrow_action(container, "sign_out_of_tidal", logout_cb, NULL);
 
 	quality_refresh();
 	theme_register_refresh(quality_refresh);
@@ -5075,11 +5080,11 @@ void tidalpage_init(gui_config_t *cfg) {
 
 	// Two buttons top right, like the Music page gear. The title has to be
 	// told the corner is taken, or its text runs underneath them.
-	settingsrow_title_corner_slots(settingsrow_page_title(tidal_screen), cfg, 2);
+	settingsrow_title_corner_slots(settingsrow_page_title(tidal_screen), cfg, 3);
 	tidal_cfg = cfg;
 	settings_btn = corner_button(cfg, 0, &icon_music_settings, open_settings_cb);
-	search_btn = corner_button(cfg, 1, &icon_search, open_search_cb);
-	downloads_btn = corner_button(cfg, 2, &icon_import, open_downloads_cb);
+	downloads_btn = corner_button(cfg, 1, &icon_import, open_downloads_cb);
+	search_btn = corner_button(cfg, 2, &icon_search, open_search_cb);
 
 	build_list_page(cfg);
 	build_search_page(cfg);

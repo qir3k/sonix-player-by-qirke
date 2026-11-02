@@ -484,6 +484,7 @@ static void clear_art_files(void) {
 		}
 	}
 	closedir(d);
+	rmdir(art);
 	printf("podcastcache: covers cleared (%d files)\n", removed);
 }
 

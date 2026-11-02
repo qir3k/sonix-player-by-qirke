@@ -103,30 +103,30 @@ static void launch_ball(void) {
 	}
 }
 
-static void tap_cb(const lv_point_t *p) {
-	if (game_over) return;
-
-	if (!ball_launched) {
-		launch_ball();
-		return;
-	}
-
-	// Move paddle to tap X
-	int target_x = p->x - PADDLE_W / 2;
+static void move_paddle_to(int field_x) {
+	int offset_x = (frame.field_w - FIELD_W) / 2;
+	int local_x = field_x - offset_x;
+	int target_x = local_x - PADDLE_W / 2;
 	if (target_x < 0) target_x = 0;
 	if (target_x > FIELD_W - PADDLE_W) target_x = FIELD_W - PADDLE_W;
 	paddle_x = target_x;
 	lv_obj_set_pos(paddle_obj, paddle_x, PADDLE_Y);
 }
 
-static void swipe_cb(lv_dir_t dir, const lv_point_t *p) {
-	(void)dir;
+static void tap_cb(const lv_point_t *p) {
 	if (game_over) return;
-	int target_x = p->x - PADDLE_W / 2;
-	if (target_x < 0) target_x = 0;
-	if (target_x > FIELD_W - PADDLE_W) target_x = FIELD_W - PADDLE_W;
-	paddle_x = target_x;
-	lv_obj_set_pos(paddle_obj, paddle_x, PADDLE_Y);
+	if (!ball_launched) {
+		launch_ball();
+	}
+	move_paddle_to(p->x);
+}
+
+static void drag_cb(const lv_point_t *p) {
+	if (game_over) return;
+	if (!ball_launched) {
+		launch_ball();
+	}
+	move_paddle_to(p->x);
 }
 
 static void tick_cb(void) {
@@ -240,7 +240,7 @@ static void brick_breaker_build(gui_config_t *cfg) {
 		.on_show = show_cb,
 		.on_hide = hide_cb,
 		.on_tap = tap_cb,
-		.on_swipe = swipe_cb,
+		.on_drag = drag_cb,
 		.on_tick = tick_cb,
 		.on_theme = theme_cb,
 	};

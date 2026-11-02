@@ -1275,8 +1275,18 @@ static void log_pcm_chain(snd_pcm_t *pcm) {
 // configuration it opens from, too.
 static int open_bluetooth_at_rate(snd_pcm_t **pcm, const char *device, unsigned rate, int mode) {
 	char text[sizeof(output_pcm) + 128];
-	int len = snprintf(text, sizeof(text), "pcm." BT_CONVERTED_PCM " { type plug slave { pcm \"%s\" rate %u } }",
-					   device, rate);
+	bool use_speex = config_get_bool("bluetooth", "speex_resampler", true) &&
+	                 (access("/usr/lib/alsa-lib/libasound_module_rate_speexrate.so", F_OK) == 0);
+	int len;
+	if (use_speex) {
+		len = snprintf(text, sizeof(text),
+			"pcm." BT_CONVERTED_PCM " { type plug slave { pcm \"%s\" rate %u } rate_converter \"speexrate\" }",
+			device, rate);
+	} else {
+		len = snprintf(text, sizeof(text),
+			"pcm." BT_CONVERTED_PCM " { type plug slave { pcm \"%s\" rate %u } }",
+			device, rate);
+	}
 	if (len < 0 || (size_t)len >= sizeof(text)) {
 		return -EINVAL;
 	}
@@ -1403,11 +1413,17 @@ static snd_pcm_t *open_pcm_device_now(int channels, int sample_rate, int bits_pe
 	// See open_bluetooth_at_rate().
 	unsigned convert_to = 0;
 	if (bluetooth && !config_get_int("bluetooth", "follow_track_rate", 0)) {
-		unsigned sink_rate = bluetooth_sink_rate();
-		if (sink_rate > 0 && sink_rate != (unsigned)sample_rate) {
-			convert_to = sink_rate;
-			fprintf(stderr, "audio: the headphones stay at %u Hz; the %d Hz track is converted to it\n", sink_rate,
-					sample_rate);
+		unsigned target_rate = 0;
+		int forced = bluetooth_forced_rate();
+		if (forced > 0) {
+			target_rate = (unsigned)forced;
+		} else {
+			target_rate = bluetooth_sink_rate();
+		}
+		if (target_rate > 0 && target_rate != (unsigned)sample_rate) {
+			convert_to = target_rate;
+			fprintf(stderr, "audio: the headphones target %u Hz (forced: %d); the %d Hz track is converted to it\n",
+					target_rate, forced, sample_rate);
 		}
 	}
 

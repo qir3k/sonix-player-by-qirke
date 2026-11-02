@@ -513,9 +513,15 @@ static void *audio_main(void *arg) {
 		}
 
 		// The host decides. flags == 1 means one bit per sample, which is DSD;
-		// everything else arrives as 32-bit stereo.
-		int bits = (fmt.flags == 1) ? 1 : 32;
-		bool dsd = (bits == 1);
+		// flags == 16, 24, 32 carries the host's actual bit depth.
+		int host_bits = 32;
+		if (fmt.flags == 1) {
+			host_bits = 1;
+		} else if (fmt.flags == 16 || fmt.flags == 24 || fmt.flags == 32) {
+			host_bits = fmt.flags;
+		}
+		int bits = host_bits;
+		bool dsd = (host_bits == 1);
 
 		if (fmt.rate <= 0) {
 			usleep(IDLE_POLL_US);
@@ -561,7 +567,7 @@ static void *audio_main(void *arg) {
 			pthread_mutex_lock(&lock);
 			state.streaming = true;
 			state.sample_rate = fmt.rate;
-			state.bits = bits;
+			state.bits = host_bits;
 			state.channels = 2;
 			state.dsd = dsd;
 			state.error[0] = '\0';

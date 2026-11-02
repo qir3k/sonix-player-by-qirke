@@ -2429,6 +2429,7 @@ static void sort_icon_paint(panel_t *p) {
 	} else {
 		lv_image_set_src(p->sort_icon, desc ? &icon_sort_za : &icon_sort_az);
 	}
+	settingsrow_scale_corner_icon(p->sort_icon, p->cfg);
 }
 
 // The strip's own tint is a hand-set colour, so it needs telling when the

@@ -370,6 +370,9 @@ static void sweep_path(const char *path, const char *suffix, sweep_t *out) {
 		return;
 	}
 	sweep_dir(path, suffix, out);
+	if (!suffix) {
+		rmdir(path);
+	}
 }
 
 static void sweep_under_root(const char *relative, const char *suffix, sweep_t *out) {

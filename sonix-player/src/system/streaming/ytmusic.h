@@ -78,6 +78,9 @@ typedef enum {
 // survives player reboots.
 void ytmusic_init(void);
 
+// True when an API key or relay is configured.
+bool ytmusic_configured(void);
+
 bool ytmusic_set_session_cookie(const char *cookie, char *error, size_t error_size);
 // One-time import from <card_root>/ytmusic_session.txt. The file contains a
 // single Cookie header value exported by a trusted YouTube Music sign-in

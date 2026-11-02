@@ -20,7 +20,11 @@
 #include "src/gui/shell/menuorder.h"
 #include "src/gui/shell/morepage.h"
 #include "src/gui/settings/homeslot.h"
+#include "src/gui/settings/language.h"
+#include "src/gui/settings/plugins.h"
 #include "src/gui/settings/settings.h"
+#include "src/gui/settings/timeset.h"
+#include "src/gui/shell/confirm.h"
 #include "src/gui/shell/switcher.h"
 #include "src/gui/shell/theme.h"
 #include "src/system/addons/addons.h"
@@ -495,9 +499,46 @@ static void mini_player_timer_cb(lv_timer_t *timer) {
 	}
 }
 
+static lv_timer_t *plugins_notice_timer;
+
+static void open_plugins_action(void *user) {
+	(void)user;
+	if (plugins_screen) {
+		switch_screen(plugins_screen);
+	}
+}
+
+static void plugins_notice_timer_cb(lv_timer_t *timer) {
+	(void)timer;
+	plugins_notice_timer = NULL;
+
+	if (lv_screen_active() != main_menu_screen) {
+		return;
+	}
+	if (language_needed() || timeset_needed() || config_get_bool("setup", "wifi_pending", false)) {
+		return;
+	}
+	if (config_get_bool("system", "plugins_notice_shown", false)) {
+		return;
+	}
+
+	config_set_bool("system", "plugins_notice_shown", true);
+	config_save();
+
+	confirm_show_with_cancel("plugins_first_run_title", "plugins_first_run_hint", "plugins", open_plugins_action,
+							 NULL, "ok", NULL, NULL);
+}
+
 static void main_menu_screen_loaded_cb(lv_event_t *e) {
 	(void)e;
 	main_menu_refresh_now_playing();
+
+	if (!config_get_bool("system", "plugins_notice_shown", false) && !plugins_notice_timer) {
+		plugins_notice_timer = lv_timer_create(plugins_notice_timer_cb, 500, NULL);
+		if (plugins_notice_timer) {
+			lv_timer_set_repeat_count(plugins_notice_timer, 1);
+		}
+	}
 }
 
 static void main_menu_refresh_theme(void) {

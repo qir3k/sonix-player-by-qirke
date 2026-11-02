@@ -141,8 +141,9 @@ jobs:
 
           if head_tags:
               new_tag = head_tags[0]
-              old_tag = new_tag
-              print(f"HEAD is already tagged: {new_tag}")
+              other_tags = [t for t in tag_lines if t not in head_tags]
+              old_tag = other_tags[0] if other_tags else "v1.1.0"
+              print(f"HEAD is already tagged: {new_tag}, comparing against {old_tag}")
           else:
               commit_msg = subprocess.check_output(["git", "log", "-1", "--pretty=%B"], text=True)
 
@@ -493,7 +494,20 @@ jobs:
             range="${NEW_TAG} -n 20"
           fi
           {
-            echo '## What this build changes'
+            echo "## Sonix OS ${NEW_TAG} for TempoTec Variations V1"
+            echo
+            echo "A major release bringing extensive audio upgrades, UI refinements, memory optimizations, and a full minimalist game suite."
+            echo
+            echo "### Highlights & Changes since ${OLD_TAG}:"
+            echo "- **Audio & Bluetooth Upgrades:** Bluetooth sample rate selector (Auto / 44.1 / 48 / 96 kHz), Speex resampler, LDAC Quality profiles, SSC, SBC-XQ, and real-time USB DAC bit depth display."
+            echo "- **Now Playing & Podcast Enhancements:** Real-time bitrate and format display, creator info, aligned vertical layout, and YouTube Music watermark badge."
+            echo "- **Control Center Polish:** Horizontal swipe paging for extra quickpanel tiles (replaces vertical handle) and fixed PEQ profile icon."
+            echo "- **Fresh Install Optimization & First-Run Hint:** Non-essential addons (games, extra tools) default to OFF to keep RAM free (~23MB footprint); friendly onboarding popup guides users to *Settings → Plugins*."
+            echo "- **Cache & Card Cleanliness:** Fully canonicalized cache folders; automatic removal of legacy empty \`qobuz-art\` and \`radio-art\` directories."
+            echo "- **Minimalist Games Suite:** Minimalist Sudoku, Minesweeper (tap to reveal, hold to flag), Brick Breaker (continuous paddle drag), Guess the Song (audio quiz with local library playback), and Stack It."
+            echo "- **Streaming & Navigation:** Streamlined Tidal headers with persistent download/settings icons, corrected podcast episode sort icon scale, and locked unconfigured YouTube Music page."
+            echo
+            echo "### Commit Log (${range})"
             echo
             # shellcheck disable=SC2086
             git log --no-merges --invert-grep --grep='^ci:' --pretty='- %s (`%h`)' $range

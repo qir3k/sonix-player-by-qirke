@@ -1592,7 +1592,11 @@ static int mp3_head_average_kbps(decoder_t *dec, bool *uniform) {
 // average (bytes over seconds), the only honest thing to say about a VBR.
 static int mp3_probe_bitrate(decoder_t *dec) {
 	if (dec->impl.mp3.isVBR) {
-		return 0;
+		int avg = mp3_head_average_kbps(dec, NULL);
+		if (avg > 0) {
+			return avg;
+		}
+		return mp3_first_frame_kbps(dec);
 	}
 	return mp3_first_frame_kbps(dec);
 }

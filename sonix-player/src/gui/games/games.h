@@ -54,6 +54,8 @@ typedef struct {
 	// music arrives late, and a game that assumes its own period drifts.
 	void (*on_tick)(void);
 	void (*on_tap)(const lv_point_t *p);		// a finger went down in the field
+	void (*on_drag)(const lv_point_t *p);		// finger moving while pressed
+	void (*on_long_press)(const lv_point_t *p);	// finger held in the field
 	void (*on_swipe)(lv_dir_t dir, const lv_point_t *p); // a finger crossed the field
 	void (*on_frozen)(bool frozen); // the panel went dark, or came back
 	// The palette moved: recolour what is yours. Called while the page is on
@@ -93,6 +95,7 @@ typedef struct {
 	int header_buttons;
 
 	int panel_w, panel_h;
+	int field_left;
 	int field_top;	  // the field's own y, for a game that covers the page
 	int field_w, field_h; // what is left for the game
 	int u;		  // 2 on the V1, 4 on the HiBy panels

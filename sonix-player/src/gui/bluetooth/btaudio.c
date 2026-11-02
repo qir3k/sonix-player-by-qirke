@@ -11,6 +11,7 @@
 #include "src/gui/shell/gui.h"
 #include "src/gui/shell/icons.h"
 #include "src/gui/shell/keyboard.h"
+#include "src/gui/shell/popover.h"
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/scrolltext.h"
 #include "src/gui/shell/settingsrow.h"
@@ -38,6 +39,8 @@ static lv_obj_t *airpods_row;
 static lv_obj_t *earfun_row;
 static lv_obj_t *codec_row;
 static lv_obj_t *codec_value;
+static lv_obj_t *rate_row;
+static lv_obj_t *rate_value;
 static lv_timer_t *poll_timer;
 
 // The codec list is its own page: how many entries there are depends on what
@@ -45,6 +48,7 @@ static lv_timer_t *poll_timer;
 static lv_obj_t *codec_screen;
 static lv_obj_t *codec_list;
 static bool resume_after_bt_reconnect;
+static void refresh_page(void);
 
 // ---------------------------------------------------------------------------
 // switching the output over
@@ -95,12 +99,13 @@ static void restart_playback_if_running(bool resume_paused) {
 // the link. The stock player lays them out the same way.
 // ---------------------------------------------------------------------------
 
-#define CODEC_ROWS (BT_MAX_CODECS + 3)
+#define CODEC_ROWS (BT_MAX_CODECS + 6)
 
 typedef struct {
-	char label[BT_CODEC_MAX + 8]; // the row's name: "LDAC 990"
+	char label[BT_CODEC_MAX + 16]; // the row's name: "LDAC Quality"
 	char codec[BT_CODEC_MAX];	  // what to ask bluealsa for
 	const char *ldac;			  // the quality that goes with it, NULL for the rest
+	bool sbc_xq;
 } codec_row_t;
 
 static codec_row_t codec_rows[CODEC_ROWS];
@@ -114,6 +119,9 @@ static void codec_chosen_cb(lv_event_t *e) {
 	if (row->ldac) {
 		bluetooth_set_ldac_quality(row->ldac);
 	}
+	if (strcasecmp(row->codec, "SBC") == 0) {
+		bluetooth_set_sbc_xq(row->sbc_xq);
+	}
 	bluetooth_set_codec(row->codec);
 	switch_screen(btaudio_screen);
 }
@@ -124,7 +132,10 @@ static void codec_chosen_cb(lv_event_t *e) {
 // bluealsa offers), it just sorts below the ones that are understood.
 static int codec_order(const char *name) {
 	if (strcasecmp(name, "LDAC") == 0) {
-		return 60;
+		return 70;
+	}
+	if (strcasecmp(name, "samsung-SC") == 0 || strcasecmp(name, "SSC") == 0) {
+		return 50;
 	}
 	if (strcasecmp(name, "aptX-HD") == 0) {
 		return 40;
@@ -134,6 +145,9 @@ static int codec_order(const char *name) {
 	}
 	if (strcasecmp(name, "AAC") == 0) {
 		return 20;
+	}
+	if (strcasecmp(name, "SBC-XQ") == 0) {
+		return 15;
 	}
 	if (strcasecmp(name, "SBC") == 0) {
 		return 10;
@@ -158,27 +172,54 @@ static void build_codec_rows(char mine[][BT_CODEC_MAX], int count) {
 	for (int i = 0; i < count && codec_row_count < CODEC_ROWS; i++) {
 		if (strcasecmp(mine[i], "LDAC") == 0) {
 			static const struct {
-				const char *suffix;
+				const char *label;
 				const char *quality;
-			} LDAC_MODES[] = {{" 990", "high"}, {" 660", "standard"}, {"", "abr"}};
+			} LDAC_MODES[] = {
+				{"LDAC Quality", "high"},
+				{"LDAC Standard", "standard"},
+				{"LDAC Auto", "abr"}
+			};
 			for (size_t m = 0; m < sizeof(LDAC_MODES) / sizeof(LDAC_MODES[0]) && codec_row_count < CODEC_ROWS; m++) {
 				codec_row_t *row = &codec_rows[codec_row_count++];
-				snprintf(row->label, sizeof(row->label), "LDAC%s", LDAC_MODES[m].suffix);
+				snprintf(row->label, sizeof(row->label), "%s", LDAC_MODES[m].label);
 				snprintf(row->codec, sizeof(row->codec), "LDAC");
 				row->ldac = LDAC_MODES[m].quality;
+				row->sbc_xq = false;
+			}
+			continue;
+		}
+		if (strcasecmp(mine[i], "samsung-SC") == 0 || strcasecmp(mine[i], "SSC") == 0) {
+			codec_row_t *row = &codec_rows[codec_row_count++];
+			snprintf(row->label, sizeof(row->label), "SSC");
+			snprintf(row->codec, sizeof(row->codec), "%s", mine[i]);
+			row->ldac = NULL;
+			row->sbc_xq = false;
+			continue;
+		}
+		if (strcasecmp(mine[i], "SBC") == 0) {
+			codec_row_t *row = &codec_rows[codec_row_count++];
+			snprintf(row->label, sizeof(row->label), "SBC-XQ");
+			snprintf(row->codec, sizeof(row->codec), "SBC");
+			row->ldac = NULL;
+			row->sbc_xq = true;
+
+			if (codec_row_count < CODEC_ROWS) {
+				row = &codec_rows[codec_row_count++];
+				snprintf(row->label, sizeof(row->label), "SBC");
+			snprintf(row->codec, sizeof(row->codec), "SBC");
+				row->ldac = NULL;
+				row->sbc_xq = false;
 			}
 			continue;
 		}
 		codec_row_t *row = &codec_rows[codec_row_count++];
-		// By length rather than with %s: the compiler cannot see that each row
-		// of the table is terminated, and warns that a name could run on into
-		// the next one.
 		size_t length = strnlen(mine[i], BT_CODEC_MAX - 1);
 		memcpy(row->label, mine[i], length);
 		row->label[length] = '\0';
 		memcpy(row->codec, mine[i], length);
 		row->codec[length] = '\0';
 		row->ldac = NULL;
+		row->sbc_xq = false;
 	}
 }
 
@@ -216,11 +257,13 @@ static void rebuild_codec_list(void) {
 	// actually on. There is no second state to show -- nothing is remembered,
 	// so nothing can be set and not yet in force.
 	const char *quality = bluetooth_ldac_quality();
+	bool sbc_xq = bluetooth_sbc_xq();
 
 	for (int i = 0; i < codec_row_count; i++) {
 		codec_row_t *row = &codec_rows[i];
 		bool ldac_matches = !row->ldac || strcmp(row->ldac, quality) == 0;
-		bool in_force = selected[0] && strcasecmp(selected, row->codec) == 0 && ldac_matches;
+		bool sbc_matches = (strcasecmp(row->codec, "SBC") != 0) || (row->sbc_xq == sbc_xq);
+		bool in_force = selected[0] && strcasecmp(selected, row->codec) == 0 && ldac_matches && sbc_matches;
 
 		lv_obj_t *value = NULL;
 		settingsrow_add(codec_list, row->label, &value, codec_chosen_cb, row);
@@ -239,6 +282,26 @@ static void codec_screen_loaded_cb(lv_event_t *e) {
 static void codec_row_cb(lv_event_t *e) {
 	(void)e;
 	switch_screen(codec_screen);
+}
+
+static void sample_rate_chosen(void *user) {
+	int rate = (int)(intptr_t)user;
+	bluetooth_set_forced_rate(rate);
+	refresh_page();
+	if (bluetooth_audio_active()) {
+		restart_playback_if_running(false);
+	}
+}
+
+static void rate_row_cb(lv_event_t *e) {
+	(void)e;
+	int current = bluetooth_forced_rate();
+	static popover_item_t items[4];
+	items[0] = (popover_item_t){.label = "Auto", .action = sample_rate_chosen, .user = (void *)(intptr_t)0, .checked = (current == 0), .verbatim = true};
+	items[1] = (popover_item_t){.label = "44.1 kHz", .action = sample_rate_chosen, .user = (void *)(intptr_t)44100, .checked = (current == 44100), .verbatim = true};
+	items[2] = (popover_item_t){.label = "48 kHz", .action = sample_rate_chosen, .user = (void *)(intptr_t)48000, .checked = (current == 48000), .verbatim = true};
+	items[3] = (popover_item_t){.label = "96 kHz", .action = sample_rate_chosen, .user = (void *)(intptr_t)96000, .checked = (current == 96000), .verbatim = true};
+	popover_show(lv_event_get_current_target(e), items, 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -330,11 +393,37 @@ static void refresh_page(void) {
 	char codecs[BT_MAX_CODECS][BT_CODEC_MAX];
 	int count = bluetooth_get_codecs(codecs, BT_MAX_CODECS, selected, sizeof(selected));
 
-	lv_label_set_text(codec_value, connected && selected[0] ? selected : "--");
+		const char *display_codec = selected;
+	if (connected && selected[0]) {
+		if (strcasecmp(selected, "samsung-SC") == 0 || strcasecmp(selected, "SSC") == 0) {
+			display_codec = "SSC";
+		} else if (strcasecmp(selected, "LDAC") == 0) {
+			const char *q = bluetooth_ldac_quality();
+			if (strcmp(q, "high") == 0) display_codec = "LDAC Quality";
+			else if (strcmp(q, "standard") == 0) display_codec = "LDAC Standard";
+			else if (strcmp(q, "abr") == 0) display_codec = "LDAC Auto";
+		} else if (strcasecmp(selected, "SBC") == 0 && bluetooth_sbc_xq()) {
+			display_codec = "SBC-XQ";
+		}
+	}
+	lv_label_set_text(codec_value, connected && selected[0] ? display_codec : "--");
 
 	// Only while something is connected: the list is what the other end offers,
 	// so with nothing on the other end there is nothing behind the row.
 	settingsrow_chevron_active(codec_row, connected && count > 0);
+
+	if (rate_value) {
+		int forced = bluetooth_forced_rate();
+		const char *rate_str = "Auto";
+		if (forced == 44100) {
+			rate_str = "44.1 kHz";
+		} else if (forced == 48000) {
+			rate_str = "48 kHz";
+		} else if (forced == 96000) {
+			rate_str = "96 kHz";
+		}
+		lv_label_set_text(rate_value, rate_str);
+	}
 
 	refresh_airpods_row();
 	refresh_earfun_row();
@@ -613,6 +702,9 @@ void btaudio_init(gui_config_t *cfg) {
 
 	// The codec in use, and the list of what the sink offered.
 	codec_row = settingsrow_add(container, "btaudio_codecs", &codec_value, codec_row_cb, NULL);
+
+	// The sample rate row: Auto or forced (44.1, 48, 96 kHz).
+	rate_row = settingsrow_add(container, "btaudio_sample_rate", &rate_value, rate_row_cb, NULL);
 
 	// One level or two, on by default. On, the keys here move the headphones
 	// over AVRCP absolute volume and their own buttons move the number on the

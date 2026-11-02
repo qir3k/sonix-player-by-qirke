@@ -1055,6 +1055,9 @@ static char store_root[256];
 bool radio_store_open(const char *sd_root) {
 	if (sd_root && *sd_root) {
 		snprintf(store_root, sizeof(store_root), "%s", sd_root);
+		char legacy_dir[512];
+		snprintf(legacy_dir, sizeof(legacy_dir), "%s/.local/radio-art", sd_root);
+		rmdir(legacy_dir);
 	}
 
 	pthread_mutex_lock(&store_lock);
@@ -2311,6 +2314,9 @@ static bool radio_art_find(const char *url, char *out, size_t size) {
 				snprintf(path, sizeof(path), "%s%s", base, EXTS[i]);
 				radio_art_dir_make(path);
 				if (rename(legacy, path) == 0) {
+					char legacy_dir[512];
+					snprintf(legacy_dir, sizeof(legacy_dir), "%s/.local/radio-art", root);
+					rmdir(legacy_dir);
 					snprintf(out, size, "%s", path);
 					return true;
 				}

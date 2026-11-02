@@ -62,6 +62,7 @@
 #include "src/system/streaming/tidalsync.h"
 #include "src/system/streaming/ytmusic.h"
 #include "src/system/streaming/ytlikes.h"
+#include "src/system/decode/growfile.h"
 #include "src/system/core/utils.h"
 #include "src/system/audio/waveform.h"
 #include "src/system/net/wifi.h"
@@ -199,12 +200,12 @@ static int polls_since_stop = POLLS_FAST_AFTER_STOP;
 #define COMPACT_DECK_PAD_BOTTOM 4
 #define COMPACT_DECK_GAP 4
 #define COMPACT_DECK_SLACK 2 // Large text draws a size up; keep the last row on screen
-#define COMPACT_FAV_BTN_H 26
+#define COMPACT_FAV_BTN_H 19
 // The favourite marker's scale out of 256, from its 32 px source: the heart at
 // 26 px on the V1's deck and at its native size on the wide panels, and a step
 // under that in Poster, where the deck is a row of type rather than a picture
 // to stand over -- update_fav_button() owns the choice between them.
-#define FAV_HEART_SCALE 208
+#define FAV_HEART_SCALE 176
 #define FAV_HEART_SCALE_WIDE 256
 #define POSTER_HEART_SCALE 176
 #define POSTER_HEART_SCALE_WIDE 208
@@ -284,6 +285,7 @@ static lv_obj_t *live_badge;	   // live indicator, top right over the artwork
 static lv_obj_t *qobuz_badge;	   // the Qobuz mark, in the same corner
 static lv_obj_t *tidal_badge;	   // and the Tidal one, over it: only one ever shows
 static lv_obj_t *podcast_badge;	   // and the podcast one, third in the same place
+static lv_obj_t *ytmusic_badge;	   // YouTube Music watermark badge, in the same corner
 static bool live_mode;
 static bool live_transport_hidden; // prev/next taken away on a stream
 static bool live_custom_nav;	   // on a station from a list, where they change station
@@ -687,6 +689,9 @@ static void apply_live_mode(bool live) {
 	}
 	if (podcast_badge && live) {
 		lv_obj_set_hidden(podcast_badge, true);
+	}
+	if (ytmusic_badge && live) {
+		lv_obj_set_hidden(ytmusic_badge, true);
 	}
 	if (qobuz_badge && live) {
 		lv_obj_set_hidden(qobuz_badge, true);
@@ -3106,7 +3111,7 @@ static int studio_cover_geometry(int *top_out) {
 // `parent` of NULL leaves them where they are and only re-places them, which
 // is what studio_place() wants on a relayout.
 static void studio_badges_move(lv_obj_t *parent, int y) {
-	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge};
+	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
 	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
 		if (!marks[i]) {
 			continue;
@@ -3241,9 +3246,30 @@ static void align_title_with_star(void) {
 	}
 }
 
+static void align_format_with_artist(void) {
+	if (!format_label || !song_artist_label) {
+		return;
+	}
+	int32_t shift = 0;
+	if (song_text_obj && song_side_obj && lv_obj_get_parent(song_artist_label) == song_text_obj &&
+		lv_obj_get_parent(format_label) == song_side_obj && !lv_obj_is_hidden(format_label) &&
+		!lv_obj_is_hidden(song_artist_label)) {
+		lv_area_t artist, format;
+		lv_obj_get_coords(song_artist_label, &artist);
+		lv_obj_get_coords(format_label, &format);
+		int32_t cur_trans = lv_obj_get_style_translate_y(format_label, 0);
+		int32_t unshifted_format_y = format.y1 - cur_trans;
+		shift = artist.y1 - unshifted_format_y;
+	}
+	if (lv_obj_get_style_translate_y(format_label, 0) != shift) {
+		lv_obj_set_style_translate_y(format_label, shift, 0);
+	}
+}
+
 static void song_info_layout_cb(lv_event_t *e) {
 	(void)e;
 	align_title_with_star();
+	align_format_with_artist();
 }
 
 // Puts the ellipsis and the star back where every other arrangement keeps them,
@@ -3290,7 +3316,7 @@ static void studio_take_back(void) {
 		}
 		// The marks go back to the corner of the artwork they share with every
 		// other arrangement.
-		lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge};
+		lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
 		for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
 			if (marks[i]) {
 				lv_obj_set_parent(marks[i], cover_art_group);
@@ -5124,6 +5150,7 @@ static void player_refresh_theme(void) {
 }
 
 static void update_qobuz_badge(void);
+static bool podcast_current_feed(long long *id_out, podcast_feed_t *feed_out);
 
 // Refreshes the now-playing info (title + artist) from the current
 // device state and resets the per-track length cache. Used both when the user
@@ -5180,7 +5207,33 @@ static void refresh_now_playing(void) {
 	aam_strip_fit(); // the strip shares its row by what the two names now say
 
 	// Whose name goes under the title: see metadata_shown_artist().
-	const char *artist = metadata_shown_artist(&state.metadata);
+	char podcast_artist[256] = "";
+	if (!state.live && podcastcache_is_episode(state.current_file)) {
+		podcast_feed_t feed;
+		if (podcast_current_feed(NULL, &feed)) {
+			if (feed.author[0] && feed.title[0] && strcmp(feed.author, feed.title) != 0) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", feed.author, feed.title);
+			} else if (feed.author[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.author);
+			} else if (feed.title[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.title);
+			}
+		}
+		if (!podcast_artist[0]) {
+			char author[128] = "";
+			char feed_title[128] = "";
+			podcastcache_tag(state.current_file, "feed_author", author, sizeof(author));
+			podcastcache_tag(state.current_file, "artist", feed_title, sizeof(feed_title));
+			if (author[0] && feed_title[0] && strcmp(author, feed_title) != 0) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", author, feed_title);
+			} else if (author[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", author);
+			} else if (feed_title[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed_title);
+			}
+		}
+	}
+	const char *artist = podcast_artist[0] ? podcast_artist : metadata_shown_artist(&state.metadata);
 	scrolltext_set(song_artist_label, artist);
 	lyrics_head_sync();
 	alt_pills_sync();
@@ -5304,6 +5357,7 @@ static void update_qobuz_badge(void) {
 	bool from_qobuz = !live_mode && current_qobuz_track() != 0;
 	bool from_tidal = !live_mode && !from_qobuz && current_tidal_track() != 0;
 	bool from_podcast = !live_mode && !from_qobuz && !from_tidal && current_podcast_episode();
+	bool from_ytmusic = !live_mode && !from_qobuz && !from_tidal && !from_podcast && current_yt_song(NULL, 0);
 
 	if (qobuz_badge) {
 		if (from_qobuz) {
@@ -5327,6 +5381,14 @@ static void update_qobuz_badge(void) {
 			lv_obj_move_foreground(podcast_badge);
 		} else {
 			lv_obj_set_hidden(podcast_badge, true);
+		}
+	}
+	if (ytmusic_badge) {
+		if (from_ytmusic) {
+			lv_obj_set_hidden(ytmusic_badge, false);
+			lv_obj_move_foreground(ytmusic_badge);
+		} else {
+			lv_obj_set_hidden(ytmusic_badge, true);
 		}
 	}
 }
@@ -5572,14 +5634,8 @@ static void update_format_label(const device_state_t *state) {
 		return;
 	}
 
-	// Nothing on a podcast. "16/44.1 MP3" is true and useless: an episode is
-	// not chosen for its audio quality, there is no better version to buy, and
-	// the number takes the line under the title without saying anything worth
-	// knowing.
-	if (podcastcache_is_episode(state->current_file)) {
-		lv_label_set_text(format_label, "");
-		return;
-	}
+	// Podcast episodes show their decoded bitrate and format line
+	// rather than being hidden.
 
 	const char *dot = strrchr(state->current_file, '.');
 	char kind[8] = "";
@@ -5633,7 +5689,7 @@ static void update_format_label(const device_state_t *state) {
 		// finished, for the reason just given.
 		struct stat st;
 		if (kbps <= 0 && !qobuzcache_owns(state->current_file) && !tidalcache_owns(state->current_file) &&
-			!ytmusic_cache_owns(state->current_file) &&
+			!ytmusic_cache_owns(state->current_file) && !growfile_is_growing(state->current_file) &&
 			state->progress_total_secs > 0.5 && stat(state->current_file, &st) == 0 && st.st_size > 0) {
 			kbps = (int)((double)st.st_size * 8.0 / state->progress_total_secs / 1000.0 + 0.5);
 		}
@@ -7677,6 +7733,12 @@ void player_init(gui_config_t *cfg) {
 	lv_image_set_src(podcast_badge, &icon_podcast_badge);
 	lv_obj_align(podcast_badge, LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
 	lv_obj_set_hidden(podcast_badge, true);
+
+	// And the fourth: YouTube Music watermark badge.
+	ytmusic_badge = lv_image_create(cover_art_group);
+	lv_image_set_src(ytmusic_badge, &icon_ytmusic_badge);
+	lv_obj_align(ytmusic_badge, LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
+	lv_obj_set_hidden(ytmusic_badge, true);
 
 	// Shown while there is no artwork for the current track. The mark is drawn
 	// at 128x128 natively, which overflows a V1 sleeve, so it is scaled to a
