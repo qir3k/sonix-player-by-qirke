@@ -60,6 +60,7 @@
 #include "src/gui/games/game2048.h"
 #include "src/gui/games/snake.h"
 #include "src/gui/games/gamespage.h"
+#include "src/gui/pocket_arcade/pocket_arcade.h"
 #include "src/gui/shell/morepage.h"
 #include "src/gui/shell/popover.h"
 #include "src/gui/nowplaying/trackmenu.h"
@@ -634,6 +635,12 @@ static void power_off_async_cb(void *unused) {
 void gui_notify_power_off(void) { gui_post(power_off_async_cb, NULL); }
 
 
+static lv_obj_tree_walk_res_t disable_focus_scroll_cb(lv_obj_t *obj, void *unused) {
+	(void)unused;
+	lv_obj_set_scroll_on_focus(obj, false);
+	return LV_OBJ_TREE_WALK_NEXT;
+}
+
 void gui_init(gui_config_t *cfg) {
 	// The card's fonts, before any page is built: a UI font stored as
 	// "card:<file>" is only resolvable once the storage has found the card,
@@ -804,6 +811,7 @@ void gui_init(gui_config_t *cfg) {
 	if (addons_enabled("dino")) {
 		dino_init(cfg);
 	}
+	pocket_arcade_init(cfg);
 	gamespage_init(cfg);
 	morepage_init(cfg);
 	textview_init(cfg); // before filespage: a text file tapped there opens here
@@ -1004,6 +1012,13 @@ void gui_init(gui_config_t *cfg) {
 		config_set_bool("setup", "wifi_pending", false);
 		config_save();
 	}
+
+	// A button defaults to scroll_on_focus: pressing a partly visible row sends
+	// it LV_EVENT_FOCUSED, and that animates the row into view before the drag
+	// has begun. On a touch-only list that is the jump felt at the start of a
+	// vertical scroll. Turn it off once, for every object that already exists;
+	// it does not change keyboard focus, only the automatic scroll.
+	lv_obj_tree_walk(NULL, disable_focus_scroll_cb, NULL);
 
 	switch_screen(main_menu_screen);
 	if (start_first_wifi_setup) {

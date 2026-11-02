@@ -65,6 +65,18 @@ static const addon_t ADDONS[] = {
 	{"game2048", "2048", "addon_2048_note", "plugins_section_games"},
 	{"snake", "snake", "addon_snake_note", "plugins_section_games"},
 	{"dino", "dino", "addon_dino_note", "plugins_section_games"},
+	{"pocket_arcade", "arcade", "addon_arcade_note", "plugins_section_games"},
+	{"arcade_mines", "arcade_mines", "addon_arcade_mines_note", "plugins_section_games"},
+	{"arcade_bricks", "arcade_bricks", "addon_arcade_bricks_note", "plugins_section_games"},
+	{"arcade_racer", "arcade_racer", "addon_arcade_racer_note", "plugins_section_games"},
+	{"arcade_stack", "arcade_stack", "addon_arcade_stack_note", "plugins_section_games"},
+	{"arcade_boxes", "arcade_boxes", "addon_arcade_boxes_note", "plugins_section_games"},
+	{"arcade_golf", "arcade_golf", "addon_arcade_golf_note", "plugins_section_games"},
+	{"arcade_orbit", "arcade_orbit", "addon_arcade_orbit_note", "plugins_section_games"},
+	{"arcade_melody", "arcade_melody", "addon_arcade_melody_note", "plugins_section_games"},
+	{"arcade_quiz", "arcade_quiz", "addon_arcade_quiz_note", "plugins_section_games"},
+	{"arcade_beat", "arcade_beat", "addon_arcade_beat_note", "plugins_section_games"},
+	{"arcade_dungeon", "arcade_dungeon", "addon_arcade_dungeon_note", "plugins_section_games"},
 };
 
 int addons_count(void) { return (int)(sizeof(ADDONS) / sizeof(ADDONS[0])); }
@@ -91,6 +103,10 @@ const addon_t *addons_find(const char *id) {
 bool addons_enabled(const char *id) {
 	if (!id) {
 		return true;
+	}
+	// Pocket arcade games default to OFF so they do not bloat the device
+	if (strncmp(id, "arcade_", 7) == 0 || strcmp(id, "pocket_arcade") == 0) {
+		return config_get_bool("addons", id, false);
 	}
 	// Everything starts on: an update that adds a module must not take the
 	// interface somebody had away, and the player that was shipped before this
@@ -123,5 +139,17 @@ bool addons_any_game_enabled(void) {
 	return addons_enabled("flappy") ||
 	       addons_enabled("game2048") ||
 	       addons_enabled("snake") ||
-	       addons_enabled("dino");
+	       addons_enabled("dino") ||
+	       addons_enabled("pocket_arcade") ||
+	       addons_enabled("arcade_mines") ||
+	       addons_enabled("arcade_bricks") ||
+	       addons_enabled("arcade_racer") ||
+	       addons_enabled("arcade_stack") ||
+	       addons_enabled("arcade_boxes") ||
+	       addons_enabled("arcade_golf") ||
+	       addons_enabled("arcade_orbit") ||
+	       addons_enabled("arcade_melody") ||
+	       addons_enabled("arcade_quiz") ||
+	       addons_enabled("arcade_beat") ||
+	       addons_enabled("arcade_dungeon");
 }

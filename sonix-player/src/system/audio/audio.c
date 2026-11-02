@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "visualizer.h"
 #include "src/system/audio/alsa-controls.h"
+#include "src/system/audio/arcade_music.h"
 #include "src/system/bluetooth/bluetooth.h"
 #include "src/system/decode/decode.h"
 #include "src/system/decode/growfile.h"
@@ -2942,7 +2943,7 @@ static void play_wav_file(const char *filepath) {
 		health_lap(&health, STAGE_EFFECTS);
 		snd_pcm_sframes_t written = pcm_write_recover(&pcm_handle, buffer, frames_to_write, info.channels,
 													  info.sample_rate, info.out_bits, &period_size);
-		if (written > 0) visualizer_feed(buffer, (int)written, info.channels, info.out_bits, info.sample_rate);
+		if (written > 0) { visualizer_feed(buffer, (int)written, info.channels, info.out_bits, info.sample_rate); arcade_music_feed_pcm(buffer, (int)written, info.channels, info.out_bits); }
 		health_lap(&health, STAGE_WRITE);
 
 		if (written == -EINTR) {
@@ -3776,7 +3777,7 @@ static void play_decoded_file(const char *filepath, decode_format_t format) {
 		snd_pcm_sframes_t written =
 			pcm_write_recover(&pcm_handle, buffer, frames_read, channels, out_rate, out_bits, &period_size);
 		// DoP contains DSD marker bytes, not PCM samples.
-		if (written > 0 && !passthrough) visualizer_feed(buffer, (int)written, channels, out_bits, out_rate);
+		if (written > 0 && !passthrough) { visualizer_feed(buffer, (int)written, channels, out_bits, out_rate); arcade_music_feed_pcm(buffer, (int)written, channels, out_bits); }
 		health_lap(&health, STAGE_WRITE);
 
 		if (written == -EINTR) {

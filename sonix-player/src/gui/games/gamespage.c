@@ -9,6 +9,7 @@
 #include "src/gui/games/dino.h"
 #include "src/gui/games/game2048.h"
 #include "src/gui/games/snake.h"
+#include "src/gui/pocket_arcade/pocket_arcade.h"
 #if GB_CORE
 #include "src/gui/gearboy/gearboypage.h"
 #endif
@@ -51,6 +52,9 @@ static bool games_tokyo_icon(const char *label, const lv_image_dsc_t **icon, the
 	} else if (strcmp(label, "dino") == 0) {
 		*icon = &icon_game_dino;
 		*tone = THEME_SEMANTIC_AMBER;
+	} else if (strncmp(label, "arcade", 6) == 0) {
+		*icon = &icon_menu_arcade;
+		*tone = THEME_SEMANTIC_PURPLE;
 	} else {
 		return false;
 	}
@@ -76,9 +80,21 @@ static const grid_entry_t ALL_GAMES[] = {
 	{"2048", &icon_game_2048, NULL, game2048_open},
 	{"snake", &icon_game_snake, NULL, snake_open},
 	{"dino", &icon_game_dino, NULL, dino_open},
+	{"arcade", &icon_menu_arcade, NULL, pocket_arcade_open},
+	{"arcade_mines", &icon_menu_arcade, NULL, arcade_mines_open},
+	{"arcade_bricks", &icon_menu_arcade, NULL, arcade_bricks_open},
+	{"arcade_racer", &icon_menu_arcade, NULL, arcade_racer_open},
+	{"arcade_stack", &icon_menu_arcade, NULL, arcade_stack_open},
+	{"arcade_boxes", &icon_menu_arcade, NULL, arcade_boxes_open},
+	{"arcade_golf", &icon_menu_arcade, NULL, arcade_golf_open},
+	{"arcade_orbit", &icon_menu_arcade, NULL, arcade_orbit_open},
+	{"arcade_melody", &icon_menu_arcade, NULL, arcade_melody_open},
+	{"arcade_quiz", &icon_menu_arcade, NULL, arcade_quiz_open},
+	{"arcade_beat", &icon_menu_arcade, NULL, arcade_beat_open},
+	{"arcade_dungeon", &icon_menu_arcade, NULL, arcade_dungeon_open},
 };
 
-#define GAMES_MAX 8
+#define GAMES_MAX 24
 
 static int games_entries_build(grid_entry_t *out, int max) {
 	int count = 0;
@@ -95,6 +111,10 @@ static int games_entries_build(grid_entry_t *out, int max) {
 			enabled = addons_enabled("snake");
 		} else if (strcmp(label, "dino") == 0) {
 			enabled = addons_enabled("dino");
+		} else if (strcmp(label, "arcade") == 0) {
+			enabled = addons_enabled("pocket_arcade");
+		} else if (strncmp(label, "arcade_", 7) == 0) {
+			enabled = addons_enabled(label);
 		}
 		if (enabled) {
 			out[count++] = ALL_GAMES[i];

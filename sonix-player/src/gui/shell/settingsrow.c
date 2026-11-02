@@ -15,6 +15,7 @@
 #include "src/gui/board_profile.h"
 #include "src/gui/fonts/fonts.h"
 #include "src/gui/shell/icons.h"
+#include "src/gui/shell/iconscale.h"
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/switcher.h"
 #include "src/gui/shell/theme.h"
@@ -63,7 +64,18 @@ void settingsrow_scale_corner_icon(lv_obj_t *icon, gui_config_t *cfg) {
 		return;
 	}
 	// 192/256: the ~34 px sources become about 25 px, the size the Music
-	// page's gear settled on for the 240 px panel.
+	// page's gear settled on for the 240 px panel. Pre-scaled from the source
+	// the widget already holds, so a corner button redrawn with the page does
+	// not go through the transform path every time.
+	const void *src = lv_image_get_src(icon);
+	if (src && lv_image_src_get_type(src) == LV_IMAGE_SRC_VARIABLE) {
+		const lv_image_dsc_t *dsc = src;
+		int side = (int)dsc->header.w > (int)dsc->header.h ? (int)dsc->header.w : (int)dsc->header.h;
+		if (side > 0) {
+			iconscale_set(icon, dsc, (side * 192 + 128) / 256);
+			return;
+		}
+	}
 	lv_image_set_scale(icon, 192);
 }
 
@@ -1182,7 +1194,6 @@ void settingsrow_add_icon(lv_obj_t *row, const lv_image_dsc_t *source, theme_sem
 	}
 
 	lv_obj_t *icon = lv_image_create(row);
-	lv_image_set_src(icon, source);
 	lv_obj_add_style(icon, &theme_style_icon, 0);
 	lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
 	lv_obj_set_clickable(icon, false);

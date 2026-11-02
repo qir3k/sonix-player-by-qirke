@@ -27,6 +27,7 @@
 
 #include "src/gui/nowplaying/cover.h"
 #include "src/system/audio/waveform.h"
+#include "src/system/device/touchcal.h"
 #include "src/gui/board_profile.h"
 #include "src/gui/fonts/fonts.h"
 #include "src/gui/shell/gui.h"
@@ -1082,12 +1083,37 @@ static void install_signal_guards(void) {
 #define SCROLL_THROW_DECAY_PCT 10
 #define SCROLL_START_LIMIT_PX 8
 
+#define POINTER_ACTIVE_READ_PERIOD_MS 8
+#define POINTER_IDLE_READ_PERIOD_MS 16
+
+static void pointer_pace_cb(lv_event_t *e) {
+	lv_indev_t *indev = lv_indev_active();
+	if (!indev || lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) {
+		return;
+	}
+	lv_timer_t *read_timer = lv_indev_get_read_timer(indev);
+	if (!read_timer) {
+		return;
+	}
+	lv_event_code_t code = lv_event_get_code(e);
+	if (code == LV_EVENT_PRESSED) {
+		lv_timer_set_period(read_timer, POINTER_ACTIVE_READ_PERIOD_MS);
+	} else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+		lv_timer_set_period(read_timer, POINTER_IDLE_READ_PERIOD_MS);
+	}
+}
+
 static void tune_pointer(lv_indev_t *indev) {
 	if (!indev) {
 		return;
 	}
 	lv_indev_set_scroll_throw(indev, SCROLL_THROW_DECAY_PCT);
 	lv_indev_set_scroll_limit(indev, SCROLL_START_LIMIT_PX);
+	lv_timer_t *read_timer = lv_indev_get_read_timer(indev);
+	if (read_timer) {
+		lv_timer_set_period(read_timer, POINTER_IDLE_READ_PERIOD_MS);
+	}
+	lv_indev_add_event_cb(indev, pointer_pace_cb, LV_EVENT_ALL, NULL);
 }
 
 // The panel of the player this binary was first written for, and what an
@@ -1458,6 +1484,45 @@ static void blit_rotated_180(uint16_t *dst, const uint16_t *src, const lv_area_t
 	}
 }
 
+#define DISPLAY_FRAME_US 16667u
+
+static uint64_t now_us(void) {
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000u + (uint64_t)ts.tv_nsec / 1000u;
+}
+
+static void display_pace_refresh(lv_display_t *disp, bool advance) {
+	static uint64_t next_due_us;
+
+	lv_timer_t *timer = lv_display_get_refr_timer(disp);
+	if (!timer) {
+		return;
+	}
+	if (!advance) {
+		next_due_us = 0;
+		lv_timer_set_period(timer, DISPLAY_FRAME_US / 1000u);
+		return;
+	}
+
+	uint64_t now = now_us();
+	if (next_due_us == 0 || now >= next_due_us + DISPLAY_FRAME_US) {
+		next_due_us = now + DISPLAY_FRAME_US;
+	} else {
+		next_due_us += DISPLAY_FRAME_US;
+	}
+
+	uint32_t tick_now = lv_tick_get();
+	uint32_t ahead_ms = next_due_us > now ? (uint32_t)((next_due_us - now + 999u) / 1000u) : 0;
+	int32_t period = (int32_t)(tick_now + ahead_ms - timer->last_run);
+	if (period < 1) {
+		period = 1;
+	} else if (period > 2 * (int32_t)(DISPLAY_FRAME_US / 1000u)) {
+		period = 2 * (int32_t)(DISPLAY_FRAME_US / 1000u);
+	}
+	lv_timer_set_period(timer, (uint32_t)period);
+}
+
 static void fb_pan_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
 	bool second_page;
 
@@ -1499,6 +1564,7 @@ static void fb_pan_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *
 				warned = true;
 			}
 		}
+		display_pace_refresh(disp, true);
 	}
 	lv_display_flush_ready(disp);
 }
@@ -1577,6 +1643,7 @@ static lv_display_t *try_panned_display(void) {
 	fb_display = disp;
 
 	printf("fb: double-buffered, page flip on FBIOPAN_DISPLAY (%ux%u)\n", fb_var.xres, fb_var.yres);
+	display_pace_refresh(disp, false);
 	return disp;
 }
 
@@ -1940,6 +2007,178 @@ static int open_touch_device(const char *node) {
 	return fd;
 }
 
+// ---------------------------------------------------------------------------
+// Touch panel seam compensation and adaptive low-pass filter
+// ---------------------------------------------------------------------------
+#define TOUCH_FILTER_Q 8
+#define TOUCH_FILTER_SLOW 160 // 0.625 of remaining distance per report
+#define TOUCH_FILTER_FAST 232 // 0.906 for deliberate movement
+#define TOUCH_FILTER_FAST_PX 8
+#define TOUCH_FILTER_SNAP_PX 64
+#define TOUCH_FILTER_ROUND 64
+
+typedef struct {
+	int32_t x_q8;
+	int32_t y_q8;
+	bool pressed;
+} touch_filter_t;
+
+static touch_filter_t touch_filter;
+static lv_indev_read_cb_t touch_raw_read_cb;
+
+#define TOUCH_SEAM_RELAX 2
+
+typedef struct {
+	int32_t prev_raw;
+	int32_t prev_out;
+	int32_t offset;
+	int32_t lo;
+	int32_t hi;
+	int32_t tap_lo;
+	int32_t tap_hi;
+	int32_t tap_offset;
+	int32_t min_step;
+	int32_t fold;
+	int32_t tap_snap;
+} touch_seam_t;
+
+static touch_seam_t touch_seam_y;
+
+static void touch_seam_relax(touch_seam_t *s) {
+	if (s->offset > 0) {
+		s->offset = s->offset > TOUCH_SEAM_RELAX ? s->offset - TOUCH_SEAM_RELAX : 0;
+	} else if (s->offset < 0) {
+		s->offset = s->offset < -TOUCH_SEAM_RELAX ? s->offset + TOUCH_SEAM_RELAX : 0;
+	}
+}
+
+static void touch_seam_reset(touch_seam_t *s, int32_t y) {
+	memset(s, 0, sizeof(*s));
+	s->prev_raw = y;
+	s->prev_out = y;
+	int32_t last = 319;
+	lv_display_t *disp = lv_display_get_default();
+	if (disp) {
+		last = (int32_t)lv_display_get_vertical_resolution(disp) - 1;
+	}
+	int32_t band_lo = touchcal_band_lo();
+	int32_t band_hi = touchcal_band_hi();
+	int32_t plateau_lo = touchcal_low();
+	int32_t plateau_hi = touchcal_high();
+	s->min_step = touchcal_min_step();
+	s->fold = touchcal_gap();
+	s->tap_snap = touchcal_tap_snap();
+	if (display_get_rotated()) {
+		s->lo = last - band_hi;
+		s->hi = last - band_lo;
+		s->tap_lo = last - plateau_hi;
+		s->tap_hi = last - plateau_lo;
+	} else {
+		s->lo = band_lo;
+		s->hi = band_hi;
+		s->tap_lo = plateau_lo;
+		s->tap_hi = plateau_hi;
+	}
+}
+
+static int32_t touch_seam_tap_offset(const touch_seam_t *s, int32_t y) {
+	int32_t d = y - s->tap_lo;
+	if (d >= -s->tap_snap && d <= s->tap_snap) {
+		return (s->tap_lo + s->tap_hi) / 2 - y;
+	}
+	d = y - s->tap_hi;
+	if (d >= -s->tap_snap && d <= s->tap_snap) {
+		return (s->tap_lo + s->tap_hi) / 2 - y;
+	}
+	return 0;
+}
+
+static int32_t touch_seam_axis(touch_seam_t *s, int32_t raw) {
+	int32_t delta = raw - s->prev_raw;
+	int32_t adelta = delta < 0 ? -delta : delta;
+	bool crossed = adelta >= s->min_step &&
+				   ((s->prev_raw < s->lo && raw > s->hi) ||
+					(s->prev_raw > s->hi && raw < s->lo));
+	if (crossed) {
+		int32_t fold = delta;
+		if (fold > s->fold) {
+			fold = s->fold;
+		} else if (fold < -s->fold) {
+			fold = -s->fold;
+		}
+		s->offset -= fold;
+		if (s->offset > s->fold) {
+		s->offset = s->fold;
+		} else if (s->offset < -s->fold) {
+			s->offset = -s->fold;
+		}
+	}
+	s->prev_raw = raw;
+	s->prev_out = raw + s->offset + s->tap_offset;
+	touch_seam_relax(s);
+	return s->prev_out;
+}
+
+static int32_t touch_filter_axis(int32_t raw, int32_t *q8) {
+	int32_t want = raw << TOUCH_FILTER_Q;
+	int32_t diff = want - *q8;
+	int32_t distance = diff < 0 ? -diff : diff;
+	int32_t distance_px = distance >> TOUCH_FILTER_Q;
+	if (distance_px >= TOUCH_FILTER_SNAP_PX) {
+		*q8 = want;
+	} else {
+		int32_t alpha = distance_px >= TOUCH_FILTER_FAST_PX ? TOUCH_FILTER_FAST : TOUCH_FILTER_SLOW;
+		*q8 += (diff * alpha) >> TOUCH_FILTER_Q;
+	}
+	return (*q8 + TOUCH_FILTER_ROUND) >> TOUCH_FILTER_Q;
+}
+
+static void touch_filter_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+	touch_raw_read_cb(indev, data);
+	if (touchcal_active()) {
+		int32_t last = 319;
+		lv_display_t *disp = lv_display_get_default();
+		if (disp) {
+			last = (int32_t)lv_display_get_vertical_resolution(disp) - 1;
+		}
+		int32_t y = display_get_rotated() ? last - data->point.y : data->point.y;
+		touchcal_feed(y, data->state == LV_INDEV_STATE_PRESSED);
+	}
+	if (data->state == LV_INDEV_STATE_PRESSED) {
+		if (!touch_filter.pressed) {
+			int32_t raw_press_y = data->point.y;
+			touch_seam_reset(&touch_seam_y, raw_press_y);
+			touch_seam_y.tap_offset = touch_seam_tap_offset(&touch_seam_y, raw_press_y);
+			data->point.y = raw_press_y + touch_seam_y.tap_offset;
+			touch_seam_y.prev_out = data->point.y;
+			touch_filter.pressed = true;
+			touch_filter.x_q8 = data->point.x << TOUCH_FILTER_Q;
+			touch_filter.y_q8 = data->point.y << TOUCH_FILTER_Q;
+		} else {
+			int32_t raw_x = data->point.x;
+			int32_t raw_y = data->point.y;
+			int32_t seam_y = touch_seam_axis(&touch_seam_y, raw_y);
+			data->point.x = touch_filter_axis(raw_x, &touch_filter.x_q8);
+			data->point.y = touch_filter_axis(seam_y, &touch_filter.y_q8);
+		}
+	} else if (touch_filter.pressed) {
+		data->point.x = (touch_filter.x_q8 + TOUCH_FILTER_ROUND) >> TOUCH_FILTER_Q;
+		data->point.y = (touch_filter.y_q8 + TOUCH_FILTER_ROUND) >> TOUCH_FILTER_Q;
+		touch_filter.pressed = false;
+	}
+}
+
+static void touch_filter_install(lv_indev_t *indev) {
+	if (!indev || touch_raw_read_cb) {
+		return;
+	}
+	lv_indev_read_cb_t raw = lv_indev_get_read_cb(indev);
+	if (raw) {
+		touch_raw_read_cb = raw;
+		lv_indev_set_read_cb(indev, touch_filter_read_cb);
+	}
+}
+
 static lv_display_t *init_target_display(void) {
 	// Tear-free page flipping when the framebuffer supports it...
 	lv_display_t *disp = try_panned_display();
@@ -2011,6 +2250,7 @@ static lv_display_t *init_target_display(void) {
 	if (touch) {
 		lv_indev_set_display(touch, disp);
 		tune_pointer(touch);
+		touch_filter_install(touch);
 		fb_touch = touch;
 		panel_touch_flush();
 		printf("Touch screen input driver successfully registered (%s, fd %d).\n", fb_touch_node, fb_touch_fd);

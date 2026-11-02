@@ -21,6 +21,8 @@ CC = gcc
 CXX = g++
 CROSS_CC ?= $(ROCKBOX_TOOLCHAIN_DIR)/bin/mipsel-rockbox-linux-gnu-gcc
 CROSS_CXX ?= $(ROCKBOX_TOOLCHAIN_DIR)/bin/mipsel-rockbox-linux-gnu-g++
+# ccache launcher for the cross-compiler, see CROSS_CC_LAUNCH=ccache in CI.
+CROSS_CC_LAUNCH ?=
 
 # The interface uses the per-flag object API (lv_obj_set_hidden() and the
 # rest) and lv_text_ap_strlen(), neither of which exists before 9.6. It also
@@ -236,10 +238,23 @@ TARGET_LD = $(CROSS_CXX)
 # Object files
 HOST_OBJS = $(APP_SRCS:src/%.c=build_host/%.o) $(APP_CXX_SRCS:src/%.cpp=build_host/%.opp) \
 			$(LVGL_SRCS:$(LVGL_DIR)/%.c=build_host/lvgl/%.o)
-TARGET_OBJS = $(APP_SRCS:src/%.c=build_target/%.o) $(APP_CXX_SRCS:src/%.cpp=build_target/%.opp) \
-			  $(LVGL_SRCS:$(LVGL_DIR)/%.c=build_target/lvgl/%.o)
+APP_TARGET_OBJS = $(APP_SRCS:src/%.c=build_target/%.o) $(APP_CXX_SRCS:src/%.cpp=build_target/%.opp)
+LVGL_TARGET_OBJS = $(LVGL_SRCS:$(LVGL_DIR)/%.c=build_target/lvgl/%.o)
+TARGET_OBJS = $(APP_TARGET_OBJS)
 
-.PHONY: all host target clean compile_commands.json
+# LVGL as one archive. 483 of the target translation units are LVGL, and every
+# one of them is a function of pinned inputs: the LVGL tag, the flags, lv_conf.h,
+# the compat header that is force-included into every unit, and FreeType (LVGL's
+# font integration includes <ft2build.h>). Packing them into a single archive
+# lets CI cache one file instead of 483 objects, and lets make skip the whole
+# subtree on a hit.
+SHA256 ?= $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo 'shasum -a 256')
+LVGL_COMMIT := $(shell git -C $(LVGL_DIR) rev-parse HEAD 2>/dev/null)
+LVGL_KEY := $(shell { printf '%s\n' '$(LVGL_VER)' '$(LVGL_COMMIT)' '$(FREETYPE_VER)' '$(TARGET_CFLAGS)'; cat lv_conf.h src/system/core/glibc_compat.h 2>/dev/null; } | $(SHA256) | cut -c1-16)
+TARGET_LVGL_LIB = build_target/liblvgl-$(LVGL_KEY).a
+CROSS_AR ?= $(ROCKBOX_TOOLCHAIN_DIR)/bin/mipsel-rockbox-linux-gnu-ar
+
+.PHONY: all host target clean compile_commands.json lvgl-objects
 
 all: host compile_commands.json
 
@@ -285,8 +300,8 @@ build_host/lvgl/%.o: $(LVGL_DIR)/%.c
 
 target: $(TARGET_BIN) $(LAUNCH_BIN) compile_commands.json
 
-$(TARGET_BIN): $(TARGET_OBJS)
-	$(TARGET_LD) -o $@ $(TARGET_OBJS) $(TARGET_LDFLAGS)
+$(TARGET_BIN): $(TARGET_OBJS) $(TARGET_LVGL_LIB)
+	$(TARGET_LD) -o $@ $(TARGET_OBJS) $(TARGET_LVGL_LIB) $(TARGET_LDFLAGS)
 	@$(MAKE) --no-print-directory check-abi
 	@$(MAKE) --no-print-directory strip-target
 	@echo "Target build complete: File ready at '$(TARGET_BIN)'"
@@ -390,15 +405,33 @@ FORCE:
 
 build_target/%.o: src/%.c $(TARGET_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
-	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
+	$(CROSS_CC_LAUNCH) $(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
 
 build_target/%.opp: src/%.cpp $(TARGET_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
-	$(CROSS_CXX) $(TARGET_CXXFLAGS) -c $< -o $@
+	$(CROSS_CC_LAUNCH) $(CROSS_CXX) $(TARGET_CXXFLAGS) -c $< -o $@
 
 build_target/lvgl/%.o: $(LVGL_DIR)/%.c $(TARGET_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
-	$(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
+	$(CROSS_CC_LAUNCH) $(CROSS_CC) $(TARGET_CFLAGS) -c $< -o $@
+
+# The sub-make exists so the archive can be considered current without the
+# objects being reachable from its prerequisites: on a cache hit the restored
+# archive is newer than the compiler, the recipe does not run, and none of the
+# 483 compiles is even asked for.
+lvgl-objects: $(LVGL_TARGET_OBJS)
+
+# The libraries are prerequisites, not object prerequisites: LVGL's font code
+# includes <ft2build.h>, so a rebuilt FreeType has to rebuild the archive. In
+# CI both come from caches, where the archive was written after the libraries
+# and therefore stays the newer of the two.
+$(TARGET_LVGL_LIB): $(CROSS_CC) $(FREETYPE_PREFIX)/lib/libfreetype.a $(AUDIO_LIBS)
+	@mkdir -p $(dir $@)
+	@$(MAKE) --no-print-directory lvgl-objects
+	@rm -f $@.tmp
+	$(CROSS_AR) rcs $@.tmp $(LVGL_TARGET_OBJS)
+	@mv -f $@.tmp $@
+	@echo "lvgl: $(notdir $@) ($$(du -h $@ | cut -f1))"
 
 # For the Zed/clangd LSP: autofill and hover popups.
 compile_commands.json:
@@ -414,7 +447,7 @@ libs-clean:
 
 # Make sure the cross compiler is built before trying to make any of the target
 # objects with it.
-$(TARGET_OBJS): $(CROSS_CC) $(FREETYPE_PREFIX)/lib/libfreetype.a $(AUDIO_LIBS)
+$(TARGET_OBJS) $(LVGL_TARGET_OBJS): $(CROSS_CC) $(FREETYPE_PREFIX)/lib/libfreetype.a $(AUDIO_LIBS)
 $(TARGET_BIN): $(FREETYPE_PREFIX)/lib/libfreetype.a $(AUDIO_LIBS)
 
 $(CROSS_CC):
@@ -525,3 +558,4 @@ $(WAVPACK_LIB): $(CROSS_CC)
 # substituted -- otherwise make reads an object file as a makefile.
 -include $(patsubst %.opp,%.d,$(patsubst %.o,%.d,$(HOST_OBJS)))
 -include $(patsubst %.opp,%.d,$(patsubst %.o,%.d,$(TARGET_OBJS)))
+-include $(patsubst %.o,%.d,$(LVGL_TARGET_OBJS))
