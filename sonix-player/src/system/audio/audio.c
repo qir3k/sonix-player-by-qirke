@@ -1275,8 +1275,18 @@ static void log_pcm_chain(snd_pcm_t *pcm) {
 // configuration it opens from, too.
 static int open_bluetooth_at_rate(snd_pcm_t **pcm, const char *device, unsigned rate, int mode) {
 	char text[sizeof(output_pcm) + 128];
-	int len = snprintf(text, sizeof(text), "pcm." BT_CONVERTED_PCM " { type plug slave { pcm \"%s\" rate %u } }",
-					   device, rate);
+	bool use_speex = config_get_bool("bluetooth", "speex_resampler", true) &&
+	                 (access("/usr/lib/alsa-lib/libasound_module_rate_speexrate.so", F_OK) == 0);
+	int len;
+	if (use_speex) {
+		len = snprintf(text, sizeof(text),
+			"pcm." BT_CONVERTED_PCM " { type plug slave { pcm \"%s\" rate %u } rate_converter \"speexrate\" }",
+			device, rate);
+	} else {
+		len = snprintf(text, sizeof(text),
+			"pcm." BT_CONVERTED_PCM " { type plug slave { pcm \"%s\" rate %u } }",
+			device, rate);
+	}
 	if (len < 0 || (size_t)len >= sizeof(text)) {
 		return -EINVAL;
 	}
