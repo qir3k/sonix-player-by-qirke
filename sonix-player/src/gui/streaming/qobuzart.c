@@ -175,6 +175,12 @@ void qobuzart_set_root(const char *sd_root) {
 		snprintf(sd_root_dir, sizeof(sd_root_dir), "%s", sd_root);
 	}
 	pthread_mutex_unlock(&lock);
+
+	if (sd_root && sd_root[0]) {
+		char legacy[512];
+		snprintf(legacy, sizeof(legacy), "%s/.local/qobuz-art", sd_root);
+		rmdir(legacy);
+	}
 }
 
 // The cache file is named after the MD5 of the URL inside the designated service cache folder.
@@ -242,6 +248,9 @@ static bool fetch(const char *folder, const char *url, const char *path) {
 		if (stat(legacy, &st) == 0 && st.st_size > 0) {
 			ensure_dir(path);
 			if (rename(legacy, path) == 0) {
+				char legacy_dir[512];
+				snprintf(legacy_dir, sizeof(legacy_dir), "%s/.local/qobuz-art", root);
+				rmdir(legacy_dir);
 				return true;
 			}
 		}

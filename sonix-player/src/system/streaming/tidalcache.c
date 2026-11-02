@@ -523,6 +523,7 @@ static void clear_art_files(void) {
 		}
 	}
 	closedir(d);
+	rmdir(art);
 	printf("tidalcache: covers cleared (%d files)\n", removed);
 }
 

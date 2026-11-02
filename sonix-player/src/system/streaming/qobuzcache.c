@@ -451,6 +451,7 @@ static void clear_art_files(void) {
 		}
 	}
 	closedir(d);
+	rmdir(art);
 	printf("qobuzcache: covers cleared (%d files)\n", removed);
 }
 
