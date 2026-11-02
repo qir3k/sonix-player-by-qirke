@@ -461,6 +461,8 @@ static bool bt_codec_color(const char *codec, lv_color_t *out) {
 	bool dark = theme_is_dark();
 	if (strncmp(key, "ldac", 4) == 0) {
 		*out = dark ? lv_color_make(0x62, 0xA0, 0xEA) : lv_color_make(0x1A, 0x5F, 0xB4);
+	} else if (strncmp(key, "samsungsc", 9) == 0 || strncmp(key, "ssc", 3) == 0) {
+		*out = dark ? lv_color_make(0x35, 0x84, 0xE4) : lv_color_make(0x1C, 0x71, 0xD8);
 	} else if (strncmp(key, "aptx", 4) == 0) {
 		*out = dark ? lv_color_make(0xDC, 0x8A, 0xDD) : lv_color_make(0x81, 0x3D, 0x9C);
 	} else if (strncmp(key, "aac", 3) == 0) {

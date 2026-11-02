@@ -95,12 +95,13 @@ static void restart_playback_if_running(bool resume_paused) {
 // the link. The stock player lays them out the same way.
 // ---------------------------------------------------------------------------
 
-#define CODEC_ROWS (BT_MAX_CODECS + 3)
+#define CODEC_ROWS (BT_MAX_CODECS + 6)
 
 typedef struct {
-	char label[BT_CODEC_MAX + 8]; // the row's name: "LDAC 990"
+	char label[BT_CODEC_MAX + 16]; // the row's name: "LDAC Quality"
 	char codec[BT_CODEC_MAX];	  // what to ask bluealsa for
 	const char *ldac;			  // the quality that goes with it, NULL for the rest
+	bool sbc_xq;
 } codec_row_t;
 
 static codec_row_t codec_rows[CODEC_ROWS];
@@ -114,6 +115,9 @@ static void codec_chosen_cb(lv_event_t *e) {
 	if (row->ldac) {
 		bluetooth_set_ldac_quality(row->ldac);
 	}
+	if (strcasecmp(row->codec, "SBC") == 0) {
+		bluetooth_set_sbc_xq(row->sbc_xq);
+	}
 	bluetooth_set_codec(row->codec);
 	switch_screen(btaudio_screen);
 }
@@ -124,7 +128,10 @@ static void codec_chosen_cb(lv_event_t *e) {
 // bluealsa offers), it just sorts below the ones that are understood.
 static int codec_order(const char *name) {
 	if (strcasecmp(name, "LDAC") == 0) {
-		return 60;
+		return 70;
+	}
+	if (strcasecmp(name, "samsung-SC") == 0 || strcasecmp(name, "SSC") == 0) {
+		return 50;
 	}
 	if (strcasecmp(name, "aptX-HD") == 0) {
 		return 40;
@@ -134,6 +141,9 @@ static int codec_order(const char *name) {
 	}
 	if (strcasecmp(name, "AAC") == 0) {
 		return 20;
+	}
+	if (strcasecmp(name, "SBC-XQ") == 0) {
+		return 15;
 	}
 	if (strcasecmp(name, "SBC") == 0) {
 		return 10;
@@ -158,27 +168,54 @@ static void build_codec_rows(char mine[][BT_CODEC_MAX], int count) {
 	for (int i = 0; i < count && codec_row_count < CODEC_ROWS; i++) {
 		if (strcasecmp(mine[i], "LDAC") == 0) {
 			static const struct {
-				const char *suffix;
+				const char *label;
 				const char *quality;
-			} LDAC_MODES[] = {{" 990", "high"}, {" 660", "standard"}, {"", "abr"}};
+			} LDAC_MODES[] = {
+				{"LDAC Quality", "high"},
+				{"LDAC Standard", "standard"},
+				{"LDAC Auto", "abr"}
+			};
 			for (size_t m = 0; m < sizeof(LDAC_MODES) / sizeof(LDAC_MODES[0]) && codec_row_count < CODEC_ROWS; m++) {
 				codec_row_t *row = &codec_rows[codec_row_count++];
-				snprintf(row->label, sizeof(row->label), "LDAC%s", LDAC_MODES[m].suffix);
+				snprintf(row->label, sizeof(row->label), "%s", LDAC_MODES[m].label);
 				snprintf(row->codec, sizeof(row->codec), "LDAC");
 				row->ldac = LDAC_MODES[m].quality;
+				row->sbc_xq = false;
+			}
+			continue;
+		}
+		if (strcasecmp(mine[i], "samsung-SC") == 0 || strcasecmp(mine[i], "SSC") == 0) {
+			codec_row_t *row = &codec_rows[codec_row_count++];
+			snprintf(row->label, sizeof(row->label), "SSC");
+			snprintf(row->codec, sizeof(row->codec), "%s", mine[i]);
+			row->ldac = NULL;
+			row->sbc_xq = false;
+			continue;
+		}
+		if (strcasecmp(mine[i], "SBC") == 0) {
+			codec_row_t *row = &codec_rows[codec_row_count++];
+			snprintf(row->label, sizeof(row->label), "SBC-XQ");
+			snprintf(row->codec, sizeof(row->codec), "SBC");
+			row->ldac = NULL;
+			row->sbc_xq = true;
+
+			if (codec_row_count < CODEC_ROWS) {
+				row = &codec_rows[codec_row_count++];
+				snprintf(row->label, sizeof(row->label), "SBC");
+			snprintf(row->codec, sizeof(row->codec), "SBC");
+				row->ldac = NULL;
+				row->sbc_xq = false;
 			}
 			continue;
 		}
 		codec_row_t *row = &codec_rows[codec_row_count++];
-		// By length rather than with %s: the compiler cannot see that each row
-		// of the table is terminated, and warns that a name could run on into
-		// the next one.
 		size_t length = strnlen(mine[i], BT_CODEC_MAX - 1);
 		memcpy(row->label, mine[i], length);
 		row->label[length] = '\0';
 		memcpy(row->codec, mine[i], length);
 		row->codec[length] = '\0';
 		row->ldac = NULL;
+		row->sbc_xq = false;
 	}
 }
 
@@ -216,11 +253,13 @@ static void rebuild_codec_list(void) {
 	// actually on. There is no second state to show -- nothing is remembered,
 	// so nothing can be set and not yet in force.
 	const char *quality = bluetooth_ldac_quality();
+	bool sbc_xq = bluetooth_sbc_xq();
 
 	for (int i = 0; i < codec_row_count; i++) {
 		codec_row_t *row = &codec_rows[i];
 		bool ldac_matches = !row->ldac || strcmp(row->ldac, quality) == 0;
-		bool in_force = selected[0] && strcasecmp(selected, row->codec) == 0 && ldac_matches;
+		bool sbc_matches = (strcasecmp(row->codec, "SBC") != 0) || (row->sbc_xq == sbc_xq);
+		bool in_force = selected[0] && strcasecmp(selected, row->codec) == 0 && ldac_matches && sbc_matches;
 
 		lv_obj_t *value = NULL;
 		settingsrow_add(codec_list, row->label, &value, codec_chosen_cb, row);
@@ -330,7 +369,20 @@ static void refresh_page(void) {
 	char codecs[BT_MAX_CODECS][BT_CODEC_MAX];
 	int count = bluetooth_get_codecs(codecs, BT_MAX_CODECS, selected, sizeof(selected));
 
-	lv_label_set_text(codec_value, connected && selected[0] ? selected : "--");
+		const char *display_codec = selected;
+	if (connected && selected[0]) {
+		if (strcasecmp(selected, "samsung-SC") == 0 || strcasecmp(selected, "SSC") == 0) {
+			display_codec = "SSC";
+		} else if (strcasecmp(selected, "LDAC") == 0) {
+			const char *q = bluetooth_ldac_quality();
+			if (strcmp(q, "high") == 0) display_codec = "LDAC Quality";
+			else if (strcmp(q, "standard") == 0) display_codec = "LDAC Standard";
+			else if (strcmp(q, "abr") == 0) display_codec = "LDAC Auto";
+		} else if (strcasecmp(selected, "SBC") == 0 && bluetooth_sbc_xq()) {
+			display_codec = "SBC-XQ";
+		}
+	}
+	lv_label_set_text(codec_value, connected && selected[0] ? display_codec : "--");
 
 	// Only while something is connected: the list is what the other end offers,
 	// so with nothing on the other end there is nothing behind the row.

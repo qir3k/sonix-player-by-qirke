@@ -177,13 +177,22 @@ static void refresh(void) {
 	//
 	// Sample rate only: the driver always delivers 32-bit words whatever the
 	// host negotiated, so a bit depth printed here would always read 32.
+	char rate_text[32];
+	if (st.dsd) {
+		snprintf(rate_text, sizeof(rate_text), "DSD %d Hz", st.sample_rate);
+	} else if (st.sample_rate % 1000 == 0) {
+		snprintf(rate_text, sizeof(rate_text), "%d kHz", st.sample_rate / 1000);
+	} else {
+		snprintf(rate_text, sizeof(rate_text), "%.1f kHz", st.sample_rate / 1000.0);
+	}
+
 	char text[64];
 	if (st.dsd) {
-		snprintf(text, sizeof(text), "DSD  %d Hz", st.sample_rate);
-	} else if (st.sample_rate % 1000 == 0) {
-		snprintf(text, sizeof(text), "%d kHz", st.sample_rate / 1000);
+		snprintf(text, sizeof(text), "%s", rate_text);
+	} else if (st.bits > 0) {
+		snprintf(text, sizeof(text), "%s · %d-bit", rate_text, st.bits);
 	} else {
-		snprintf(text, sizeof(text), "%.1f kHz", st.sample_rate / 1000.0);
+		snprintf(text, sizeof(text), "%s", rate_text);
 	}
 	set_format(text);
 	lv_label_set_text(status_label, tr("dac_playing"));

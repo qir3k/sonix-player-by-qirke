@@ -244,6 +244,10 @@ const char *bluetooth_ldac_quality(void);
 unsigned bluetooth_output_generation(void);
 void bluetooth_set_ldac_quality(const char *mode);
 
+// SBC-XQ (high-bitpool dual-channel mode) preference.
+bool bluetooth_sbc_xq(void);
+void bluetooth_set_sbc_xq(bool on);
+
 // ---------------------------------------------------------------------------
 // The other direction: a device streaming to this one
 //
