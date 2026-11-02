@@ -29,6 +29,8 @@
 #include "src/gui/shell/theme.h"
 #include "src/system/addons/addons.h"
 #include "src/gui/streaming/streaming.h"
+#include "src/system/streaming/podcast.h"
+#include "src/system/streaming/podcastcache.h"
 #include "src/gui/wireless/wireless.h"
 #include "src/system/core/config.h"
 #include "src/system/core/lang.h"
@@ -49,6 +51,7 @@ static lv_obj_t *mini_player_subtitle;
 static lv_timer_t *mini_player_timer;
 static gui_config_t *menu_cfg;
 static void main_menu_refresh_tiles(void);
+static void main_menu_refresh_now_playing(void);
 
 // lv_btn supplies state-specific focus and shadow styles. Those do not inherit
 // the zero-width default style below, and on the compact footer their bottom
@@ -384,6 +387,17 @@ void main_menu_refresh_layout(void) { main_menu_refresh_tiles(); }
 // Fit the V1's live strip around two fixed one-line labels. Explicitly sizing
 // the text column from the row's content width keeps both glyphs and ellipses
 // inside the card, including after a font-size or theme change.
+static void mini_player_play_cb(lv_event_t *e) {
+	(void)e;
+	device_state_t state;
+	device_state_get(&state);
+	if (!state.live && state.current_file[0] == '\0') {
+		return;
+	}
+	player_key_play_pause();
+	main_menu_refresh_now_playing();
+}
+
 static void main_menu_layout_tokyo_home(bool force) {
 	if (!menu_grid || !menu_cfg || !mini_player || !mini_player_copy ||
 			!bp_is_tempotec_v1() || !theme_uses_function_glyphs()) {
@@ -456,7 +470,37 @@ static void main_menu_refresh_now_playing(void) {
 			const char *file = strrchr(state.current_file, '/');
 			title = file ? file + 1 : state.current_file;
 		}
-		if (state.metadata.artist[0]) {
+
+		char podcast_artist[256] = "";
+		if (!state.live && state.current_file[0] && podcastcache_is_episode(state.current_file)) {
+			podcast_feed_t feed;
+			if (player_current_podcast_feed(NULL, &feed)) {
+				if (feed.author[0] && feed.title[0] && strcmp(feed.author, feed.title) != 0) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", feed.author, feed.title);
+				} else if (feed.author[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.author);
+				} else if (feed.title[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.title);
+				}
+			}
+			if (!podcast_artist[0]) {
+				char author[128] = "";
+				char feed_title[128] = "";
+				podcastcache_tag(state.current_file, "feed_author", author, sizeof(author));
+				podcastcache_tag(state.current_file, "artist", feed_title, sizeof(feed_title));
+				if (author[0] && feed_title[0] && strcmp(author, feed_title) != 0) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", author, feed_title);
+				} else if (author[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", author);
+				} else if (feed_title[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed_title);
+				}
+			}
+		}
+
+		if (podcast_artist[0]) {
+			artist = podcast_artist;
+		} else if (state.metadata.artist[0]) {
 			artist = state.metadata.artist;
 		}
 
@@ -703,10 +747,17 @@ void main_menu_init(gui_config_t *cfg) {
 	lv_image_set_src(mini_player_icon, &icon_music2);
 	fit_menu_icon(mini_player_icon, &icon_music2, 15);
 	lv_obj_add_style(mini_player_icon, &theme_style_icon, 0);
+	lv_obj_set_clickable(mini_player_icon, true);
+	lv_obj_set_ext_click_area(mini_player_icon, 10);
+	lv_obj_add_event_cb(mini_player_icon, mini_player_play_cb, LV_EVENT_CLICKED, NULL);
 
 	mini_player_copy = lv_obj_create(mini_player);
 	lv_obj_t *copy = mini_player_copy;
 	lv_obj_remove_style_all(copy);
+	lv_obj_set_clickable(copy, false);
+	lv_obj_remove_flag(copy, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(copy, LV_OBJ_FLAG_EVENT_BUBBLE);
+	lv_obj_add_event_cb(copy, switch_screen_cb, LV_EVENT_CLICKED, player_screen);
 	lv_obj_set_width(copy, LV_SIZE_CONTENT);
 	lv_obj_set_height(copy, LV_SIZE_CONTENT);
 	lv_obj_set_style_bg_opa(copy, LV_OPA_TRANSP, 0);
@@ -722,17 +773,29 @@ void main_menu_init(gui_config_t *cfg) {
 	lv_obj_set_width(mini_player_title, lv_pct(100));
 	lv_obj_add_style(mini_player_title, &theme_style_text, 0);
 	lv_obj_set_style_text_font(mini_player_title, &font_ui_14, 0);
+	lv_obj_set_clickable(mini_player_title, false);
+	lv_obj_remove_flag(mini_player_title, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(mini_player_title, LV_OBJ_FLAG_EVENT_BUBBLE);
+	lv_obj_add_event_cb(mini_player_title, switch_screen_cb, LV_EVENT_CLICKED, player_screen);
 
 	mini_player_subtitle = lv_label_create(copy);
 	lv_label_set_long_mode(mini_player_subtitle, LV_LABEL_LONG_DOT);
 	lv_obj_set_width(mini_player_subtitle, lv_pct(100));
 	lv_obj_add_style(mini_player_subtitle, &theme_style_text_dim, 0);
 	lv_obj_set_style_text_font(mini_player_subtitle, &font_ui_14, 0);
+	lv_obj_set_clickable(mini_player_subtitle, false);
+	lv_obj_remove_flag(mini_player_subtitle, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(mini_player_subtitle, LV_OBJ_FLAG_EVENT_BUBBLE);
+	lv_obj_add_event_cb(mini_player_subtitle, switch_screen_cb, LV_EVENT_CLICKED, player_screen);
 
 	lv_obj_t *mini_chevron = lv_image_create(mini_player);
 	lv_image_set_src(mini_chevron, &icon_chevron_right);
 	fit_menu_icon(mini_chevron, &icon_chevron_right, 14);
 	lv_obj_add_style(mini_chevron, &theme_style_icon, 0);
+	lv_obj_set_clickable(mini_chevron, false);
+	lv_obj_remove_flag(mini_chevron, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_flag(mini_chevron, LV_OBJ_FLAG_EVENT_BUBBLE);
+	lv_obj_add_event_cb(mini_chevron, switch_screen_cb, LV_EVENT_CLICKED, player_screen);
 
 	lv_obj_add_event_cb(main_menu_screen, main_menu_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
 	mini_player_timer = lv_timer_create(mini_player_timer_cb, 1000, NULL);

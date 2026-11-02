@@ -1693,8 +1693,10 @@ static bool fetch_episode(const podcast_episode_t *e, char *out, size_t size) {
 	if (!podcastcache_start(e->id, e->enclosure, e->mime, e->duration_secs, out, size)) {
 		return false;
 	}
-	podcastcache_write_sidecars(e->id, e->mime, e->title, e->feed_title[0] ? e->feed_title : NULL, e->feed_id,
-								browsing_author, browsing_image[0] ? browsing_image : e->image, e->image, true);
+	const char *ftitle = e->feed_title[0] ? e->feed_title : (list_feed_title[0] ? list_feed_title : NULL);
+	const char *fauthor = browsing_author[0] ? browsing_author : NULL;
+	podcastcache_write_sidecars(e->id, e->mime, e->title, ftitle, e->feed_id,
+								fauthor, browsing_image[0] ? browsing_image : e->image, e->image, true);
 	return true;
 }
 
@@ -2141,9 +2143,11 @@ static void *worker_main(void *arg) {
 					// image to download, and it is fetched when the episode's
 					// turn comes.
 					const podcast_episode_t *q = &queued_episodes[i];
+					const char *ftitle = q->feed_title[0] ? q->feed_title : (list_feed_title[0] ? list_feed_title : NULL);
+					const char *fauthor = browsing_author[0] ? browsing_author : NULL;
 					podcastcache_write_sidecars(q->id, q->mime, q->title,
-												q->feed_title[0] ? q->feed_title : NULL, q->feed_id,
-												browsing_author, browsing_image, q->image, false);
+												ftitle, q->feed_id,
+												fauthor, browsing_image, q->image, false);
 				}
 				path_ptr[count] = paths[count];
 				count++;
