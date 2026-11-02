@@ -77,9 +77,9 @@ static void art_clear(void) {
 static void *art_worker(void *arg) {
 	art_job_t *job = arg;
 	if (job->operation == 3)
-		job->ok = artsearch_find(job->text, job->found, &job->count);
+		job->ok = tagmanager_artsearch_find(job->text, job->found, &job->count);
 	else if (job->operation == 4)
-		job->ok = artsearch_download(job->text, &job->data, &job->size, &job->width, &job->height);
+		job->ok = tagmanager_artsearch_download(job->text, &job->data, &job->size, &job->width, &job->height);
 	else if (job->operation == 5) {
 		job->write_result = tagwrite_cover(job->path, job->data, job->size, job->width, job->height);
 		job->ok = job->write_result == TAGWRITE_OK;

@@ -44,7 +44,7 @@ static bool fetch(const char *url, size_t max, char **data, size_t *len) {
 	*len = got;
 	return true;
 }
-bool artsearch_find(const char *query, artsearch_result_t *results, int *count) {
+bool tagmanager_artsearch_find(const char *query, artsearch_result_t *results, int *count) {
 	if (!query || !*query || strlen(query) > 255 || !results || !count)
 		return false;
 	*count = 0;
@@ -85,7 +85,7 @@ bool artsearch_find(const char *query, artsearch_result_t *results, int *count) 
 	free(body);
 	return ok;
 }
-bool artsearch_download(const char *url, uint8_t **data, size_t *size, int *width, int *height) {
+bool tagmanager_artsearch_download(const char *url, uint8_t **data, size_t *size, int *width, int *height) {
 	if (!url || !artwork_url(url) || !data || !size || !width || !height)
 		return false;
 	char *body;

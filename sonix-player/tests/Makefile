@@ -332,8 +332,8 @@ $(BUILD)/test_covers: $(COVERS_SRC) $(TAGS_DECODE_SRC) $(BUILD)/sqlite3_impl.o \
 # the other frames must survive, a tag that was there must lose its old picture
 # and one that was not must gain a whole tag. Plain C, no LVGL.
 TAGWRITE_SRC = test_tagwrite.c $(ROOT)/src/system/library/tagwrite.c
-.PHONY: tagwrite
-tagwrite: $(BUILD)/test_tagwrite
+.PHONY: tagwrite-cover
+tagwrite-cover: $(BUILD)/test_tagwrite
 	$(BUILD)/test_tagwrite
 
 $(BUILD)/test_tagwrite: $(TAGWRITE_SRC) $(ROOT)/src/system/library/tagwrite.h
@@ -654,7 +654,8 @@ $(BUILD)/test_sysinfo: test_sysinfo.c $(ROOT)/src/system/device/sysinfo.c $(ROOT
 
 # Lossless metadata rewrites and malformed input safety.
 .PHONY: tagwrite
-tagwrite:
+tagwrite: $(BUILD)/test_tagwrite
+	$(BUILD)/test_tagwrite
 	python3 test_tagwrite.py
 
 .PHONY: artsearch
@@ -667,7 +668,7 @@ $(BUILD)/test_artsearch: test_artsearch.c $(ROOT)/src/system/tagmanager/artsearc
 
 # Everything, in the order the workflow runs it. `make test` stays the default
 # target; this is the one to run before merging into personal.
-ALL_SUITES = basebuild
+ALL_SUITES = basebuild tagwrite artsearch batteryguard cpupower touch pictures swvolume calculator notes eq genius earfun
 
 .PHONY: all
 all:

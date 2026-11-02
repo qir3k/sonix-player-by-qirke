@@ -69,8 +69,8 @@ jobs:
           cc -fsyntax-only -Wall -DLV_CONF_INCLUDE_SIMPLE=1 -DGB_CORE=1 \
              -I. -Ilvgl lvgl/src/drivers/evdev/lv_evdev.c
 
-      - name: Base firmware version extraction and sysinfo
-        run: make -C sonix-player/tests basebuild
+      - name: Run active feature test suites
+        run: make -C sonix-player/tests all
 
       # bash, not sh: the packer and its helpers say so in their shebangs, and
       # dash refuses the arrays and [[ ]] they are written in.

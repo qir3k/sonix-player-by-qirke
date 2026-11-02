@@ -1,5 +1,5 @@
-#ifndef ARTSEARCH_H
-#define ARTSEARCH_H
+#ifndef TAGMANAGER_ARTSEARCH_H
+#define TAGMANAGER_ARTSEARCH_H
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -11,6 +11,6 @@ typedef struct {
 	char url[1024];
 } artsearch_result_t;
 // Blocking network calls: run off the UI thread. Search text is sent to Apple.
-bool artsearch_find(const char *query, artsearch_result_t *results, int *count);
-bool artsearch_download(const char *url, uint8_t **data, size_t *size, int *width, int *height);
+bool tagmanager_artsearch_find(const char *query, artsearch_result_t *results, int *count);
+bool tagmanager_artsearch_download(const char *url, uint8_t **data, size_t *size, int *width, int *height);
 #endif

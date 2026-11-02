@@ -22,16 +22,16 @@ char *http_url_encode(const char *in, char *out, size_t size) {
 }
 int main(void) {
     artsearch_result_t list[ARTSEARCH_MAX_RESULTS]; int count=0;
-    assert(artsearch_find("Artist Album",list,&count) && count==1);
+    assert(tagmanager_artsearch_find("Artist Album",list,&count) && count==1);
     assert(strstr(last_url,"Artist%20Album") && strstr(list[0].url,"600x600bb.jpg"));
     assert(!strcmp(list[0].artist,"Artist") && !strcmp(list[0].album,"Album"));
     uint8_t *data=NULL; size_t n=0; int w=0,h=0; mode=1;
-    assert(artsearch_download(list[0].url,&data,&n,&w,&h));
+    assert(tagmanager_artsearch_download(list[0].url,&data,&n,&w,&h));
     assert(n==sizeof(jpeg) && w==48 && h==32); free(data);
-    assert(!artsearch_download("https://mzstatic.com.evil.example/a.jpg",&data,&n,&w,&h));
-    assert(!artsearch_download("https://user@is1.mzstatic.com/a.jpg",&data,&n,&w,&h));
-    mode=2; assert(!artsearch_download(list[0].url,&data,&n,&w,&h));
-    mode=3; assert(!artsearch_find("Artist Album",list,&count));
+    assert(!tagmanager_artsearch_download("https://mzstatic.com.evil.example/a.jpg",&data,&n,&w,&h));
+    assert(!tagmanager_artsearch_download("https://user@is1.mzstatic.com/a.jpg",&data,&n,&w,&h));
+    mode=2; assert(!tagmanager_artsearch_download(list[0].url,&data,&n,&w,&h));
+    mode=3; assert(!tagmanager_artsearch_find("Artist Album",list,&count));
     puts("art search tests passed");
     return 0;
 }
