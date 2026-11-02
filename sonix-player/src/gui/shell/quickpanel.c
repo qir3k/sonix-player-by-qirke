@@ -275,23 +275,28 @@ static int parked_y(void) { return gestures_stock() ? panel_h : -panel_h; }
 
 static lv_obj_t *controls_card;
 static lv_obj_t *np_card;
-static lv_obj_t *quick_row;	   // the first QP_SLOT_VISIBLE buttons
-static lv_obj_t *extra_clip;	   // the window the stretch opens, under the first lines
-static lv_obj_t *extra_row;	   // the rest, inside that window
-static lv_obj_t *level_row;	   // moved down by the stretch
-static lv_obj_t *expand_handle; // the line under the slider, and a tap target
+static lv_obj_t *buttons_viewport; // window containing quick_row and extra_row
+static lv_obj_t *quick_row;	   // Page 0 (the first QP_SLOT_VISIBLE buttons)
+static lv_obj_t *extra_row;	   // Page 1 (buttons past the eighth)
+static lv_obj_t *page_dots_row;
+static lv_obj_t *page_dot[2];
+static int button_page_count = 1;
+static int current_button_page = 0;
+static int card_width;
+static lv_obj_t *level_row;
+static lv_obj_t *expand_handle; // kept NULL / hidden
 static lv_obj_t *expand_pill;
 static lv_obj_t *grabber; // the line the sheet is dragged out by
-static int card_h_rest;		   // controls card height with nothing past the eighth
+static int card_h_rest;		   // controls card height
 static int card_top;		   // the controls card's top, in the arrangement in force
 static int card_top_classic; // ... and in each of the two
 static int card_top_stock;
 static int bar_clear;        // where the status bar ends, inside the sheet's padding
 static int placed_scheme = -1; // the arrangement the cards and grabber are placed for
-static int card_h_base;		   // the controls card's height at rest, handle room included
-static int expand_full;		   // how far the card stretches; 0 when nothing is past the eighth
-static int expand_h;		   // how far it is stretched now
-static int expand_from;		   // where a drag found it (classic arrangement)
+static int card_h_base;		   // the controls card's height at rest
+static int expand_full;		   // 0
+static int expand_h;		   // 0
+static int expand_from;
 static uint32_t expand_begin_ms;
 
 // Set once a press has moved the sheet, so the click that ends the same press
@@ -607,84 +612,90 @@ static void panel_slide_to(int y, bool animate) {
 }
 
 // ---------------------------------------------------------------------------
-// Stretching the controls card (see the note over controls_card)
+// ---------------------------------------------------------------------------
+// Button paging: swiping horizontally to switch between Page 0 and Page 1
 // ---------------------------------------------------------------------------
 
-static void expand_set(int h) {
-	if (!controls_card) {
-		return;
-	}
-	if (h > expand_full) {
-		h = expand_full;
-	}
-	if (h < 0) {
-		h = 0;
-	}
-	expand_h = h;
-	lv_obj_set_height(controls_card, card_h_base + h);
-	lv_obj_set_height(extra_clip, h);
-	lv_obj_set_style_translate_y(level_row, h, 0);
-
-	// In proportion to the stretch: the second block comes in as the card
-	// uncovers it, and the card underneath goes out as it is covered.
-	lv_opa_t shown = expand_full > 0 ? (lv_opa_t)(LV_OPA_COVER * h / expand_full) : LV_OPA_TRANSP;
-	lv_obj_set_hidden(extra_clip, h == 0);
-	lv_obj_set_style_opa(extra_row, shown, 0);
-	lv_obj_set_hidden(np_card, expand_full > 0 && h >= expand_full);
-	lv_obj_set_style_opa(np_card, (lv_opa_t)(LV_OPA_COVER - shown), 0);
+static void page_slide_anim_cb(void *var, int32_t val) {
+	(void)var;
+	int w = card_width - 2 * card_padding;
+	if (quick_row) lv_obj_set_x(quick_row, val);
+	if (extra_row) lv_obj_set_x(extra_row, val + w);
 }
 
-static void expand_anim_cb(void *obj, int32_t v) {
-	(void)obj;
-	expand_set((int)v);
+static void page_slide_ready_cb(lv_anim_t *a) {
+	(void)a;
+	if (current_button_page == 0) {
+		if (extra_row) lv_obj_set_hidden(extra_row, true);
+	} else {
+		if (quick_row) lv_obj_set_hidden(quick_row, true);
+	}
+}
+
+static void update_page_dots(void) {
+	if (!page_dots_row) return;
+	if (button_page_count <= 1) {
+		lv_obj_set_hidden(page_dots_row, true);
+		return;
+	}
+	lv_obj_set_hidden(page_dots_row, false);
+	for (int i = 0; i < 2; i++) {
+		bool active = (i == current_button_page);
+		lv_obj_set_style_bg_opa(page_dot[i], active ? LV_OPA_COVER : LV_OPA_30, 0);
+		lv_obj_set_style_bg_color(page_dot[i], active ? theme()->accent : theme()->text_primary, 0);
+		lv_obj_set_size(page_dot[i], active ? 6 : 4, active ? 6 : 4);
+	}
+}
+
+static void quickpanel_set_button_page(int page, bool animate) {
+	if (page < 0) page = 0;
+	if (page >= button_page_count) page = button_page_count - 1;
+	int old_page = current_button_page;
+	current_button_page = page;
+
+	int w = card_width - 2 * card_padding;
+	if (w <= 0) w = 240;
+
+	if (quick_row) lv_obj_set_hidden(quick_row, false);
+	if (extra_row) lv_obj_set_hidden(extra_row, false);
+
+	if (buttons_viewport) {
+		lv_anim_delete(buttons_viewport, page_slide_anim_cb);
+	}
+
+	if (!animate || old_page == page || !buttons_viewport) {
+		int target_x = (page == 0) ? 0 : -w;
+		if (quick_row) {
+			lv_obj_set_x(quick_row, target_x);
+			lv_obj_set_hidden(quick_row, page != 0);
+		}
+		if (extra_row) {
+			lv_obj_set_x(extra_row, target_x + w);
+			lv_obj_set_hidden(extra_row, page == 0);
+		}
+		update_page_dots();
+		return;
+	}
+
+	int start_x = (old_page == 0) ? 0 : -w;
+	int target_x = (page == 0) ? 0 : -w;
+
+	lv_anim_t a;
+	lv_anim_init(&a);
+	lv_anim_set_var(&a, buttons_viewport);
+	lv_anim_set_exec_cb(&a, page_slide_anim_cb);
+	lv_anim_set_values(&a, start_x, target_x);
+	lv_anim_set_duration(&a, 180);
+	lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+	lv_anim_set_completed_cb(&a, page_slide_ready_cb);
+	lv_anim_start(&a);
+
+	update_page_dots();
 }
 
 static void expand_to(int h, bool animate) {
-	if (!controls_card) {
-		return;
-	}
-	lv_anim_delete(controls_card, expand_anim_cb);
-	if (!animate) {
-		expand_set(h);
-		return;
-	}
-	lv_anim_t a;
-	lv_anim_init(&a);
-	lv_anim_set_var(&a, controls_card);
-	lv_anim_set_exec_cb(&a, expand_anim_cb);
-	lv_anim_set_values(&a, expand_h, h);
-	lv_anim_set_duration(&a, PANEL_ANIM_MS);
-	lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-	lv_anim_start(&a);
-}
-
-static void expand_drag_begin(void) {
-	lv_anim_delete(controls_card, expand_anim_cb);
-	expand_from = expand_h;
-	expand_begin_ms = lv_tick_get();
-}
-
-static void expand_drag_update(int dy) { expand_set(expand_from + dy); }
-
-// Past halfway it stays stretched, short of it it folds back; a flick goes the
-// way it was flicked, as the sheet's own drag does.
-static void expand_drag_end(void) {
-	int travel = expand_h - expand_from;
-	bool open = expand_h * 2 > expand_full;
-	uint32_t elapsed = lv_tick_elaps(expand_begin_ms);
-	int distance = travel > 0 ? travel : -travel;
-	if (elapsed > 0 && distance >= FLICK_MIN_PX && (distance * 1000) / (int)elapsed >= FLICK_SPEED_PX_S) {
-		open = travel > 0;
-	}
-	expand_to(open ? expand_full : 0, true);
-}
-
-static void expand_handle_clicked_cb(lv_event_t *e) {
-	(void)e;
-	if (press_dragged) {
-		return;
-	}
-	expand_to(expand_h > 0 ? 0 : expand_full, true);
+	(void)h;
+	(void)animate;
 }
 
 // Puts the cards and the grabber where the arrangement in force wants them.
@@ -835,11 +846,7 @@ static void panel_prepare(void) {
 
 	place_sheet();
 
-	// The sheet always comes in folded, as Android's does.
-	expand_to(0, false);
-	if (expand_pill) {
-		lv_obj_set_style_bg_color(expand_pill, theme()->text_primary, 0);
-	}
+	quickpanel_set_button_page(0, false);
 
 	lv_obj_set_hidden(veil, false);
 	lv_obj_move_foreground(veil);
@@ -978,7 +985,7 @@ static void veil_clicked_cb(lv_event_t *e) {
 static void panel_drag_cb(lv_event_t *e) {
 	static lv_point_t start;
 	static bool tracking;
-	static enum { DRAG_NONE, DRAG_SHEET, DRAG_CARD } engaged;
+	static enum { DRAG_NONE, DRAG_SHEET, DRAG_PAGE } engaged;
 
 	lv_indev_t *indev = lv_indev_active();
 	if (!indev) {
@@ -1004,34 +1011,31 @@ static void panel_drag_cb(lv_event_t *e) {
 	lv_point_t p;
 	lv_indev_get_point(indev, &p);
 	int dy = p.y - start.y;
+	int dx = p.x - start.x;
+	int adx = dx < 0 ? -dx : dx;
+	int ady = dy < 0 ? -dy : dy;
 
 	if (code == LV_EVENT_PRESSING) {
 		if (engaged == DRAG_NONE) {
-			if (gestures_stock()) {
-				// Up from the bottom, so down is the way out and nothing else.
+			if (button_page_count > 1 && adx >= 12 && adx > ady) {
+				engaged = DRAG_PAGE;
+				press_dragged = true;
+			} else if (gestures_stock()) {
 				if (dy < 8) {
 					return; // not a drag yet
 				}
 				engaged = DRAG_SHEET;
 			} else if (dy <= -8) {
-				// Down from the top: up is the way out, unless the card is
-				// stretched and this folds it first.
-				engaged = expand_h > 0 ? DRAG_CARD : DRAG_SHEET;
-			} else if (dy >= 8 && expand_full > 0 && expand_h < expand_full) {
-				engaged = DRAG_CARD;
+				engaged = DRAG_SHEET;
 			} else {
-				return; // not a drag yet, or a drag down with nothing to uncover
+				return; // not a drag yet
 			}
 			press_dragged = true;
-			if (engaged == DRAG_CARD) {
-				expand_drag_begin();
-			} else {
+			if (engaged == DRAG_SHEET) {
 				quickpanel_drag_begin();
 			}
 		}
-		if (engaged == DRAG_CARD) {
-			expand_drag_update(dy);
-		} else {
+		if (engaged == DRAG_SHEET) {
 			quickpanel_drag_update(dy);
 		}
 		return;
@@ -1039,22 +1043,26 @@ static void panel_drag_cb(lv_event_t *e) {
 
 	if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
 		tracking = false;
-		if (engaged == DRAG_CARD) {
-			expand_drag_end();
+		if (engaged == DRAG_PAGE) {
+			if (dx < -20) {
+				quickpanel_set_button_page(1, true);
+			} else if (dx > 20) {
+				quickpanel_set_button_page(0, true);
+			}
 		} else if (engaged == DRAG_SHEET) {
 			quickpanel_drag_end();
 		} else {
-			// A flick quick enough to be over between two reads of the touch
-			// panel produces a press and a release with no PRESSING in between,
-			// so nothing was followed and the sheet stayed up -- which from the
-			// outside is a control centre that sometimes ignores a quick swipe.
-			// The gesture did happen: the finger went down on the sheet and came
-			// up this far from where it landed.
-			int close_dir = gestures_stock() ? 1 : -1; // the dy that puts it away
-			int dx = p.x - start.x;
-			int adx = dx < 0 ? -dx : dx;
-			if (code == LV_EVENT_RELEASED && dy * close_dir >= QP_EDGE_FLICK_PX && dy * close_dir > adx) {
-				quickpanel_close();
+			if (button_page_count > 1 && adx >= 20 && adx > ady) {
+				if (dx < 0) {
+					quickpanel_set_button_page(1, true);
+				} else {
+					quickpanel_set_button_page(0, true);
+				}
+			} else {
+				int close_dir = gestures_stock() ? 1 : -1;
+				if (code == LV_EVENT_RELEASED && dy * close_dir >= QP_EDGE_FLICK_PX && dy * close_dir > adx) {
+					quickpanel_close();
+				}
 			}
 		}
 		engaged = DRAG_NONE;
@@ -1702,23 +1710,20 @@ static void order_apply(void) {
 		}
 	}
 
-	// How far the card stretches: a line and the gap above it for each line of
-	// the second block, the same pitch as the lines above.
-	int extra = at > QP_SLOT_VISIBLE ? at - QP_SLOT_VISIBLE : 0;
-	int lines = (extra + qp_buttons_per_line - 1) / qp_buttons_per_line;
-	expand_full = lines * (circle_button_size + circle_button_gap);
+		int extra = at > QP_SLOT_VISIBLE ? at - QP_SLOT_VISIBLE : 0;
+	button_page_count = extra > 0 ? 2 : 1;
+	expand_full = 0;
+	expand_h = 0;
 
-	// With a handle to show the card takes handle_room from the now-playing
-	// card, which has height to spare under its transport; without one both
-	// stay as they always were.
 	if (controls_card) {
-		int room = expand_full ? handle_room : 0;
-		card_h_base = card_h_rest + room;
+		card_h_base = card_h_rest;
 		lv_obj_set_y(np_card, card_top + card_h_base + card_gap);
-		lv_obj_set_height(np_card, np_card_h_rest - room);
-		lv_obj_set_hidden(expand_handle, expand_full == 0);
+		lv_obj_set_height(np_card, np_card_h_rest);
+		if (expand_handle) {
+			lv_obj_set_hidden(expand_handle, true);
+		}
 	}
-	expand_to(0, false);
+	quickpanel_set_button_page(0, false);
 }
 
 int quickpanel_hidden_count(void) {
@@ -1866,8 +1871,9 @@ const lv_image_dsc_t *quickpanel_button_icon(quickpanel_button_t button) {
 	case QP_BTN_SONIXLINK:
 		return &icon_sonixlink_quick;
 	case QP_BTN_PEQ:
-	case QP_BTN_PEQ_PROFILE:
 		return &icon_peq_quick;
+	case QP_BTN_PEQ_PROFILE:
+		return peq_get_profile() == 2 ? &icon_peq_p2 : &icon_peq_p1;
 	case QP_BTN_DLNA:
 		return &icon_dlna_quick;
 	case QP_BTN_SLEEP_MUSIC:
@@ -1985,9 +1991,10 @@ static void refresh_audio_buttons(void) {
 	circle_button_set_on(peq_btn, peq_get_enabled());
 	circle_button_set_on(peq_profile_btn, peq_get_enabled());
 	if (peq_profile_btn) {
-		lv_obj_t *number = lv_obj_get_child(peq_profile_btn, 1);
-		lv_label_set_text_fmt(number, "%d", peq_get_profile());
-		lv_obj_set_style_text_color(number, peq_get_enabled() ? theme_on_accent() : theme()->text_primary, 0);
+		lv_obj_t *icon = lv_obj_get_child(peq_profile_btn, 0);
+		if (icon) {
+			iconscale_set_scaled(icon, peq_get_profile() == 2 ? &icon_peq_p2 : &icon_peq_p1, qp_scale(QP_SCALE_CIRCLE));
+		}
 	}
 	circle_button_set_on(sleep_music_btn, sleep_timer_armed(SLEEPTIMER_MUSIC));
 	circle_button_set_on(wifi_transfer_btn, wifitransfer_get_enabled());
@@ -2489,7 +2496,8 @@ void quickpanel_init(gui_config_t *cfg) {
 	// page (see place_sheet()).
 	card_top_stock = bar_clear + hint_strip_h + card_top_gap;
 	card_top_classic = bar_clear + card_top_gap;
-	int card_w = cfg->screen_width - 2 * cfg->padding;
+	card_width = cfg->screen_width - 2 * cfg->padding;
+	int card_w = card_width;
 	int cards_room = content_h - card_top_classic - card_gap - hint_strip_h;
 	card_top = gestures_stock() ? card_top_stock : card_top_classic;
 	int controls_h;
@@ -2527,11 +2535,19 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_set_style_pad_gap(controls_card, card_row_gap, 0);
 	int row_h = controls_h - 2 * card_padding - level_row_h - card_row_gap;
 
-	lv_obj_t *row = lv_obj_create(controls_card);
+	buttons_viewport = lv_obj_create(controls_card);
+	lv_obj_set_size(buttons_viewport, lv_pct(100), row_h);
+	lv_obj_set_style_bg_opa(buttons_viewport, 0, 0);
+	lv_obj_set_style_border_width(buttons_viewport, 0, 0);
+	lv_obj_set_style_pad_all(buttons_viewport, 0, 0);
+	lv_obj_set_scrollable(buttons_viewport, false);
+	lv_obj_set_event_bubble(buttons_viewport, true);
+	lv_obj_set_style_clip_corner(buttons_viewport, true, 0);
+
+	lv_obj_t *row = lv_obj_create(buttons_viewport);
 	quick_row = row;
-	// Wraps to a second line past four buttons; the third flex argument below
-	// centres the lines inside the height.
 	lv_obj_set_size(row, lv_pct(100), row_h);
+	lv_obj_set_pos(row, 0, 0);
 	lv_obj_set_style_bg_opa(row, 0, 0);
 	lv_obj_set_style_border_width(row, 0, 0);
 	lv_obj_set_style_pad_all(row, 0, 0);
@@ -2541,6 +2557,20 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_set_style_pad_row(row, circle_button_gap, 0);
 	lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW_WRAP);
 	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+	extra_row = lv_obj_create(buttons_viewport);
+	lv_obj_set_size(extra_row, lv_pct(100), row_h);
+	lv_obj_set_pos(extra_row, 0, 0);
+	lv_obj_set_style_bg_opa(extra_row, 0, 0);
+	lv_obj_set_style_border_width(extra_row, 0, 0);
+	lv_obj_set_style_pad_all(extra_row, 0, 0);
+	lv_obj_set_style_pad_gap(extra_row, circle_button_gap, 0);
+	lv_obj_set_scrollable(extra_row, false);
+	lv_obj_set_event_bubble(extra_row, true);
+	lv_obj_set_style_pad_row(extra_row, circle_button_gap, 0);
+	lv_obj_set_flex_flow(extra_row, LV_FLEX_FLOW_ROW_WRAP);
+	lv_obj_set_flex_align(extra_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_hidden(extra_row, true);
 
 	// The radios: a tap switches them, a hold opens their page, the same contract
 	// MSEB and the equalizer use.
@@ -2597,13 +2627,7 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_add_event_cb(peq_btn, peq_clicked_cb, LV_EVENT_CLICKED, NULL);
 	lv_obj_add_event_cb(peq_btn, open_page_cb, LV_EVENT_LONG_PRESSED, peqpage_screen());
 
-	peq_profile_btn = make_circle_button(row, &icon_peq_quick);
-	lv_obj_t *profile_icon = lv_obj_get_child(peq_profile_btn, 0);
-	lv_image_set_scale(profile_icon, qp_compact ? 112 : 192);
-	lv_obj_align(profile_icon, LV_ALIGN_TOP_MID, 0, qp_compact ? 3 : 10);
-	lv_obj_t *profile_number = lv_label_create(peq_profile_btn);
-	lv_obj_set_style_text_font(profile_number, qp_compact ? &font_ui_14 : &font_ui_24, 0);
-	lv_obj_align(profile_number, LV_ALIGN_BOTTOM_MID, 0, qp_compact ? -2 : -8);
+	peq_profile_btn = make_circle_button(row, peq_get_profile() == 2 ? &icon_peq_p2 : &icon_peq_p1);
 	lv_obj_add_event_cb(peq_profile_btn, peq_profile_clicked_cb, LV_EVENT_CLICKED, NULL);
 	lv_obj_add_event_cb(peq_profile_btn, open_page_cb, LV_EVENT_LONG_PRESSED, peqpage_screen());
 
@@ -2672,61 +2696,25 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_add_event_cb(level_slider, level_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
 	lv_obj_add_event_cb(level_slider, level_released_cb, LV_EVENT_RELEASED, NULL);
 
-	// The buttons past the eighth. A window outside the flex, starting where the
-	// first two lines end, opens as tall as the stretch while the slider moves
-	// down by as much; the buttons sit in it one gap down, so they read as
-	// further lines of the grid above. The window clips them, so the stretch is
-	// what uncovers them.
-	int first_lines = QP_SLOT_VISIBLE / qp_buttons_per_line;
-	int first_h = first_lines * circle_button_size + (first_lines - 1) * circle_button_gap;
-	extra_clip = lv_obj_create(controls_card);
-	lv_obj_remove_style_all(extra_clip);
-	lv_obj_set_ignore_layout(extra_clip, true);
-	lv_obj_set_size(extra_clip, lv_pct(100), 0);
-	lv_obj_set_pos(extra_clip, 0, (row_h + first_h) / 2); // the grid's lines are centred in the row
-	lv_obj_set_scrollable(extra_clip, false);
-	lv_obj_set_event_bubble(extra_clip, true);
-	lv_obj_set_hidden(extra_clip, true);
+	// Subtle page dots for swiping between button pages
+	page_dots_row = lv_obj_create(controls_card);
+	lv_obj_remove_style_all(page_dots_row);
+	lv_obj_set_ignore_layout(page_dots_row, true);
+	lv_obj_set_size(page_dots_row, 36, 6);
+	lv_obj_set_flex_flow(page_dots_row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(page_dots_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_style_pad_gap(page_dots_row, 6, 0);
+	lv_obj_set_hidden(page_dots_row, true);
 
-	extra_row = lv_obj_create(extra_clip);
-	lv_obj_set_size(extra_row, lv_pct(100), LV_SIZE_CONTENT);
-	lv_obj_set_pos(extra_row, 0, circle_button_gap);
-	lv_obj_set_style_bg_opa(extra_row, 0, 0);
-	lv_obj_set_style_border_width(extra_row, 0, 0);
-	lv_obj_set_style_pad_all(extra_row, 0, 0);
-	lv_obj_set_style_pad_gap(extra_row, circle_button_gap, 0);
-	lv_obj_set_scrollable(extra_row, false);
-	lv_obj_set_event_bubble(extra_row, true);
-	lv_obj_set_flex_flow(extra_row, LV_FLEX_FLOW_ROW_WRAP);
-	lv_obj_set_flex_align(extra_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-	// The handle: a short line in the band under the slider -- the room the
-	// card gains for it and the card's bottom padding -- which travels down
-	// with the edge as the card stretches. The line is what is seen; the strip
-	// round it, the whole band high, is what a tap finds, and a tap folds or
-	// stretches the card. Presses bubble on to the sheet, so a drag starting on
-	// it is the same drag as anywhere else.
-	expand_handle = lv_obj_create(controls_card);
-	lv_obj_set_ignore_layout(expand_handle, true);
-	lv_obj_set_size(expand_handle, 160, handle_room + card_padding);
-	lv_obj_align(expand_handle, LV_ALIGN_BOTTOM_MID, 0, card_padding);
-	lv_obj_set_style_bg_opa(expand_handle, LV_OPA_TRANSP, 0);
-	lv_obj_set_style_border_width(expand_handle, 0, 0);
-	lv_obj_set_style_shadow_width(expand_handle, 0, 0);
-	lv_obj_set_style_pad_all(expand_handle, 0, 0);
-	lv_obj_set_scrollable(expand_handle, false);
-	lv_obj_set_event_bubble(expand_handle, true);
-	lv_obj_add_event_cb(expand_handle, expand_handle_clicked_cb, LV_EVENT_CLICKED, NULL);
-
-	expand_pill = lv_obj_create(expand_handle);
-	lv_obj_set_size(expand_pill, 36, 5);
-	lv_obj_center(expand_pill);
-	lv_obj_set_style_radius(expand_pill, LV_RADIUS_CIRCLE, 0);
-	lv_obj_set_style_bg_color(expand_pill, theme()->text_primary, 0);
-	lv_obj_set_style_bg_opa(expand_pill, LV_OPA_40, 0);
-	lv_obj_set_style_border_width(expand_pill, 0, 0);
-	lv_obj_set_style_shadow_width(expand_pill, 0, 0);
-	lv_obj_set_clickable(expand_pill, false);
+	for (int i = 0; i < 2; i++) {
+		page_dot[i] = lv_obj_create(page_dots_row);
+		lv_obj_remove_style_all(page_dot[i]);
+		lv_obj_set_size(page_dot[i], 4, 4);
+		lv_obj_set_style_radius(page_dot[i], LV_RADIUS_CIRCLE, 0);
+		lv_obj_set_style_bg_color(page_dot[i], theme()->text_primary, 0);
+		lv_obj_set_style_bg_opa(page_dot[i], i == 0 ? LV_OPA_COVER : LV_OPA_30, 0);
+	}
+	lv_obj_align_to(page_dots_row, buttons_viewport, LV_ALIGN_OUT_BOTTOM_MID, 0, (card_row_gap - 6) / 2);
 
 	// --- Second card: what is playing, and its transport. ---
 	np_card = make_card(panel, card_w, now_playing_h, card_top + controls_h + card_gap);
