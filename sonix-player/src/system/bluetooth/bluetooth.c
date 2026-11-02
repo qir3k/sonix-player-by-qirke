@@ -1358,7 +1358,7 @@ static bool ensure_bluealsa(void) {
 		char codecs[BT_MAX_CODECS][BT_CODEC_MAX];
 		int codec_count = codecs_to_ask_for(codecs, BT_MAX_CODECS);
 
-		char *argv[11 + BT_MAX_CODECS * 2];
+		char *argv[16 + BT_MAX_CODECS * 2];
 		int at = 0;
 		argv[at++] = (char *)"bluealsa";
 		argv[at++] = (char *)"-p";
@@ -1389,6 +1389,12 @@ static bool ensure_bluealsa(void) {
 			snprintf(ssc_opt, sizeof(ssc_opt), "--ssc-auto-profile");
 			argv[at++] = ssc_opt;
 			fprintf(stderr, "bluetooth: enabling --ssc-auto-profile\n");
+		}
+		char cd_opt[32] = {0};
+		if (bluetooth_forced_rate() == 44100 && bluealsa_knows_option("--a2dp-force-audio-cd")) {
+			snprintf(cd_opt, sizeof(cd_opt), "--a2dp-force-audio-cd");
+			argv[at++] = cd_opt;
+			fprintf(stderr, "bluetooth: enabling --a2dp-force-audio-cd\n");
 		}
 		for (int i = 0; i < codec_count; i++) {
 			argv[at++] = (char *)"-c";
@@ -4270,6 +4276,21 @@ void bluetooth_set_sbc_xq(bool on) {
 		return;
 	}
 	config_set_bool("wireless", "bt_sbc_xq", on);
+	config_save();
+
+	job_t job = {.type = JOB_LDAC_QUALITY};
+	post_job(&job);
+}
+
+int bluetooth_forced_rate(void) {
+	return config_get_int("wireless", "bt_forced_rate", 0);
+}
+
+void bluetooth_set_forced_rate(int rate) {
+	if (bluetooth_forced_rate() == rate) {
+		return;
+	}
+	config_set_int("wireless", "bt_forced_rate", rate);
 	config_save();
 
 	job_t job = {.type = JOB_LDAC_QUALITY};

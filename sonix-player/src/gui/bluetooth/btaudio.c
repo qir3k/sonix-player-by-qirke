@@ -11,6 +11,7 @@
 #include "src/gui/shell/gui.h"
 #include "src/gui/shell/icons.h"
 #include "src/gui/shell/keyboard.h"
+#include "src/gui/shell/popover.h"
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/scrolltext.h"
 #include "src/gui/shell/settingsrow.h"
@@ -38,6 +39,8 @@ static lv_obj_t *airpods_row;
 static lv_obj_t *earfun_row;
 static lv_obj_t *codec_row;
 static lv_obj_t *codec_value;
+static lv_obj_t *rate_row;
+static lv_obj_t *rate_value;
 static lv_timer_t *poll_timer;
 
 // The codec list is its own page: how many entries there are depends on what
@@ -45,6 +48,7 @@ static lv_timer_t *poll_timer;
 static lv_obj_t *codec_screen;
 static lv_obj_t *codec_list;
 static bool resume_after_bt_reconnect;
+static void refresh_page(void);
 
 // ---------------------------------------------------------------------------
 // switching the output over
@@ -280,6 +284,26 @@ static void codec_row_cb(lv_event_t *e) {
 	switch_screen(codec_screen);
 }
 
+static void sample_rate_chosen(void *user) {
+	int rate = (int)(intptr_t)user;
+	bluetooth_set_forced_rate(rate);
+	refresh_page();
+	if (bluetooth_audio_active()) {
+		restart_playback_if_running(false);
+	}
+}
+
+static void rate_row_cb(lv_event_t *e) {
+	(void)e;
+	int current = bluetooth_forced_rate();
+	static popover_item_t items[4];
+	items[0] = (popover_item_t){.label = "Auto", .action = sample_rate_chosen, .user = (void *)(intptr_t)0, .checked = (current == 0), .verbatim = true};
+	items[1] = (popover_item_t){.label = "44.1 kHz", .action = sample_rate_chosen, .user = (void *)(intptr_t)44100, .checked = (current == 44100), .verbatim = true};
+	items[2] = (popover_item_t){.label = "48 kHz", .action = sample_rate_chosen, .user = (void *)(intptr_t)48000, .checked = (current == 48000), .verbatim = true};
+	items[3] = (popover_item_t){.label = "96 kHz", .action = sample_rate_chosen, .user = (void *)(intptr_t)96000, .checked = (current == 96000), .verbatim = true};
+	popover_show(lv_event_get_current_target(e), items, 4);
+}
+
 // ---------------------------------------------------------------------------
 // the page itself
 // ---------------------------------------------------------------------------
@@ -387,6 +411,19 @@ static void refresh_page(void) {
 	// Only while something is connected: the list is what the other end offers,
 	// so with nothing on the other end there is nothing behind the row.
 	settingsrow_chevron_active(codec_row, connected && count > 0);
+
+	if (rate_value) {
+		int forced = bluetooth_forced_rate();
+		const char *rate_str = "Auto";
+		if (forced == 44100) {
+			rate_str = "44.1 kHz";
+		} else if (forced == 48000) {
+			rate_str = "48 kHz";
+		} else if (forced == 96000) {
+			rate_str = "96 kHz";
+		}
+		lv_label_set_text(rate_value, rate_str);
+	}
 
 	refresh_airpods_row();
 	refresh_earfun_row();
@@ -665,6 +702,9 @@ void btaudio_init(gui_config_t *cfg) {
 
 	// The codec in use, and the list of what the sink offered.
 	codec_row = settingsrow_add(container, "btaudio_codecs", &codec_value, codec_row_cb, NULL);
+
+	// The sample rate row: Auto or forced (44.1, 48, 96 kHz).
+	rate_row = settingsrow_add(container, "btaudio_sample_rate", &rate_value, rate_row_cb, NULL);
 
 	// One level or two, on by default. On, the keys here move the headphones
 	// over AVRCP absolute volume and their own buttons move the number on the

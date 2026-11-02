@@ -248,6 +248,11 @@ void bluetooth_set_ldac_quality(const char *mode);
 bool bluetooth_sbc_xq(void);
 void bluetooth_set_sbc_xq(bool on);
 
+// Bluetooth forced sample rate for A2DP output.
+// 0 = Auto (default, negotiated by BlueALSA), 44100, 48000, 96000.
+int bluetooth_forced_rate(void);
+void bluetooth_set_forced_rate(int rate);
+
 // ---------------------------------------------------------------------------
 // The other direction: a device streaming to this one
 //
