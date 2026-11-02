@@ -91,6 +91,8 @@ static const lv_color_t COLOR_BLUE   = LV_COLOR_MAKE(0x4a, 0x9e, 0xff);
 static const lv_color_t COLOR_ORANGE = LV_COLOR_MAKE(0xff, 0x88, 0x00);
 static const lv_color_t COLOR_PURPLE = LV_COLOR_MAKE(0xab, 0x7f, 0xff);
 static const lv_color_t COLOR_GREEN  = LV_COLOR_MAKE(0x00, 0xe6, 0x76);
+static const lv_color_t COLOR_RED    = LV_COLOR_MAKE(0xff, 0x44, 0x44);
+static const lv_color_t COLOR_RED_BORDER = LV_COLOR_MAKE(0xff, 0x99, 0x99);
 static const lv_color_t COLOR_WHITE  = LV_COLOR_MAKE(0xff, 0xff, 0xff);
 
 static lv_color_t color_for_peg(peg_type_t type, bool hit) {
@@ -379,8 +381,8 @@ static void tick_cb(void) {
 			lv_obj_set_style_border_color(bucket_obj, lv_color_white(), 0);
 			lv_obj_set_style_border_width(bucket_obj, 2, 0);
 		} else {
-			lv_obj_set_style_bg_color(bucket_obj, LV_COLOR_MAKE(0xff, 0x44, 0x44), 0);
-			lv_obj_set_style_border_color(bucket_obj, LV_COLOR_MAKE(0xff, 0x99, 0x99), 0);
+			lv_obj_set_style_bg_color(bucket_obj, COLOR_RED, 0);
+			lv_obj_set_style_border_color(bucket_obj, COLOR_RED_BORDER, 0);
 			lv_obj_set_style_border_width(bucket_obj, 2, 0);
 		}
 		if (bucket_flash_ticks == 0) {
@@ -519,7 +521,7 @@ static void tick_cb(void) {
 			bucket_flash_ticks = 6;
 			if (catch_banner) {
 				lv_label_set_text(catch_banner, "MISSED");
-				lv_obj_set_style_text_color(catch_banner, LV_COLOR_MAKE(0xff, 0x55, 0x55), 0);
+				lv_obj_set_style_text_color(catch_banner, COLOR_RED, 0);
 				int bx = (int)bucket_x + (BUCKET_W / 2) - 20;
 				if (bx < 2) bx = 2;
 				if (bx > FIELD_W - 45) bx = FIELD_W - 45;
