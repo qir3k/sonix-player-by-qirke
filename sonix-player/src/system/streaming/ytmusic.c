@@ -2749,33 +2749,44 @@ bool ytmusic_cached_track(const char *id, char *out, size_t out_size) {
 // now-playing menu's "save to the card" copies out, and nothing else may be
 // treated as such: a file the user put on the card is already theirs.
 bool ytmusic_cache_track_id(const char *path, char *out, size_t out_size) {
-	if (!out || !out_size) return false;
-	out[0] = '\0';
+	if (out && out_size) out[0] = '\0';
+	if (!path || !path[0]) return false;
 	const char *cache = playback_cache_dir();
 	size_t prefix_len = strlen(cache);
-	if (!path || strncmp(path, cache, prefix_len) != 0 || path[prefix_len] != '/') return false;
-	const char *leaf = path + prefix_len + 1;
-	// Eleven characters and the extension: "dQw4w9WgXcQ.m4a".
-	if (strlen(leaf) != 11 + 4 || strcmp(leaf + 11, ".m4a") != 0) return false;
-	for (int i = 0; i < 11; i++) {
-		if (!isalnum((unsigned char)leaf[i]) && leaf[i] != '-' && leaf[i] != '_') return false;
+	if (strncmp(path, cache, prefix_len) == 0 && path[prefix_len] == '/') {
+		const char *leaf = path + prefix_len + 1;
+		// Eleven characters and the extension: "dQw4w9WgXcQ.m4a".
+		if (strlen(leaf) == 11 + 4 && strcmp(leaf + 11, ".m4a") == 0) {
+			for (int i = 0; i < 11; i++) {
+				if (!isalnum((unsigned char)leaf[i]) && leaf[i] != '-' && leaf[i] != '_') return false;
+			}
+			if (out && out_size) snprintf(out, out_size, "%.11s", leaf);
+			return true;
+		}
 	}
-	snprintf(out, out_size, "%.11s", leaf);
-	return true;
+	if (strstr(path, "/Music/YouTube Music/") != NULL) {
+		return true;
+	}
+	return false;
 }
 
 bool ytmusic_cache_owns(const char *path) {
+	if (!path || !path[0]) return false;
 	const char *cache = playback_cache_dir();
 	size_t prefix_len = strlen(cache);
-	if (!path || strncmp(path, cache, prefix_len) != 0 || path[prefix_len] != '/') {
-		return false;
+	if (strncmp(path, cache, prefix_len) == 0 && path[prefix_len] == '/') {
+		const char *leaf = path + prefix_len + 1;
+		if (leaf[0] && !strchr(leaf, '/')) {
+			size_t n = strlen(leaf);
+			if (n > 4 && strcmp(leaf + n - 4, ".m4a") == 0) {
+				return true;
+			}
+		}
 	}
-	const char *leaf = path + prefix_len + 1;
-	if (!leaf[0] || strchr(leaf, '/')) {
-		return false;
+	if (strstr(path, "/Music/YouTube Music/") != NULL) {
+		return true;
 	}
-	size_t n = strlen(leaf);
-	return n > 4 && strcmp(leaf + n - 4, ".m4a") == 0;
+	return false;
 }
 
 // Playback: every source the player has, in turn, until one hands over the
