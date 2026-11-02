@@ -24,9 +24,10 @@
 #include "src/system/library/library.h"
 
 #define SECTION "guess_song"
-#define MAX_POOL 128
+#define MAX_POOL 512
 #define CHOICES 4
 #define ROUND_TIME_MS 10000
+#define PLAYED_HISTORY_MAX 512
 
 typedef struct {
 	char title[128];
@@ -39,8 +40,12 @@ lv_obj_t *guess_song_screen;
 static game_frame_t frame;
 static gui_config_t *guess_cfg;
 
+static library_index_t *lib_ix = NULL;
 static song_entry_t track_pool[MAX_POOL];
 static int pool_count = 0;
+
+static char played_history[PLAYED_HISTORY_MAX][256];
+static int played_history_count = 0;
 
 static int correct_choice = -1;
 static char choice_titles[CHOICES][128];
@@ -136,6 +141,75 @@ static void load_library_tracks(void) {
 	printf("guess_song: loaded %d playable tracks\n", pool_count);
 }
 
+static bool is_in_history(const char *track_path) {
+	if (!track_path || !track_path[0]) return false;
+	for (int i = 0; i < played_history_count; i++) {
+		if (strcmp(played_history[i], track_path) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void add_to_history(const char *track_path) {
+	if (!track_path || !track_path[0]) return;
+	if (played_history_count < PLAYED_HISTORY_MAX) {
+		snprintf(played_history[played_history_count++], sizeof(played_history[0]), "%s", track_path);
+	} else {
+		memmove(played_history[0], played_history[1], sizeof(played_history[0]) * (PLAYED_HISTORY_MAX - 1));
+		snprintf(played_history[PLAYED_HISTORY_MAX - 1], sizeof(played_history[0]), "%s", track_path);
+	}
+}
+
+static bool collect_single_track_cb(const char *name, const char *path, const char *artist, void *user) {
+	song_entry_t *out = user;
+	if (path && path[0]) {
+		snprintf(out->path, sizeof(out->path), "%s", path);
+		snprintf(out->title, sizeof(out->title), "%s", (name && name[0]) ? name : "Unknown");
+		snprintf(out->artist, sizeof(out->artist), "%s", (artist && artist[0]) ? artist : "");
+	}
+	return false;
+}
+
+static int get_total_track_count(void) {
+	if (lib_ix && !library_index_stale(lib_ix)) {
+		return library_index_count(lib_ix);
+	}
+	return pool_count;
+}
+
+static bool get_track_at_index(int idx, song_entry_t *out) {
+	if (!out) return false;
+	out->path[0] = '\0';
+	out->title[0] = '\0';
+	out->artist[0] = '\0';
+	if (lib_ix && !library_index_stale(lib_ix)) {
+		library_index_window(lib_ix, idx, 1, collect_single_track_cb, out);
+		return out->path[0] != '\0';
+	}
+	if (idx >= 0 && idx < pool_count) {
+		*out = track_pool[idx];
+		return true;
+	}
+	return false;
+}
+
+static void ensure_tracks_loaded(void) {
+	if (lib_ix && library_index_stale(lib_ix)) {
+		library_index_close(lib_ix);
+		lib_ix = NULL;
+	}
+	if (!lib_ix) {
+		lib_ix = library_index_open(LIBRARY_LIST_TRACKS, LIBRARY_FILTER_NONE, NULL, LIBRARY_ORDER_DEFAULT, false);
+	}
+	if (lib_ix && library_index_count(lib_ix) >= CHOICES) {
+		return;
+	}
+	if (pool_count < CHOICES) {
+		load_library_tracks();
+	}
+}
+
 static void start_round(void);
 
 static void next_round_cb(lv_timer_t *t) {
@@ -176,13 +250,12 @@ static void round_timer_cb(lv_timer_t *t) {
 }
 
 static void start_round(void) {
-	if (pool_count < CHOICES) {
-		load_library_tracks();
-		if (pool_count < CHOICES) {
-			game_frame_show_overlay(&frame, "No Music Found",
-				"Add more audio files to your SD card to play Guess the Song!", "Refresh", NULL);
-			return;
-		}
+	ensure_tracks_loaded();
+	int total = get_total_track_count();
+	if (total < CHOICES) {
+		game_frame_show_overlay(&frame, "No Music Found",
+			"Add more audio files to your SD card to play Guess the Song!", "Refresh", NULL);
+		return;
 	}
 
 	game_frame_hide_overlay(&frame);
@@ -190,30 +263,59 @@ static void start_round(void) {
 	time_left_ms = ROUND_TIME_MS;
 	lv_bar_set_value(progress_bar, ROUND_TIME_MS, LV_ANIM_OFF);
 
-	// Pick 4 unique tracks from pool
-	int picked[CHOICES];
-	for (int i = 0; i < CHOICES; i++) {
-		while (1) {
-			int r = rand() % pool_count;
-			bool dup = false;
-			for (int j = 0; j < i; j++) {
-				if (picked[j] == r) { dup = true; break; }
-			}
-			if (!dup) {
-				picked[i] = r;
+	// Reset history if we have played almost all tracks
+	if (played_history_count >= total - 3) {
+		played_history_count = 0;
+	}
+
+	// Pick the correct song first, avoiding recent songs in history
+	song_entry_t correct_song = {0};
+	int attempts = 0;
+	while (attempts++ < 120) {
+		int r = rand() % total;
+		if (get_track_at_index(r, &correct_song) && correct_song.path[0]) {
+			if (access(correct_song.path, R_OK) == 0 && (!is_in_history(correct_song.path) || attempts > 100)) {
 				break;
 			}
 		}
 	}
+	if (!correct_song.path[0]) {
+		get_track_at_index(rand() % total, &correct_song);
+	}
+	add_to_history(correct_song.path);
 
 	correct_choice = rand() % CHOICES;
+	snprintf(choice_paths[correct_choice], sizeof(choice_paths[correct_choice]), "%s", correct_song.path);
+	snprintf(choice_titles[correct_choice], sizeof(choice_titles[correct_choice]), "%s", correct_song.title);
+
+	// Pick 3 unique decoy songs
+	for (int i = 0; i < CHOICES; i++) {
+		if (i == correct_choice) continue;
+
+		song_entry_t decoy = {0};
+		int decoy_attempts = 0;
+		while (decoy_attempts++ < 120) {
+			int r = rand() % total;
+			if (get_track_at_index(r, &decoy) && decoy.path[0]) {
+				bool dup = (strcmp(decoy.path, correct_song.path) == 0 ||
+				            strcasecmp(decoy.title, correct_song.title) == 0);
+				for (int j = 0; j < i; j++) {
+					if (j == correct_choice) continue;
+					if (strcmp(choice_paths[j], decoy.path) == 0 ||
+					    strcasecmp(choice_titles[j], decoy.title) == 0) {
+						dup = true;
+						break;
+					}
+				}
+				if (!dup) break;
+			}
+		}
+		snprintf(choice_paths[i], sizeof(choice_paths[i]), "%s", decoy.path);
+		snprintf(choice_titles[i], sizeof(choice_titles[i]), "%s", decoy.title);
+	}
 
 	for (int i = 0; i < CHOICES; i++) {
-		int pidx = picked[i];
-		snprintf(choice_paths[i], sizeof(choice_paths[i]), "%s", track_pool[pidx].path);
-		snprintf(choice_titles[i], sizeof(choice_titles[i]), "%s", track_pool[pidx].title);
 		lv_label_set_text(choice_lbl[i], choice_titles[i]);
-
 		lv_obj_set_style_bg_color(choice_btn[i], lv_color_hex(0x222226), 0);
 		lv_obj_set_style_border_width(choice_btn[i], 1, 0);
 		lv_obj_set_style_border_color(choice_btn[i], lv_color_hex(0x333338), 0);
@@ -293,6 +395,10 @@ static void hide_cb(void) {
 	if (next_timer) {
 		lv_timer_delete(next_timer);
 		next_timer = NULL;
+	}
+	if (lib_ix) {
+		library_index_close(lib_ix);
+		lib_ix = NULL;
 	}
 }
 
