@@ -377,7 +377,33 @@ static void refresh_now_playing_card(void) {
 		scrolltext_set(np_title, state.metadata.title[0] ? state.metadata.title
 														 : (slash ? slash + 1 : state.current_file));
 		// The same name the player line and the screensaver show.
-		const char *artist = metadata_shown_artist(&state.metadata);
+		char podcast_artist[256] = "";
+		if (podcastcache_is_episode(state.current_file)) {
+			podcast_feed_t feed;
+			if (player_current_podcast_feed(NULL, &feed)) {
+				if (feed.author[0] && feed.title[0] && strcmp(feed.author, feed.title) != 0) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", feed.author, feed.title);
+				} else if (feed.author[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.author);
+				} else if (feed.title[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.title);
+				}
+			}
+			if (!podcast_artist[0]) {
+				char author[128] = "";
+				char feed_title[128] = "";
+				podcastcache_tag(state.current_file, "feed_author", author, sizeof(author));
+				podcastcache_tag(state.current_file, "artist", feed_title, sizeof(feed_title));
+				if (author[0] && feed_title[0] && strcmp(author, feed_title) != 0) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", author, feed_title);
+				} else if (author[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", author);
+				} else if (feed_title[0]) {
+					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed_title);
+				}
+			}
+		}
+		const char *artist = podcast_artist[0] ? podcast_artist : metadata_shown_artist(&state.metadata);
 		scrolltext_set(np_artist, artist);
 	} else {
 		scrolltext_set(np_title, tr("quickpanel_no_track"));

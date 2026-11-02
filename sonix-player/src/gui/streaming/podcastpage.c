@@ -2594,6 +2594,7 @@ static void paint_order_button(void) {
 	lv_obj_t *icon = lv_obj_get_child(order_btn, 0);
 	if (icon) {
 		lv_image_set_src(icon, podcastpage_episodes_newest_first() ? &icon_sort_date_new : &icon_sort_date_old);
+		settingsrow_scale_corner_icon(icon, g_cfg);
 	}
 }
 

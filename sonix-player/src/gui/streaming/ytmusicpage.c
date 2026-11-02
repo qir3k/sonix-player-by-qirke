@@ -2212,6 +2212,9 @@ static void search_field_cb(lv_event_t *e) {
 
 static void search_cb(lv_event_t *e) {
 	(void)e;
+	if (!ytmusic_configured() || !wifi_is_connected()) {
+		return;
+	}
 	show_search(YTMUSIC_FILTER_SONGS);
 }
 
@@ -2849,6 +2852,39 @@ static void build_settings_page(gui_config_t *cfg) {
 	switcher_attach_back_gesture(settings_screen);
 }
 
+static lv_obj_t *home_settings_btn;
+static lv_obj_t *home_downloads_btn;
+static lv_obj_t *home_search_btn;
+
+static void update_home_corner_buttons(void) {
+	bool configured = ytmusic_configured();
+	bool search = configured && wifi_is_connected();
+	bool downloads = true;
+	bool settings = true;
+	int slot = 0;
+	if (home_settings_btn) {
+		lv_obj_set_hidden(home_settings_btn, !settings);
+		if (settings) {
+			settingsrow_place_corner_button(home_settings_btn, page_cfg, slot++);
+		}
+	}
+	if (home_downloads_btn) {
+		lv_obj_set_hidden(home_downloads_btn, !downloads);
+		if (downloads) {
+			settingsrow_place_corner_button(home_downloads_btn, page_cfg, slot++);
+		}
+	}
+	if (home_search_btn) {
+		lv_obj_set_hidden(home_search_btn, !search);
+		if (search) {
+			settingsrow_place_corner_button(home_search_btn, page_cfg, slot++);
+		}
+	}
+	if (ytmusic_screen && page_cfg) {
+		settingsrow_title_corner_slots(settingsrow_page_title(ytmusic_screen), page_cfg, slot);
+	}
+}
+
 // The rows, or the no-network notice in their place. Rebuilt on every entry
 // into the page, because the Wi-Fi can have been turned on or off while the
 // user was in the settings that did it.
@@ -2857,6 +2893,17 @@ static void home_build(void) {
 		return;
 	}
 	lv_obj_clean(home_container);
+	update_home_corner_buttons();
+
+	if (!ytmusic_configured()) {
+		lv_obj_t *note = lv_label_create(home_container);
+		lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+		lv_obj_set_width(note, lv_pct(100));
+		lv_obj_add_style(note, &theme_style_text_dim, 0);
+		lv_obj_set_style_text_font(note, &font_ui_20, 0);
+		lv_label_set_text(note, tr("api_keys_unavailable"));
+		return;
+	}
 
 	if (!wifi_is_connected()) {
 		// The same notice as the podcast and Tidal pages: what is missing, on
@@ -2923,9 +2970,9 @@ void ytmusicpage_init(gui_config_t *cfg) {
 	// the right, downloads beside it, the magnifier furthest left. Slots count
 	// from the right edge, so slot 2 is the leftmost of the three.
 	settingsrow_title_corner_slots(settingsrow_page_title(ytmusic_screen), cfg, 3);
-	ytmusic_corner_button(cfg, 0, &icon_music_settings, open_settings_cb);
-	ytmusic_corner_button(cfg, 1, &icon_import, open_downloads_cb);
-	ytmusic_corner_button(cfg, 2, &icon_search, search_cb);
+	home_settings_btn = ytmusic_corner_button(cfg, 0, &icon_music_settings, open_settings_cb);
+	home_downloads_btn = ytmusic_corner_button(cfg, 1, &icon_import, open_downloads_cb);
+	home_search_btn = ytmusic_corner_button(cfg, 2, &icon_search, search_cb);
 	home_build();
 	lv_obj_add_event_cb(ytmusic_screen, home_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
 	player_sheet_attach_drag(home_container, true);

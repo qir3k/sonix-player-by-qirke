@@ -168,6 +168,25 @@ void ytmusic_init(void) {
 	ytlikes_init();
 }
 
+bool ytmusic_configured(void) {
+	const char *from_file = streamkeys_ytmusic_api_key();
+	if (from_file && from_file[0]) {
+		return true;
+	}
+	if (YTMUSIC_API_KEY && YTMUSIC_API_KEY[0]) {
+		return true;
+	}
+	const char *cfg_key = config_get("ytmusic", "api_key", "");
+	if (cfg_key && cfg_key[0]) {
+		return true;
+	}
+	const char *relay = config_get("ytmusic", "relay_base", "");
+	if (relay && relay[0]) {
+		return true;
+	}
+	return false;
+}
+
 bool ytmusic_set_session_cookie(const char *cookie, char *error, size_t error_size) {
 	if (error && error_size) error[0] = '\0';
 	if (!cookie || strnlen(cookie, YTMUSIC_COOKIE_MAX) >= YTMUSIC_COOKIE_MAX ||

@@ -257,6 +257,7 @@ extern const lv_image_dsc_t icon_menu_tag_manager;
 extern const lv_image_dsc_t icon_qobuz_badge;
 extern const lv_image_dsc_t icon_tidal_badge;
 extern const lv_image_dsc_t icon_podcast_badge;
+extern const lv_image_dsc_t icon_ytmusic_badge;
 extern const lv_image_dsc_t icon_tidal_mark;
 extern const lv_image_dsc_t icon_qobuz_mark;
 extern const lv_image_dsc_t icon_year;
