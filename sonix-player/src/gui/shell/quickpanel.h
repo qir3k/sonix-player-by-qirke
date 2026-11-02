@@ -83,6 +83,7 @@ typedef enum {
 	QP_BTN_SLEEP_AUDIOBOOK,
 	QP_BTN_WIFI_TRANSFER,
 	QP_BTN_GAPLESS,
+	QP_BTN_PEQ_PROFILE,
 	QP_BTN_COUNT,
 	QP_BTN_NONE = QP_BTN_COUNT, // an empty place in the grid
 } quickpanel_button_t;

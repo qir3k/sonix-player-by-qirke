@@ -4111,7 +4111,7 @@ void podcastpage_init(gui_config_t *cfg) {
 	// Slots are counted from the edge leftwards: the gear against it, the
 	// downloads beside it, the magnifier last.
 	settings_btn = corner_button(cfg, 0, &icon_music_settings, open_settings_cb);
-	saved_btn = corner_button(cfg, 1, &icon_podcast_downloaded, open_saved_cb);
+	saved_btn = corner_button(cfg, 1, &icon_import, open_saved_cb);
 	search_btn = corner_button(cfg, 2, &icon_search, open_search_cb);
 	// Its slot is decided by refresh_corner_buttons() on every list, since it
 	// is the only button that shares its list with nothing.

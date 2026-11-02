@@ -2924,7 +2924,7 @@ void ytmusicpage_init(gui_config_t *cfg) {
 	// from the right edge, so slot 2 is the leftmost of the three.
 	settingsrow_title_corner_slots(settingsrow_page_title(ytmusic_screen), cfg, 3);
 	ytmusic_corner_button(cfg, 0, &icon_music_settings, open_settings_cb);
-	ytmusic_corner_button(cfg, 1, &icon_podcast_downloaded, open_downloads_cb);
+	ytmusic_corner_button(cfg, 1, &icon_import, open_downloads_cb);
 	ytmusic_corner_button(cfg, 2, &icon_search, search_cb);
 	home_build();
 	lv_obj_add_event_cb(ytmusic_screen, home_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);

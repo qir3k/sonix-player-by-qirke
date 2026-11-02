@@ -5079,7 +5079,7 @@ void tidalpage_init(gui_config_t *cfg) {
 	tidal_cfg = cfg;
 	settings_btn = corner_button(cfg, 0, &icon_music_settings, open_settings_cb);
 	search_btn = corner_button(cfg, 1, &icon_search, open_search_cb);
-	downloads_btn = corner_button(cfg, 2, &icon_podcast_downloaded, open_downloads_cb);
+	downloads_btn = corner_button(cfg, 2, &icon_import, open_downloads_cb);
 
 	build_list_page(cfg);
 	build_search_page(cfg);

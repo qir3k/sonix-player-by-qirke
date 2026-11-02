@@ -15,6 +15,7 @@
 #include "src/gui/library/filespage.h"
 #include "src/gui/metronome/metronome.h"
 #include "src/gui/tagmanager/tagmanager.h"
+#include "src/gui/games/gamespage.h"
 #include "src/gui/notes/notes.h"
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/gridpage.h"
@@ -76,6 +77,9 @@ static bool more_tokyo_icon(const char *label, const lv_image_dsc_t **icon, them
 	} else if (strcmp(label, "notes") == 0) {
 		*icon = &icon_notes;
 		*tone = THEME_SEMANTIC_PURPLE;
+	} else if (strcmp(label, "games") == 0) {
+		*icon = &icon_files_game;
+		*tone = THEME_SEMANTIC_PURPLE;
 	} else if (strcmp(label, "metronome") == 0) {
 		*icon = &icon_metronome;
 		*tone = THEME_SEMANTIC_GREEN;
@@ -130,29 +134,11 @@ static int more_grid_columns(int count) { return count > 2 * MORE_GRID_ROWS ? 3 
 // screen is not showing.
 static const grid_entry_t MORE_ENTRIES[] = {
 	{"dac", &icon_menu_dac, &dacpage_screen, NULL},
-#if GB_CORE
-	// The Game Boy emulator. Present only when the binary was built with
-	// GB=1 (see the Makefile).
-	{"gearboy", &icon_menu_gearboy, &gearboypage_screen, NULL},
-#endif
-	// An action rather than a screen: the shelf reads the Ebook folder again
-	// every time it is opened, so a book copied onto the card turns up
-	// without a restart.
+	{"games", &icon_menu_gearboy, NULL, gamespage_open},
 	{"books", &icon_menu_books, NULL, ebookpage_open},
-	// An action for the same reason the shelf is one: the listing is read
-	// when the page is entered, so a card that changed under the player
-	// shows what is on it now.
 	{"file_explorer", &icon_menu_file_explorer, NULL, filespage_open},
-	// An action: the artwork is read from the resource tree on the way in.
-	{"flappy_bird", &icon_menu_flappy_bird, NULL, flappybird_open},
-	// Both of these are actions rather than screens for the file
-	// manager's reason: the calculator repaints its display from the sum
-	// it was left holding, and the notes shelf reads the card.
 	{"calculator", &icon_menu_calculator, NULL, calculator_open},
 	{"notes", &icon_menu_notes, NULL, notes_open},
-	// An action for the calculator's reason: the tempo and the bar come back
-	// from the settings as they were left, and the page repaints them on the
-	// way in.
 	{"metronome", &icon_menu_metronome, NULL, metronome_open},
 	{"tag_manager", &icon_menu_tag_manager, NULL, tagmanager_open},
 };
@@ -179,6 +165,7 @@ static const char *more_addon_of(const char *slug) {
 	if (strcmp(slug, "calculator") == 0) return "calculator";
 	if (strcmp(slug, "notes") == 0) return "notes";
 	if (strcmp(slug, "metronome") == 0) return "metronome";
+	if (strcmp(slug, "games") == 0) return "games";
 	if (strcmp(slug, "tag_manager") == 0 || strcmp(slug, "Tag Manager") == 0) return "tagmanager";
 	// The shelf is the ebook module; Audiobooks is the library's own page and
 	// stays whatever the books shelf is set to.
@@ -199,7 +186,11 @@ static int more_entries_build(grid_entry_t *out, int max) {
 		}
 		const char *slug = menuorder_slug(MENUORDER_MORE, id);
 		const char *addon = more_addon_of(slug);
-		if (addon && !addons_enabled(addon)) {
+		if (strcmp(slug, "games") == 0) {
+			if (!addons_any_game_enabled()) {
+				continue;
+			}
+		} else if (addon && !addons_enabled(addon)) {
 			continue;
 		}
 		// This slot holds Audiobooks whenever the shelf is elsewhere or off.

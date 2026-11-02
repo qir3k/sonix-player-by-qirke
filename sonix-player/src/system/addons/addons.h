@@ -41,4 +41,7 @@ void addons_set(const char *id, bool on);
 // Defaults, in order, for a build that wants to start from a smaller set.
 void addons_apply_defaults(bool (*is_default)(const char *id));
 
+// True if at least one game (Gearboy, Flappy Bird, 2048, Snake, Dino) is enabled.
+bool addons_any_game_enabled(void);
+
 #endif /* ADDONS_H */

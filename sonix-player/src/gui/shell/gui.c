@@ -56,6 +56,10 @@
 #include "src/gui/metronome/metronome.h"
 #include "src/gui/notes/notes.h"
 #include "src/gui/tagmanager/tagmanager.h"
+#include "src/gui/games/dino.h"
+#include "src/gui/games/game2048.h"
+#include "src/gui/games/snake.h"
+#include "src/gui/games/gamespage.h"
 #include "src/gui/shell/morepage.h"
 #include "src/gui/shell/popover.h"
 #include "src/gui/nowplaying/trackmenu.h"
@@ -791,6 +795,16 @@ void gui_init(gui_config_t *cfg) {
 	if (addons_enabled("metronome")) {
 		metronome_init(cfg); // before morepage: its tile opens it
 	}
+	if (addons_enabled("game2048")) {
+		game2048_init(cfg);
+	}
+	if (addons_enabled("snake")) {
+		snake_init(cfg);
+	}
+	if (addons_enabled("dino")) {
+		dino_init(cfg);
+	}
+	gamespage_init(cfg);
 	morepage_init(cfg);
 	textview_init(cfg); // before filespage: a text file tapped there opens here
 	pictureview_init(cfg); // likewise, for JPEG and PNG pictures

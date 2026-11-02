@@ -65,8 +65,11 @@ what makes a hand-edited config safe.
 | `calculator` | The calculator | More |
 | `notes` | The notes shelf and its editor | More |
 | `tagmanager` | On-device ID3/FLAC tag editor and cover art finder | More |
-| `flappy` | Flappy Bird | More |
-| `gearboy` | The Game Boy emulator, its settings and player | More |
+| `flappy` | Flappy Bird | Games |
+| `gearboy` | The Game Boy emulator, its settings and player | Games |
+| `game2048` | 2048 puzzle game | Games |
+| `snake` | Classic Snake game | Games |
+| `dino` | Chrome Dino runner game | Games |
 | `ebook` | The Books shelf and the EPUB reader | More |
 
 ## How the gate is used

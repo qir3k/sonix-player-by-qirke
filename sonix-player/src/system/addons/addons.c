@@ -57,9 +57,14 @@ static const addon_t ADDONS[] = {
 	{"calculator", "calculator", "addon_calculator_note", "plugins_section_tools"},
 	{"notes", "notes", "addon_notes_note", "plugins_section_tools"},
 	{"tagmanager", "tag_manager", "addon_tagmanager_note", "plugins_section_tools"},
-	{"flappy", "flappy_bird", "addon_flappy_note", "plugins_section_tools"},
-	{"gearboy", "gearboy", "addon_gearboy_note", "plugins_section_tools"},
 	{"metronome", "metronome", "addon_metronome_note", "plugins_section_tools"},
+#if GB_CORE
+	{"gearboy", "gearboy", "addon_gearboy_note", "plugins_section_games"},
+#endif
+	{"flappy", "flappy_bird", "addon_flappy_note", "plugins_section_games"},
+	{"game2048", "2048", "addon_2048_note", "plugins_section_games"},
+	{"snake", "snake", "addon_snake_note", "plugins_section_games"},
+	{"dino", "dino", "addon_dino_note", "plugins_section_games"},
 };
 
 int addons_count(void) { return (int)(sizeof(ADDONS) / sizeof(ADDONS[0])); }
@@ -109,4 +114,14 @@ void addons_apply_defaults(bool (*is_default)(const char *id)) {
 		config_set_bool("addons", ADDONS[i].id, is_default(ADDONS[i].id));
 	}
 	config_save();
+}
+
+bool addons_any_game_enabled(void) {
+#if GB_CORE
+	if (addons_enabled("gearboy")) return true;
+#endif
+	return addons_enabled("flappy") ||
+	       addons_enabled("game2048") ||
+	       addons_enabled("snake") ||
+	       addons_enabled("dino");
 }
