@@ -33,6 +33,7 @@ lv_obj_t *btaudio_screen;
 #define BTAUDIO_POLL_MS 700
 
 static lv_obj_t *volume_switch;
+static lv_obj_t *speex_switch;
 static lv_obj_t *output_row;
 static lv_obj_t *output_value;
 static lv_obj_t *airpods_row;
@@ -379,6 +380,15 @@ static void volume_toggle_cb(lv_event_t *e) {
 	bluetooth_set_volume_sync(lv_obj_has_state(volume_switch, LV_STATE_CHECKED));
 }
 
+static void speex_toggle_cb(lv_event_t *e) {
+	(void)e;
+	config_set_bool("bluetooth", "speex_resampler", lv_obj_has_state(speex_switch, LV_STATE_CHECKED));
+	config_save();
+	if (bluetooth_audio_active()) {
+		restart_playback_if_running(false);
+	}
+}
+
 static void refresh_name_row(void);
 
 static void refresh_page(void) {
@@ -434,6 +444,14 @@ static void refresh_page(void) {
 			lv_obj_add_state(volume_switch, LV_STATE_CHECKED);
 		} else {
 			lv_obj_remove_state(volume_switch, LV_STATE_CHECKED);
+		}
+	}
+	bool speex_enabled = config_get_bool("bluetooth", "speex_resampler", true);
+	if (speex_switch && lv_obj_has_state(speex_switch, LV_STATE_CHECKED) != speex_enabled) {
+		if (speex_enabled) {
+			lv_obj_add_state(speex_switch, LV_STATE_CHECKED);
+		} else {
+			lv_obj_remove_state(speex_switch, LV_STATE_CHECKED);
 		}
 	}
 }
@@ -705,6 +723,11 @@ void btaudio_init(gui_config_t *cfg) {
 
 	// The sample rate row: Auto or forced (44.1, 48, 96 kHz).
 	rate_row = settingsrow_add(container, "btaudio_sample_rate", &rate_value, rate_row_cb, NULL);
+
+	settingsrow_toggle(container, "btaudio_speex_resampler", &speex_switch, speex_toggle_cb);
+	if (config_get_bool("bluetooth", "speex_resampler", true)) {
+		lv_obj_add_state(speex_switch, LV_STATE_CHECKED);
+	}
 
 	// One level or two, on by default. On, the keys here move the headphones
 	// over AVRCP absolute volume and their own buttons move the number on the
