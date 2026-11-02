@@ -91,14 +91,26 @@ const addon_t *addons_find(const char *id) {
 	return NULL;
 }
 
+static bool addon_is_default_on(const char *id) {
+	if (!id) {
+		return false;
+	}
+	// Fresh install defaults:
+	// Only audiobooks, subsonic, graphic equaliser (eq), parametric equaliser (peq),
+	// and MSEB (mseb) are enabled by default. Everything else starts off.
+	if (strcmp(id, "audiobooks") == 0) return true;
+	if (strcmp(id, "subsonic") == 0) return true;
+	if (strcmp(id, "eq") == 0) return true;
+	if (strcmp(id, "peq") == 0) return true;
+	if (strcmp(id, "mseb") == 0) return true;
+	return false;
+}
+
 bool addons_enabled(const char *id) {
 	if (!id) {
 		return true;
 	}
-	// Everything starts on: an update that adds a module must not take the
-	// interface somebody had away, and the player that was shipped before this
-	// existed behaves exactly as it did.
-	return config_get_bool("addons", id, true);
+	return config_get_bool("addons", id, addon_is_default_on(id));
 }
 
 void addons_set(const char *id, bool on) {
