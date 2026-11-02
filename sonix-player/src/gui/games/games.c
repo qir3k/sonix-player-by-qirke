@@ -445,6 +445,13 @@ static bool swipe_dir(const lv_point_t *from, const lv_point_t *to, lv_dir_t *ou
 	return false;
 }
 
+static void get_field_point(game_frame_t *g, lv_point_t *out) {
+	lv_point_t raw;
+	lv_indev_get_point(lv_indev_active(), &raw);
+	out->x = raw.x - g->field_left;
+	out->y = raw.y - g->field_top;
+}
+
 static void press_cb(lv_event_t *e) {
 	game_frame_t *g = lv_event_get_user_data(e);
 	if (!g->active) {
@@ -452,7 +459,7 @@ static void press_cb(lv_event_t *e) {
 	}
 
 	lv_point_t p;
-	lv_indev_get_point(lv_indev_active(), &p);
+	get_field_point(g, &p);
 
 	// The panel going dark leaves the run held. The touch that picks it up
 	// again is for that alone: it must not also jump, turn or undo.
@@ -470,27 +477,56 @@ static void press_cb(lv_event_t *e) {
 	g->touch.down = true;
 	g->touch.swiped = false;
 	g->touch.from = p;
-	if (g->hooks && g->hooks->on_tap) {
-		g->hooks->on_tap(&p);
+
+	// Immediate tap if the game does not differentiate long press
+	if (!g->hooks || !g->hooks->on_long_press) {
+		if (g->hooks && g->hooks->on_tap) {
+			g->hooks->on_tap(&p);
+		}
+	}
+}
+
+static void short_click_cb(lv_event_t *e) {
+	game_frame_t *g = lv_event_get_user_data(e);
+	if (!g->active || g->overlay_up) {
+		return;
+	}
+	if (g->hooks && g->hooks->on_long_press && g->hooks->on_tap) {
+		g->hooks->on_tap(&g->touch.from);
+	}
+}
+
+static void long_press_cb(lv_event_t *e) {
+	game_frame_t *g = lv_event_get_user_data(e);
+	if (!g->active || g->overlay_up) {
+		return;
+	}
+	g->touch.swiped = true;
+	if (g->hooks && g->hooks->on_long_press) {
+		g->hooks->on_long_press(&g->touch.from);
 	}
 }
 
 static void drag_cb(lv_event_t *e) {
 	game_frame_t *g = lv_event_get_user_data(e);
-	if (!g->active || !g->touch.down || g->touch.swiped) {
+	if (!g->active || !g->touch.down) {
 		return;
 	}
 	lv_point_t p;
-	lv_indev_get_point(lv_indev_active(), &p);
-	lv_dir_t dir;
-	if (!swipe_dir(&g->touch.from, &p, &dir)) {
-		return;
+	get_field_point(g, &p);
+
+	if (g->hooks && g->hooks->on_drag) {
+		g->hooks->on_drag(&p);
 	}
-	// The swipe replaces whatever the press that began it already asked for:
-	// a turn the finger then drew over the glass is not a second order.
-	g->touch.swiped = true;
-	if (g->hooks && g->hooks->on_swipe) {
-		g->hooks->on_swipe(dir, &p);
+
+	if (!g->touch.swiped) {
+		lv_dir_t dir;
+		if (swipe_dir(&g->touch.from, &p, &dir)) {
+			g->touch.swiped = true;
+			if (g->hooks && g->hooks->on_swipe) {
+				g->hooks->on_swipe(dir, &p);
+			}
+		}
 	}
 }
 
@@ -676,13 +712,14 @@ static void build_stats(game_frame_t *g, gui_config_t *cfg) {
 }
 
 static void build_field(game_frame_t *g, gui_config_t *cfg) {
+	g->field_left = (int)cfg->padding;
 	g->field_top = EDGE_INSET + HEAD_H + BAND_GAP + STATS_H + BAND_GAP;
 	g->field_h = (int)cfg->screen_height - g->field_top - HINT_H - BAND_GAP - EDGE_INSET;
 	g->field_w = (int)cfg->screen_width - 2 * cfg->padding;
 
 	g->field = lv_obj_create(g->screen);
 	lv_obj_remove_style_all(g->field);
-	lv_obj_set_pos(g->field, cfg->padding, g->field_top);
+	lv_obj_set_pos(g->field, g->field_left, g->field_top);
 	lv_obj_set_size(g->field, g->field_w, g->field_h);
 	lv_obj_set_style_bg_opa(g->field, LV_OPA_TRANSP, 0);
 	lv_obj_set_scrollable(g->field, false);
@@ -695,6 +732,8 @@ static void build_field(game_frame_t *g, gui_config_t *cfg) {
 	// else. The player sheet and the swipe-back are not attached either, so
 	// a sideways drag belongs to the game alone.
 	lv_obj_add_event_cb(g->field, press_cb, LV_EVENT_PRESSED, g);
+	lv_obj_add_event_cb(g->field, short_click_cb, LV_EVENT_SHORT_CLICKED, g);
+	lv_obj_add_event_cb(g->field, long_press_cb, LV_EVENT_LONG_PRESSED, g);
 	lv_obj_add_event_cb(g->field, drag_cb, LV_EVENT_PRESSING, g);
 	lv_obj_add_event_cb(g->field, release_cb, LV_EVENT_RELEASED, g);
 	lv_obj_add_event_cb(g->field, release_cb, LV_EVENT_PRESS_LOST, g);

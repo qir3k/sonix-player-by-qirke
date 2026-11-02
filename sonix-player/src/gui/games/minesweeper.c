@@ -60,8 +60,11 @@ static const lv_color_t num_colors[] = {
 
 static void update_hint(void) {
 	char buf[64];
-	snprintf(buf, sizeof(buf), "Mines: %d • Mode: %s",
-		 MINES_COUNT - flags_placed, flag_mode ? "Flag ⚑" : "Dig ⛏");
+	if (flag_mode) {
+		snprintf(buf, sizeof(buf), "Mines: %d • Mode: Flag ⚑", MINES_COUNT - flags_placed);
+	} else {
+		snprintf(buf, sizeof(buf), "Mines: %d • Tap: Dig • Hold: Flag ⚑", MINES_COUNT - flags_placed);
+	}
 	game_frame_set_hint(&frame, buf);
 }
 
@@ -184,10 +187,43 @@ static void overlay_btn_cb(void) {
 	new_game();
 }
 
+static void flag_cell(int idx) {
+	if (game_over || state[idx] == CELL_REVEALED) return;
+	if (state[idx] == CELL_HIDDEN) {
+		state[idx] = CELL_FLAGGED;
+		flags_placed++;
+		update_cell_visual(idx);
+		update_hint();
+	} else if (state[idx] == CELL_FLAGGED) {
+		state[idx] = CELL_HIDDEN;
+		flags_placed--;
+		update_cell_visual(idx);
+		update_hint();
+	}
+}
+
+static void long_press_cb(const lv_point_t *p) {
+	if (game_over) return;
+	int bx = (frame.field_w - (COLS * CELL_SIZE + (COLS - 1) * CELL_GAP)) / 2;
+	int by = (frame.field_h - (ROWS * CELL_SIZE + (ROWS - 1) * CELL_GAP)) / 2;
+	int x = p->x - bx;
+	int y = p->y - by;
+	if (x < 0 || y < 0) return;
+
+	int col = x / (CELL_SIZE + CELL_GAP);
+	int row = y / (CELL_SIZE + CELL_GAP);
+	if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+
+	int idx = row * COLS + col;
+	flag_cell(idx);
+}
+
 static void tap_cb(const lv_point_t *p) {
 	if (game_over) return;
-	int x = p->x - (frame.field_w - (COLS * CELL_SIZE + (COLS - 1) * CELL_GAP)) / 2;
-	int y = p->y - (frame.field_h - (ROWS * CELL_SIZE + (ROWS - 1) * CELL_GAP)) / 2;
+	int bx = (frame.field_w - (COLS * CELL_SIZE + (COLS - 1) * CELL_GAP)) / 2;
+	int by = (frame.field_h - (ROWS * CELL_SIZE + (ROWS - 1) * CELL_GAP)) / 2;
+	int x = p->x - bx;
+	int y = p->y - by;
 	if (x < 0 || y < 0) return;
 
 	int col = x / (CELL_SIZE + CELL_GAP);
@@ -197,17 +233,7 @@ static void tap_cb(const lv_point_t *p) {
 	int idx = row * COLS + col;
 
 	if (flag_mode) {
-		if (state[idx] == CELL_HIDDEN) {
-			state[idx] = CELL_FLAGGED;
-			flags_placed++;
-			update_cell_visual(idx);
-			update_hint();
-		} else if (state[idx] == CELL_FLAGGED) {
-			state[idx] = CELL_HIDDEN;
-			flags_placed--;
-			update_cell_visual(idx);
-			update_hint();
-		}
+		flag_cell(idx);
 		return;
 	}
 
@@ -294,6 +320,7 @@ static void minesweeper_build(gui_config_t *cfg) {
 	static const game_hooks_t hooks = {
 		.on_show = show_cb,
 		.on_tap = tap_cb,
+		.on_long_press = long_press_cb,
 		.on_theme = theme_cb,
 	};
 

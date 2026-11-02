@@ -221,16 +221,30 @@ static void undo_move(void) {
 	update_all_visuals();
 }
 
+static int find_sudoku_coord(int pos) {
+	for (int i = 0; i < SUDOKU_SIZE; i++) {
+		int start = i * CELL_PX + (i / 3) * 2;
+		int end = start + CELL_PX;
+		if (pos >= start && pos < end) {
+			return i;
+		}
+	}
+	int approx = pos / CELL_PX;
+	if (approx < 0) approx = 0;
+	if (approx >= SUDOKU_SIZE) approx = SUDOKU_SIZE - 1;
+	return approx;
+}
+
 static void tap_cb(const lv_point_t *p) {
-	int bx = (frame.field_w - (SUDOKU_SIZE * CELL_PX + 4)) / 2;
-	int by = 6;
+	int board_size = SUDOKU_SIZE * CELL_PX + 4;
+	int bx = (frame.field_w - board_size) / 2;
+	int by = 4;
 	int x = p->x - bx;
 	int y = p->y - by;
-	if (x < 0 || y < 0) return;
+	if (x < 0 || y < 0 || x >= board_size || y >= board_size) return;
 
-	int col = x / CELL_PX;
-	int row = y / CELL_PX;
-	if (col < 0 || col >= SUDOKU_SIZE || row < 0 || row >= SUDOKU_SIZE) return;
+	int col = find_sudoku_coord(x);
+	int row = find_sudoku_coord(y);
 
 	selected_cell = row * SUDOKU_SIZE + col;
 	update_all_visuals();
