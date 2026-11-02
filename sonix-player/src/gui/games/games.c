@@ -53,7 +53,7 @@
 // pointer to one safe.
 // ---------------------------------------------------------------------------
 
-#define GAME_FRAME_MAX 4
+#define GAME_FRAME_MAX 16
 
 static game_frame_t *frames[GAME_FRAME_MAX];
 static int frame_count;

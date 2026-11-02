@@ -35,6 +35,7 @@
 #include "src/system/core/config.h"
 #include "src/system/core/lang.h"
 #include "src/system/playback/device_state.h"
+#include "src/system/library/metadata.h"
 
 lv_obj_t *main_menu_screen;
 
@@ -472,36 +473,34 @@ static void main_menu_refresh_now_playing(void) {
 		}
 
 		char podcast_artist[256] = "";
-		if (!state.live && state.current_file[0] && podcastcache_is_episode(state.current_file)) {
-			podcast_feed_t feed;
-			if (player_current_podcast_feed(NULL, &feed)) {
-				if (feed.author[0] && feed.title[0] && strcmp(feed.author, feed.title) != 0) {
-					snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", feed.author, feed.title);
-				} else if (feed.author[0]) {
-					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.author);
-				} else if (feed.title[0]) {
-					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.title);
-				}
+		podcast_feed_t feed;
+		if (player_current_podcast_feed(NULL, &feed)) {
+			if (feed.author[0] && feed.title[0] && strcmp(feed.author, feed.title) != 0) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", feed.author, feed.title);
+			} else if (feed.author[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.author);
+			} else if (feed.title[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed.title);
 			}
-			if (!podcast_artist[0]) {
-				char author[128] = "";
-				char feed_title[128] = "";
-				podcastcache_tag(state.current_file, "feed_author", author, sizeof(author));
-				podcastcache_tag(state.current_file, "artist", feed_title, sizeof(feed_title));
-				if (author[0] && feed_title[0] && strcmp(author, feed_title) != 0) {
-					snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", author, feed_title);
-				} else if (author[0]) {
-					snprintf(podcast_artist, sizeof(podcast_artist), "%s", author);
-				} else if (feed_title[0]) {
-					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed_title);
-				}
+		}
+		if (!podcast_artist[0] && state.current_file[0]) {
+			char author[128] = "";
+			char feed_title[128] = "";
+			podcastcache_tag(state.current_file, "feed_author", author, sizeof(author));
+			podcastcache_tag(state.current_file, "artist", feed_title, sizeof(feed_title));
+			if (author[0] && feed_title[0] && strcmp(author, feed_title) != 0) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s - %s", author, feed_title);
+			} else if (author[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", author);
+			} else if (feed_title[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed_title);
 			}
 		}
 
 		if (podcast_artist[0]) {
 			artist = podcast_artist;
-		} else if (state.metadata.artist[0]) {
-			artist = state.metadata.artist;
+		} else {
+			artist = metadata_shown_artist(&state.metadata);
 		}
 
 		lv_image_set_src(mini_player_icon,

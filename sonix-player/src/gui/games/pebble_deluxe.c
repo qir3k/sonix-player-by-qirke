@@ -35,7 +35,7 @@
 #define PEG_SIZE 10
 #define PEG_R 5.0f
 
-#define GUIDE_DOTS 5
+#define GUIDE_DOTS 6
 
 lv_obj_t *pebble_deluxe_screen;
 
@@ -68,13 +68,21 @@ static lv_obj_t *bucket_obj;
 static float bucket_x = (FIELD_W - BUCKET_W) / 2.0f;
 static float bucket_dir = 1.0f;
 static float bucket_speed = 1.6f;
+static int last_bucket_draw_x = -999;
+static int bucket_flash_ticks = 0;
+static bool bucket_caught = false;
+static lv_obj_t *catch_banner;
 
 static lv_obj_t *ball_obj;
 static float ball_x, ball_y;
 static float ball_vx, ball_vy;
 static bool ball_in_play = false;
+static int last_ball_draw_x = -999;
+static int last_ball_draw_y = -999;
+static int shot_ticks = 0;
 
 static float aim_angle = 1.57079f; // default straight down (PI/2)
+static bool is_aiming = false;
 static int balls_left = 10;
 static int current_level = 1;
 static bool game_over = false;
@@ -99,9 +107,9 @@ static lv_color_t color_for_peg(peg_type_t type, bool hit) {
 static void update_hint(void) {
 	char buf[64];
 	if (ball_in_play) {
-		snprintf(buf, sizeof(buf), "Targets: %d ? Balls: %d", targets_left, balls_left);
+		snprintf(buf, sizeof(buf), "Targets: %d - Balls: %d", targets_left, balls_left);
 	} else {
-		snprintf(buf, sizeof(buf), "Lvl %d ? Balls: %d ? Targets: %d", current_level, balls_left, targets_left);
+		snprintf(buf, sizeof(buf), "Lvl %d - Balls: %d - Targets: %d", current_level, balls_left, targets_left);
 	}
 	game_frame_set_hint(&frame, buf);
 }
@@ -117,7 +125,7 @@ static void update_aim(float touch_x, float touch_y) {
 			if (ball_in_play || game_over) {
 				lv_obj_set_hidden(guide_dots[i], true);
 			} else {
-				float dist = 16.0f + i * 15.0f;
+				float dist = 16.0f + i * 14.0f;
 				float gx = CANNON_X + cosf(aim_angle) * dist - 2.0f;
 				float gy = CANNON_Y + sinf(aim_angle) * dist - 2.0f;
 				lv_obj_set_pos(guide_dots[i], (int)gx, (int)gy);
@@ -158,7 +166,6 @@ static void build_level(int lvl) {
 
 	if (lvl == 1) {
 		// Level 1: Classic Wedge / Pyramid
-		// Rows of pegs widening downwards
 		int rows = 5;
 		float start_y = 48.0f;
 		for (int r = 0; r < rows; r++) {
@@ -221,30 +228,51 @@ static void build_level(int lvl) {
 
 static void reset_ball_to_cannon(void) {
 	ball_in_play = false;
+	is_aiming = false;
+	shot_ticks = 0;
 	ball_x = CANNON_X - BALL_R;
 	ball_y = CANNON_Y - BALL_R;
-	lv_obj_set_pos(ball_obj, (int)ball_x, (int)ball_y);
+	last_ball_draw_x = (int)ball_x;
+	last_ball_draw_y = (int)ball_y;
+	if (ball_obj) {
+		lv_obj_set_pos(ball_obj, last_ball_draw_x, last_ball_draw_y);
+		lv_obj_set_hidden(ball_obj, false);
+	}
 	update_aim(CANNON_X, CANNON_Y + 40.0f);
 	update_hint();
 }
 
 static void new_game(void) {
+	game_frame_freeze(&frame, false);
 	game_frame_hide_overlay(&frame);
 	game_over = false;
+	ball_in_play = false;
+	is_aiming = false;
+	shot_ticks = 0;
+	bucket_flash_ticks = 0;
+	if (catch_banner) lv_obj_set_hidden(catch_banner, true);
 	current_level = 1;
 	balls_left = 10;
 	game_frame_set_score(&frame, 0);
 	build_level(current_level);
 	reset_ball_to_cannon();
+	game_frame_set_period(&frame, 25);
 }
 
 static void next_level(void) {
+	game_frame_freeze(&frame, false);
 	game_frame_hide_overlay(&frame);
 	game_over = false;
+	ball_in_play = false;
+	is_aiming = false;
+	shot_ticks = 0;
+	bucket_flash_ticks = 0;
+	if (catch_banner) lv_obj_set_hidden(catch_banner, true);
 	current_level++;
 	balls_left += 5; // bonus balls for next level
 	build_level(current_level);
 	reset_ball_to_cannon();
+	game_frame_set_period(&frame, 25);
 }
 
 static void fire_ball(void) {
@@ -252,13 +280,19 @@ static void fire_ball(void) {
 
 	ball_in_play = true;
 	balls_left--;
+	shot_ticks = 0;
 
 	float speed = 4.8f;
 	ball_vx = cosf(aim_angle) * speed;
 	ball_vy = sinf(aim_angle) * speed;
 	ball_x = CANNON_X + cosf(aim_angle) * 12.0f - BALL_R;
 	ball_y = CANNON_Y + sinf(aim_angle) * 12.0f - BALL_R;
-	lv_obj_set_pos(ball_obj, (int)ball_x, (int)ball_y);
+	last_ball_draw_x = (int)ball_x;
+	last_ball_draw_y = (int)ball_y;
+	if (ball_obj) {
+		lv_obj_set_pos(ball_obj, last_ball_draw_x, last_ball_draw_y);
+		lv_obj_set_hidden(ball_obj, false);
+	}
 
 	for (int i = 0; i < GUIDE_DOTS; i++) {
 		if (guide_dots[i]) lv_obj_set_hidden(guide_dots[i], true);
@@ -267,6 +301,11 @@ static void fire_ball(void) {
 }
 
 static void end_of_shot(void) {
+	ball_in_play = false;
+	is_aiming = false;
+	shot_ticks = 0;
+	if (ball_obj) lv_obj_set_hidden(ball_obj, true);
+
 	// Pop all hit pegs
 	for (int i = 0; i < peg_count; i++) {
 		if (pegs[i].alive && pegs[i].hit) {
@@ -283,16 +322,15 @@ static void end_of_shot(void) {
 	if (targets_left <= 0) {
 		// Level cleared!
 		game_frame_add_score(&frame, 2000);
+		game_over = true;
 		if (current_level >= 4) {
 			char msg[64];
 			snprintf(msg, sizeof(msg), "All Levels Beat! Score: %d", frame.score);
 			game_frame_show_overlay(&frame, "Victory!", msg, "Play Again", NULL);
-			game_over = true;
 		} else {
 			char msg[64];
 			snprintf(msg, sizeof(msg), "Stage Cleared! +2000 pts");
 			game_frame_show_overlay(&frame, "Awesome!", msg, "Next Level", NULL);
-			game_over = true;
 		}
 		return;
 	}
@@ -301,8 +339,8 @@ static void end_of_shot(void) {
 		// Game Over
 		char msg[64];
 		snprintf(msg, sizeof(msg), "Out of balls! Score: %d", frame.score);
-		game_frame_show_overlay(&frame, "Game Over", msg, "Try Again", NULL);
 		game_over = true;
+		game_frame_show_overlay(&frame, "Game Over", msg, "Try Again", NULL);
 		return;
 	}
 
@@ -310,18 +348,22 @@ static void end_of_shot(void) {
 }
 
 static void tap_cb(const lv_point_t *p) {
-	if (game_over) return;
+	if (game_over || ball_in_play) return;
+	is_aiming = true;
 	update_aim((float)p->x, (float)p->y);
-	fire_ball();
 }
 
 static void drag_cb(const lv_point_t *p) {
-	if (game_over || ball_in_play) return;
+	if (game_over || ball_in_play || !is_aiming) return;
 	update_aim((float)p->x, (float)p->y);
 }
 
 static void release_cb(const lv_point_t *p) {
-	if (game_over || ball_in_play) return;
+	if (game_over || ball_in_play || !is_aiming) {
+		is_aiming = false;
+		return;
+	}
+	is_aiming = false;
 	if (p) {
 		update_aim((float)p->x, (float)p->y);
 	}
@@ -329,7 +371,27 @@ static void release_cb(const lv_point_t *p) {
 }
 
 static void tick_cb(void) {
-	// Move moving bucket at bottom
+	// 1. Bucket flash / catch feedback animation
+	if (bucket_flash_ticks > 0) {
+		bucket_flash_ticks--;
+		if (bucket_caught) {
+			lv_obj_set_style_bg_color(bucket_obj, COLOR_GREEN, 0);
+			lv_obj_set_style_border_color(bucket_obj, lv_color_white(), 0);
+			lv_obj_set_style_border_width(bucket_obj, 2, 0);
+		} else {
+			lv_obj_set_style_bg_color(bucket_obj, LV_COLOR_MAKE(0xff, 0x44, 0x44), 0);
+			lv_obj_set_style_border_color(bucket_obj, LV_COLOR_MAKE(0xff, 0x99, 0x99), 0);
+			lv_obj_set_style_border_width(bucket_obj, 2, 0);
+		}
+		if (bucket_flash_ticks == 0) {
+			lv_obj_set_style_bg_color(bucket_obj, theme()->accent, 0);
+			lv_obj_set_style_border_color(bucket_obj, lv_color_white(), 0);
+			lv_obj_set_style_border_width(bucket_obj, 1, 0);
+			if (catch_banner) lv_obj_set_hidden(catch_banner, true);
+		}
+	}
+
+	// 2. Move bucket at bottom
 	bucket_x += bucket_dir * bucket_speed;
 	if (bucket_x <= 0) {
 		bucket_x = 0;
@@ -338,9 +400,22 @@ static void tick_cb(void) {
 		bucket_x = FIELD_W - BUCKET_W;
 		bucket_dir = -1.0f;
 	}
-	lv_obj_set_pos(bucket_obj, (int)bucket_x, BUCKET_Y);
+	int ibx = (int)bucket_x;
+	if (ibx != last_bucket_draw_x) {
+		last_bucket_draw_x = ibx;
+		lv_obj_set_pos(bucket_obj, ibx, BUCKET_Y);
+	}
 
 	if (!ball_in_play || game_over) return;
+
+	shot_ticks++;
+	// Anti-stuck watchdog: downward impulse if stuck too long
+	if (shot_ticks > 450) {
+		ball_vy += 0.25f;
+	}
+	if (shot_ticks > 750) {
+		ball_y = FIELD_H + 2.0f;
+	}
 
 	// Ball physics: gravity
 	ball_vy += 0.14f;
@@ -384,14 +459,21 @@ static void tick_cb(void) {
 
 		if (dist_sq <= min_dist * min_dist) {
 			float dist = sqrtf(dist_sq);
-			if (dist < 0.01f) dist = 0.01f;
+			if (dist < 0.001f) dist = 0.001f;
 			float nx = dx / dist;
 			float ny = dy / dist;
 
+			// Push ball outside peg to resolve penetration and eliminate lag/jitter
+			float overlap = min_dist - dist;
+			ball_x += nx * (overlap + 0.3f);
+			ball_y += ny * (overlap + 0.3f);
+			ball_cx = ball_x + BALL_R;
+			ball_cy = ball_y + BALL_R;
+
 			float dot = ball_vx * nx + ball_vy * ny;
 			if (dot < 0) {
-				ball_vx = (ball_vx - 1.85f * dot * nx) * 0.95f;
-				ball_vy = (ball_vy - 1.85f * dot * ny) * 0.95f;
+				ball_vx = (ball_vx - 1.85f * dot * nx) * 0.94f;
+				ball_vy = (ball_vy - 1.85f * dot * ny) * 0.94f;
 			}
 
 			if (!pegs[i].hit) {
@@ -416,20 +498,50 @@ static void tick_cb(void) {
 
 	// Check if ball dropped out of field
 	if (ball_y >= FIELD_H) {
-		// Check bucket catch
-		if (ball_cx >= bucket_x && ball_cx <= (bucket_x + BUCKET_W)) {
+		// Check bucket catch with visual feedback
+		if (ball_cx >= bucket_x - 2.0f && ball_cx <= (bucket_x + BUCKET_W + 2.0f)) {
 			balls_left++;
 			game_frame_add_score(&frame, 500);
 			game_frame_set_hint(&frame, "FREE BALL! Caught in bucket!");
+			bucket_caught = true;
+			bucket_flash_ticks = 10;
+			if (catch_banner) {
+				lv_label_set_text(catch_banner, "+FREE BALL!");
+				lv_obj_set_style_text_color(catch_banner, COLOR_GREEN, 0);
+				int bx = (int)bucket_x + (BUCKET_W / 2) - 35;
+				if (bx < 2) bx = 2;
+				if (bx > FIELD_W - 75) bx = FIELD_W - 75;
+				lv_obj_set_pos(catch_banner, bx, BUCKET_Y - 18);
+				lv_obj_set_hidden(catch_banner, false);
+			}
+		} else {
+			bucket_caught = false;
+			bucket_flash_ticks = 6;
+			if (catch_banner) {
+				lv_label_set_text(catch_banner, "MISSED");
+				lv_obj_set_style_text_color(catch_banner, LV_COLOR_MAKE(0xff, 0x55, 0x55), 0);
+				int bx = (int)bucket_x + (BUCKET_W / 2) - 20;
+				if (bx < 2) bx = 2;
+				if (bx > FIELD_W - 45) bx = FIELD_W - 45;
+				lv_obj_set_pos(catch_banner, bx, BUCKET_Y - 18);
+				lv_obj_set_hidden(catch_banner, false);
+			}
 		}
 		end_of_shot();
 		return;
 	}
 
-	lv_obj_set_pos(ball_obj, (int)ball_x, (int)ball_y);
+	int ibx_ball = (int)ball_x;
+	int iby_ball = (int)ball_y;
+	if (ibx_ball != last_ball_draw_x || iby_ball != last_ball_draw_y) {
+		last_ball_draw_x = ibx_ball;
+		last_ball_draw_y = iby_ball;
+		lv_obj_set_pos(ball_obj, ibx_ball, iby_ball);
+	}
 }
 
 static void overlay_primary_cb(void) {
+	is_aiming = false;
 	if (targets_left <= 0 && current_level < 4) {
 		next_level();
 	} else {
@@ -483,7 +595,7 @@ static void pebble_deluxe_build(gui_config_t *cfg) {
 		lv_obj_set_style_bg_color(guide_dots[i], lv_color_white(), 0);
 		lv_obj_set_style_border_width(guide_dots[i], 0, 0);
 		lv_obj_set_style_shadow_width(guide_dots[i], 0, 0);
-		lv_obj_set_style_bg_opa(guide_dots[i], LV_OPA_60 - i * 10, 0);
+		lv_obj_set_style_bg_opa(guide_dots[i], LV_OPA_60 - i * 8, 0);
 		lv_obj_set_hidden(guide_dots[i], true);
 	}
 
@@ -496,6 +608,11 @@ static void pebble_deluxe_build(gui_config_t *cfg) {
 	lv_obj_set_style_border_width(bucket_obj, 1, 0);
 	lv_obj_set_style_border_color(bucket_obj, lv_color_white(), 0);
 	lv_obj_set_style_shadow_width(bucket_obj, 0, 0);
+
+	// Catch feedback banner
+	catch_banner = lv_label_create(frame.field);
+	lv_obj_set_style_text_font(catch_banner, &font_ui_14, 0);
+	lv_obj_set_hidden(catch_banner, true);
 
 	// Peg objects
 	for (int i = 0; i < MAX_PEGS; i++) {
@@ -515,6 +632,9 @@ static void pebble_deluxe_build(gui_config_t *cfg) {
 	lv_obj_set_style_border_width(ball_obj, 0, 0);
 	lv_obj_set_style_shadow_width(ball_obj, 0, 0);
 	lv_obj_set_hidden(ball_obj, false);
+
+	// Add header restart button
+	game_frame_add_header_button(&frame, &icon_game_restart, new_game);
 
 	update_aim(CANNON_X, CANNON_Y + 40.0f);
 }
