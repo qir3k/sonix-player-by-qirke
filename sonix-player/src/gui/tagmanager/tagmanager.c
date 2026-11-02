@@ -9,6 +9,7 @@
 #include "src/gui/shell/settingsrow.h"
 #include "src/gui/shell/switcher.h"
 #include "src/gui/shell/theme.h"
+#include "src/gui/shell/gui.h"
 #include "src/gui/shell/toast.h"
 #include "src/system/library/metadata.h"
 #include "src/system/tagmanager/artsearch.h"
@@ -126,11 +127,25 @@ static int compare(const void *a, const void *b) {
 		return x->dir ? -1 : 1;
 	return strcasecmp(x->name, y->name);
 }
-static void browse(void);
+typedef struct {
+	unsigned generation;
+	bool open_screen;
+	char root[PATH_SIZE];
+	char dir[PATH_SIZE];
+	struct entry entries[ENTRY_MAX];
+	int count;
+	bool truncated;
+	bool err_no_music;
+	bool err_read;
+} browse_job_t;
+
+static unsigned browse_generation;
+static bool browsing;
+static void browse_launch(const char *target_dir, bool open_screen);
 static void show_details(void);
 static void find_cover_cb(lv_event_t *e);
 static void clicked(lv_event_t *e) {
-	if (gesture())
+	if (gesture() || browsing)
 		return;
 	int i = (int)(intptr_t)lv_event_get_user_data(e);
 	if (i < 0 || i >= count)
@@ -146,8 +161,7 @@ static void clicked(lv_event_t *e) {
 		return;
 	}
 	if (entries[i].dir) {
-		snprintf(dir, sizeof(dir), "%s", path);
-		browse();
+		browse_launch(path, false);
 	} else {
 		snprintf(file, sizeof(file), "%s", path);
 		details = true;
@@ -162,41 +176,14 @@ static void label(const char *text) {
 	lv_obj_add_style(l, &theme_style_text_dim, 0);
 	lv_obj_set_style_text_font(l, &font_ui_18, 0);
 }
-static void browse(void) {
+static void render_entries(void) {
 	details = false;
 	lv_obj_clean(list);
 	cover_free(&cover);
 	art_clear();
-	count = 0;
-	truncated = false;
 	lv_label_set_text(heading, "Tag Manager");
 	const char *name = strrchr(dir, '/');
 	label(!strcmp(dir, root) ? "Music" : (name && name[1] ? name + 1 : dir));
-	DIR *d = opendir(dir);
-	if (!d) {
-		label("Cannot read folder");
-		return;
-	}
-	struct dirent *de;
-	while ((de = readdir(d))) {
-		if (de->d_name[0] == '.' || strlen(de->d_name) >= sizeof(entries[0].name))
-			continue;
-		char path[PATH_SIZE];
-		struct stat st;
-		if (!join(path, sizeof(path), dir, de->d_name) || lstat(path, &st))
-			continue;
-		bool isdir = S_ISDIR(st.st_mode);
-		if (!isdir && !(S_ISREG(st.st_mode) && audio(de->d_name)))
-			continue;
-		if (count == ENTRY_MAX) {
-			truncated = true;
-			continue;
-		}
-		snprintf(entries[count].name, sizeof(entries[count].name), "%s", de->d_name);
-		entries[count++].dir = isdir;
-	}
-	closedir(d);
-	qsort(entries, count, sizeof(entries[0]), compare);
 	for (int i = 0; i < count; i++) {
 		lv_obj_t *r = settingsrow_add(list, "", NULL, clicked, (void *)(intptr_t)i);
 		lv_label_set_text(settingsrow_name_label(r), entries[i].name);
@@ -207,6 +194,143 @@ static void browse(void) {
 	if (truncated)
 		label("First 200 entries shown");
 	lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+}
+
+static void browse_complete(void *arg) {
+	browse_job_t *job = arg;
+	if (job->generation != browse_generation) {
+		free(job);
+		return;
+	}
+	browsing = false;
+	toast_busy_end();
+
+	if (job->err_no_music) {
+		toast_error("Music folder not found on card");
+		free(job);
+		return;
+	}
+	if (job->err_read) {
+		label("Cannot read folder");
+		free(job);
+		return;
+	}
+
+	if (!root[0] && job->root[0]) {
+		snprintf(root, sizeof(root), "%s", job->root);
+	}
+	snprintf(dir, sizeof(dir), "%s", job->dir);
+	count = job->count;
+	truncated = job->truncated;
+	memcpy(entries, job->entries, sizeof(entries[0]) * count);
+
+	if (!screen)
+		build();
+	hide_editor();
+	render_entries();
+
+	if (job->open_screen) {
+		switch_screen(screen);
+	}
+	free(job);
+}
+
+static void *browse_worker(void *arg) {
+	browse_job_t *job = arg;
+
+	if (!job->root[0]) {
+		char music[PATH_SIZE];
+		struct stat st;
+		if (!join(music, sizeof(music), config->sd_root_path, "Music")) {
+			job->err_no_music = true;
+			gui_post(browse_complete, job);
+			return NULL;
+		}
+		if (lstat(music, &st) || !S_ISDIR(st.st_mode)) {
+			DIR *card = opendir(config->sd_root_path);
+			bool found = false;
+			if (card) {
+				struct dirent *de;
+				while ((de = readdir(card))) {
+					if (strcasecmp(de->d_name, "Music"))
+						continue;
+					if (join(music, sizeof(music), config->sd_root_path, de->d_name) && !lstat(music, &st) && S_ISDIR(st.st_mode)) {
+						found = true;
+						break;
+					}
+				}
+				closedir(card);
+			}
+			if (!found) {
+				job->err_no_music = true;
+				gui_post(browse_complete, job);
+				return NULL;
+			}
+		}
+		snprintf(job->root, sizeof(job->root), "%s", music);
+		snprintf(job->dir, sizeof(job->dir), "%s", job->root);
+	}
+
+	DIR *d = opendir(job->dir);
+	if (!d) {
+		job->err_read = true;
+		gui_post(browse_complete, job);
+		return NULL;
+	}
+	struct dirent *de;
+	while ((de = readdir(d))) {
+		if (de->d_name[0] == '.' || strlen(de->d_name) >= sizeof(job->entries[0].name))
+			continue;
+		char path[PATH_SIZE];
+		struct stat st;
+		if (!join(path, sizeof(path), job->dir, de->d_name) || lstat(path, &st))
+			continue;
+		bool isdir = S_ISDIR(st.st_mode);
+		if (!isdir && !(S_ISREG(st.st_mode) && audio(de->d_name)))
+			continue;
+		if (job->count == ENTRY_MAX) {
+			job->truncated = true;
+			continue;
+		}
+		snprintf(job->entries[job->count].name, sizeof(job->entries[job->count].name), "%s", de->d_name);
+		job->entries[job->count++].dir = isdir;
+	}
+	closedir(d);
+	qsort(job->entries, job->count, sizeof(job->entries[0]), compare);
+	gui_post(browse_complete, job);
+	return NULL;
+}
+
+static void browse_launch(const char *target_dir, bool open_screen) {
+	if (!config || !config->sd_root_path || !config->sd_root_path[0] || !gui_card_available()) {
+		gui_notify_no_card();
+		return;
+	}
+	browse_job_t *job = calloc(1, sizeof(*job));
+	if (!job) {
+		toast_error("Out of memory");
+		return;
+	}
+	browsing = true;
+	job->generation = ++browse_generation;
+	job->open_screen = open_screen;
+	if (root[0]) {
+		snprintf(job->root, sizeof(job->root), "%s", root);
+	}
+	if (target_dir && target_dir[0]) {
+		snprintf(job->dir, sizeof(job->dir), "%s", target_dir);
+	} else if (job->root[0]) {
+		snprintf(job->dir, sizeof(job->dir), "%s", job->root);
+	}
+
+	toast_busy("loading");
+
+	pthread_t thread;
+	if (pthread_create(&thread, NULL, browse_worker, job) != 0) {
+		browse_worker(job);
+		return;
+	}
+	pthread_detach(thread);
 }
 static void hide_editor(void) {
 	keyboard_set_visible(keyboard, false);
@@ -479,6 +603,11 @@ static void art_tick(lv_timer_t *timer) {
 }
 static void unloaded_cb(lv_event_t *e) {
 	(void)e;
+	browse_generation++;
+	browsing = false;
+	if (toast_busy_showing()) {
+		toast_busy_end();
+	}
 	art_generation++;
 	art_state = 0; // late network replies cannot change the next screen
 }
@@ -510,7 +639,7 @@ static bool back(void) {
 		return true;
 	}
 	if (details) {
-		browse();
+		render_entries();
 		return true;
 	}
 	if (strcmp(dir, root)) {
@@ -519,7 +648,7 @@ static bool back(void) {
 			*p = 0;
 		else
 			snprintf(dir, sizeof(dir), "%s", root);
-		browse();
+		browse_launch(dir, false);
 		return true;
 	}
 	return false;
@@ -563,40 +692,10 @@ void tagmanager_open(void) {
 		gui_notify_no_card();
 		return;
 	}
-	char music[PATH_SIZE];
-	struct stat st;
-	if (!join(music, sizeof(music), config->sd_root_path, "Music")) {
-		toast_error("Path too long");
+	if (browsing) {
 		return;
 	}
-	if (lstat(music, &st) || !S_ISDIR(st.st_mode)) {
-		// FAT is case-insensitive; host/exFAT setups may use music or MUSIC.
-		DIR *card = opendir(config->sd_root_path);
-		bool found = false;
-		if (card) {
-			struct dirent *de;
-			while ((de = readdir(card))) {
-				if (strcasecmp(de->d_name, "Music"))
-					continue;
-				if (join(music, sizeof(music), config->sd_root_path, de->d_name) && !lstat(music, &st) && S_ISDIR(st.st_mode)) {
-					found = true;
-					break;
-				}
-			}
-			closedir(card);
-		}
-		if (!found) {
-			toast_error("Music folder not found on card");
-			return;
-		}
-	}
-	snprintf(root, sizeof(root), "%s", music);
-	snprintf(dir, sizeof(dir), "%s", root);
 	art_generation++;
 	art_state = 0;
-	if (!screen)
-		build();
-	hide_editor();
-	browse();
-	switch_screen(screen);
+	browse_launch(root[0] ? root : NULL, true);
 }
