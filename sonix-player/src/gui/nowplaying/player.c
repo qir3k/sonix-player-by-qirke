@@ -5572,14 +5572,8 @@ static void update_format_label(const device_state_t *state) {
 		return;
 	}
 
-	// Nothing on a podcast. "16/44.1 MP3" is true and useless: an episode is
-	// not chosen for its audio quality, there is no better version to buy, and
-	// the number takes the line under the title without saying anything worth
-	// knowing.
-	if (podcastcache_is_episode(state->current_file)) {
-		lv_label_set_text(format_label, "");
-		return;
-	}
+	// Podcast episodes show their decoded bitrate and format line
+	// rather than being hidden.
 
 	const char *dot = strrchr(state->current_file, '.');
 	char kind[8] = "";

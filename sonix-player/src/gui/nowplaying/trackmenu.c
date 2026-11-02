@@ -39,6 +39,7 @@
 #include "src/system/streaming/ytmusic.h"
 #include "src/system/library/library.h"
 #include "src/system/playback/playlist.h"
+#include "src/system/bluetooth/bluetooth.h"
 #include "src/system/core/utils.h"
 
 lv_obj_t *queue_screen;
@@ -988,6 +989,37 @@ static void details_fill(const char *file, const song_metadata_t *tags, int bits
 		details_add_row("trackmenu_source", "tidal");
 	} else {
 		details_add_row("trackmenu_file", file);
+	}
+
+	if (playing) {
+		char out_buf[96];
+		if (bluetooth_audio_active()) {
+			char sel_codec[BT_CODEC_MAX] = "";
+			char codecs[BT_MAX_CODECS][BT_CODEC_MAX];
+			bluetooth_get_codecs(codecs, BT_MAX_CODECS, sel_codec, sizeof(sel_codec));
+			const char *cname = sel_codec[0] ? sel_codec : "Bluetooth";
+			if (strcasecmp(cname, "samsung-SC") == 0) cname = "SSC";
+			else if (strcasecmp(cname, "LDAC") == 0) {
+				const char *q = bluetooth_ldac_quality();
+				if (strcmp(q, "high") == 0) cname = "LDAC Quality";
+				else if (strcmp(q, "standard") == 0) cname = "LDAC Standard";
+				else if (strcmp(q, "abr") == 0) cname = "LDAC Auto";
+			} else if (strcasecmp(cname, "SBC") == 0 && bluetooth_sbc_xq()) {
+				cname = "SBC-XQ";
+			}
+			snprintf(out_buf, sizeof(out_buf), "Bluetooth (%s)", cname);
+		} else {
+			int dsd = audio_get_dsd_multiple();
+			if (dsd > 0) {
+				snprintf(out_buf, sizeof(out_buf), "Headphone DAC (DSD%d Direct Bit-Perfect)", dsd);
+			} else if (sample_rate > 0) {
+				snprintf(out_buf, sizeof(out_buf), "Headphone DAC (%g kHz / %d-bit Bit-Perfect)",
+						 sample_rate / 1000.0, bits > 0 ? bits : 16);
+			} else {
+				snprintf(out_buf, sizeof(out_buf), "Headphone DAC (Direct Bit-Perfect)");
+			}
+		}
+		details_add_row("wireless_audio_output", out_buf);
 	}
 
 	// A local music file can be the seed of a Smart Mix; episodes cannot.
