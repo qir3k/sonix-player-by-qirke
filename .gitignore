@@ -55,3 +55,9 @@ sonix-packer/__pycache__/
 
 # The InnerTube key the build compiles in, read by sonix-player/Makefile.
 sonix-player/.ytmusic-key
+
+
+# Local tooling & agents
+.freebuff/
+.kilo/
+repomix-output.xml
