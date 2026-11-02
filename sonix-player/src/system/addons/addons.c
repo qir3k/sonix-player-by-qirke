@@ -63,8 +63,6 @@ static const addon_t ADDONS[] = {
 #endif
 	{"flappy", "flappy_bird", "addon_flappy_note", "plugins_section_games"},
 	{"game2048", "2048", "addon_2048_note", "plugins_section_games"},
-	{"snake", "snake", "addon_snake_note", "plugins_section_games"},
-	{"dino", "dino", "addon_dino_note", "plugins_section_games"},
 	{"pocket_arcade", "arcade", "addon_arcade_note", "plugins_section_games"},
 	{"arcade_mines", "arcade_mines", "addon_arcade_mines_note", "plugins_section_games"},
 	{"arcade_bricks", "arcade_bricks", "addon_arcade_bricks_note", "plugins_section_games"},
@@ -138,8 +136,6 @@ bool addons_any_game_enabled(void) {
 #endif
 	return addons_enabled("flappy") ||
 	       addons_enabled("game2048") ||
-	       addons_enabled("snake") ||
-	       addons_enabled("dino") ||
 	       addons_enabled("pocket_arcade") ||
 	       addons_enabled("arcade_mines") ||
 	       addons_enabled("arcade_bricks") ||

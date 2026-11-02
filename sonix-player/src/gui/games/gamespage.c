@@ -6,9 +6,7 @@
 
 #include "src/gui/board_profile.h"
 #include "src/gui/flappybird/flappybird.h"
-#include "src/gui/games/dino.h"
 #include "src/gui/games/game2048.h"
-#include "src/gui/games/snake.h"
 #include "src/gui/pocket_arcade/pocket_arcade.h"
 #if GB_CORE
 #include "src/gui/gearboy/gearboypage.h"
@@ -46,12 +44,7 @@ static bool games_tokyo_icon(const char *label, const lv_image_dsc_t **icon, the
 	} else if (strcmp(label, "2048") == 0) {
 		*icon = &icon_game_2048;
 		*tone = THEME_SEMANTIC_BLUE;
-	} else if (strcmp(label, "snake") == 0) {
-		*icon = &icon_game_snake;
-		*tone = THEME_SEMANTIC_GREEN;
-	} else if (strcmp(label, "dino") == 0) {
-		*icon = &icon_game_dino;
-		*tone = THEME_SEMANTIC_AMBER;
+
 	} else if (strncmp(label, "arcade", 6) == 0) {
 		*icon = &icon_menu_arcade;
 		*tone = THEME_SEMANTIC_PURPLE;
@@ -78,8 +71,6 @@ static const grid_entry_t ALL_GAMES[] = {
 #endif
 	{"flappy_bird", &icon_menu_flappy_bird, NULL, flappybird_open},
 	{"2048", &icon_game_2048, NULL, game2048_open},
-	{"snake", &icon_game_snake, NULL, snake_open},
-	{"dino", &icon_game_dino, NULL, dino_open},
 	{"arcade", &icon_menu_arcade, NULL, pocket_arcade_open},
 	{"arcade_mines", &icon_menu_arcade, NULL, arcade_mines_open},
 	{"arcade_bricks", &icon_menu_arcade, NULL, arcade_bricks_open},
@@ -107,10 +98,7 @@ static int games_entries_build(grid_entry_t *out, int max) {
 			enabled = addons_enabled("flappy");
 		} else if (strcmp(label, "2048") == 0) {
 			enabled = addons_enabled("game2048");
-		} else if (strcmp(label, "snake") == 0) {
-			enabled = addons_enabled("snake");
-		} else if (strcmp(label, "dino") == 0) {
-			enabled = addons_enabled("dino");
+
 		} else if (strcmp(label, "arcade") == 0) {
 			enabled = addons_enabled("pocket_arcade");
 		} else if (strncmp(label, "arcade_", 7) == 0) {

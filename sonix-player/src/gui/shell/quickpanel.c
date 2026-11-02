@@ -435,16 +435,18 @@ static void refresh_now_playing_card(void) {
 	int back = book ? audiobook_skip_back() : podcast ? podcast_skip_back() : 0;
 	int forward = book ? audiobook_skip_forward() : podcast ? podcast_skip_forward() : 0;
 	if (np_prev_icon) {
-		lv_image_set_src(np_prev_icon, !skips                       ? &icon_skip_back_large
-									   : back == AUDIOBOOK_SKIP_HUGE ? &icon_prev_60
-									   : back == AUDIOBOOK_SKIP_LONG ? &icon_prev_30
-																	 : &icon_prev_10);
+		const lv_image_dsc_t *src = !skips                       ? &icon_skip_back_large
+								   : back == AUDIOBOOK_SKIP_HUGE ? &icon_prev_60
+								   : back == AUDIOBOOK_SKIP_LONG ? &icon_prev_30
+															 : &icon_prev_10;
+		iconscale_set_scaled(np_prev_icon, src, qp_scale(QP_SCALE_NP_SKIP));
 	}
 	if (np_next_icon) {
-		lv_image_set_src(np_next_icon, !skips                          ? &icon_skip_forward_large
-									   : forward == AUDIOBOOK_SKIP_HUGE ? &icon_next_60
-									   : forward == AUDIOBOOK_SKIP_LONG ? &icon_next_30
-																		: &icon_next_10);
+		const lv_image_dsc_t *src = !skips                          ? &icon_skip_forward_large
+								   : forward == AUDIOBOOK_SKIP_HUGE ? &icon_next_60
+								   : forward == AUDIOBOOK_SKIP_LONG ? &icon_next_30
+																: &icon_next_10;
+		iconscale_set_scaled(np_next_icon, src, qp_scale(QP_SCALE_NP_SKIP));
 	}
 
 	// Repeat/shuffle goes away on both books and podcasts: a queue of episodes is
@@ -507,7 +509,7 @@ static void refresh_now_playing_card(void) {
 	}
 	// The mark the whole interface uses (Plugins -> Favourite mark): the star
 	// for somebody used to the older builds, the heart by default.
-	lv_image_set_src(np_star_icon, fav ? favmark_filled() : favmark_outline());
+	iconscale_set_scaled(np_star_icon, fav ? favmark_filled() : favmark_outline(), qp_scale(QP_SCALE_NP_SMALL));
 	// The same colours the player's own heart takes, so the two cannot disagree:
 	// Adwaita's yellow on the light and dark themes, and on the two V1
 	// monochrome palettes the accent the whole page is drawn in -- the yellow
@@ -1994,7 +1996,7 @@ static void refresh_audio_buttons(void) {
 	if (gain_btn) {
 		lv_obj_t *icon = lv_obj_get_child(gain_btn, 0);
 		if (icon) {
-			lv_image_set_src(icon, high ? &icon_high_gain : &icon_low_gain);
+			iconscale_set_scaled(icon, high ? &icon_high_gain : &icon_low_gain, qp_scale(QP_SCALE_CIRCLE));
 		}
 	}
 	circle_button_set_on(gain_btn, high);
@@ -2006,7 +2008,7 @@ static void refresh_audio_buttons(void) {
 	if (gapless_btn) {
 		lv_obj_t *icon = lv_obj_get_child(gapless_btn, 0);
 		if (icon) {
-			lv_image_set_src(icon, gapless ? &icon_gapless_on_quick : &icon_gapless_off_quick);
+			iconscale_set_scaled(icon, gapless ? &icon_gapless_on_quick : &icon_gapless_off_quick, qp_scale(QP_SCALE_CIRCLE));
 		}
 	}
 	circle_button_set_on(gapless_btn, gapless);

@@ -443,7 +443,7 @@ static settingsrow_leading_icon_t *leading_icon_record(lv_obj_t *row) {
 // cover beside it.
 static int32_t leading_icon_width(lv_obj_t *row) {
 	settingsrow_leading_icon_t *leading = leading_icon_record(row);
-	if (!leading || (!leading->art && !theme_uses_function_glyphs())) {
+	if (!leading || !leading->art) {
 		return 0;
 	}
 	int32_t width = lv_obj_get_width(leading->icon);
@@ -708,7 +708,7 @@ static void settingsrow_refresh_theme(void) {
 		settingsrow_update_edges(row, flat_rows);
 		// A picture is content and stays drawn in every theme; a glyph exists
 		// only where the theme draws glyphs.
-		lv_obj_set_hidden(icon, !tokyo && !leading_icons[i].art);
+		lv_obj_set_hidden(icon, !leading_icons[i].art);
 		lv_obj_t *label = lv_obj_get_child(row, 0);
 		if (label && lv_obj_check_type(label, &lv_label_class)) {
 			lv_obj_set_style_text_font(label, &font_ui_24, 0);
@@ -1198,6 +1198,7 @@ void settingsrow_add_icon(lv_obj_t *row, const lv_image_dsc_t *source, theme_sem
 	lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
 	lv_obj_set_clickable(icon, false);
 	lv_obj_set_scrollable(icon, false);
+	lv_obj_set_hidden(icon, true);
 
 	int source_w = (int)source->header.w;
 	int source_h = (int)source->header.h;
