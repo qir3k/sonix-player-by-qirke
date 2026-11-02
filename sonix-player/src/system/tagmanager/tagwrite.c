@@ -1,4 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
 #include "tagwrite.h"
 #include <ctype.h>
 #include <stdbool.h>

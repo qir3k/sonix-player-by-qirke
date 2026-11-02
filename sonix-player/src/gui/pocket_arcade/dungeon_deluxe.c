@@ -1,5 +1,11 @@
 #include "dungeon_heavensfall.h"
 #define _POSIX_C_SOURCE 200809L
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE 1
+#endif
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
 /* Pocket Dungeon: Relics of the Lantern - procedural core. GPL-3.0-or-later. */
 #include "dungeon_deluxe.h"
 #include "dungeon_world_play.h"

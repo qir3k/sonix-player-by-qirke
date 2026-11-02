@@ -241,6 +241,9 @@ jobs:
         with:
           path: sonix-player/rockbox-toolchain
           key: v3-mips-toolchain-${{ runner.os }}-${{ hashFiles('sonix-player/rockboxdev/**') }}
+          restore-keys: |
+            v3-mips-toolchain-${{ runner.os }}-
+            v2-mips-target-${{ runner.os }}-
 
       - name: Restore target libraries
         id: libs-cache
@@ -253,6 +256,9 @@ jobs:
             sonix-player/*.tar.bz2
             sonix-player/*.tar.xz
           key: v3-mips-libs-${{ runner.os }}-${{ hashFiles('sonix-player/Makefile') }}
+          restore-keys: |
+            v3-mips-libs-${{ runner.os }}-
+            v2-mips-target-${{ runner.os }}-
 
       - name: Restore LVGL pre-compiled archive
         id: lvgl-cache
@@ -260,6 +266,8 @@ jobs:
         with:
           path: sonix-player/build_target/liblvgl-*.a
           key: lvgl-${{ runner.os }}-${{ hashFiles('sonix-player/Makefile', 'sonix-player/lv_conf.h', 'sonix-player/src/system/core/glibc_compat.h', 'sonix-player/rockboxdev/**') }}
+          restore-keys: |
+            lvgl-${{ runner.os }}-
 
       - name: Restore compiler ccache
         id: ccache-cache
