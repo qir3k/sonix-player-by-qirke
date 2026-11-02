@@ -12,6 +12,7 @@
 #include "src/gui/games/guess_song.h"
 #include "src/gui/games/stack_it.h"
 #include "src/gui/games/brick_breaker.h"
+#include "src/gui/games/pebble_deluxe.h"
 #if GB_CORE
 #include "src/gui/gearboy/gearboypage.h"
 #endif
@@ -63,6 +64,9 @@ static bool games_tokyo_icon(const char *label, const lv_image_dsc_t **icon, the
 	} else if (strcmp(label, "brick_breaker") == 0) {
 		*icon = &icon_game_bricks;
 		*tone = THEME_SEMANTIC_GREEN;
+	} else if (strcmp(label, "pebble_deluxe") == 0) {
+		*icon = &icon_game_pebble;
+		*tone = THEME_SEMANTIC_ORANGE;
 	} else {
 		return false;
 	}
@@ -91,6 +95,7 @@ static const grid_entry_t ALL_GAMES[] = {
 	{"guess_song", &icon_game_guess_song, NULL, guess_song_open},
 	{"stack_it", &icon_game_stack, NULL, stack_it_open},
 	{"brick_breaker", &icon_game_bricks, NULL, brick_breaker_open},
+	{"pebble_deluxe", &icon_game_pebble, NULL, pebble_deluxe_open},
 };
 
 #define GAMES_MAX 24
@@ -116,6 +121,8 @@ static int games_entries_build(grid_entry_t *out, int max) {
 			enabled = addons_enabled("stack_it");
 		} else if (strcmp(label, "brick_breaker") == 0) {
 			enabled = addons_enabled("brick_breaker");
+		} else if (strcmp(label, "pebble_deluxe") == 0) {
+			enabled = addons_enabled("pebble_deluxe");
 		}
 		if (enabled) {
 			out[count++] = ALL_GAMES[i];

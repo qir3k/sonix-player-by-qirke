@@ -62,6 +62,7 @@
 #include "src/gui/games/guess_song.h"
 #include "src/gui/games/stack_it.h"
 #include "src/gui/games/brick_breaker.h"
+#include "src/gui/games/pebble_deluxe.h"
 #include "src/gui/games/gamespage.h"
 #include "src/gui/shell/morepage.h"
 #include "src/gui/shell/popover.h"
@@ -821,6 +822,9 @@ void gui_init(gui_config_t *cfg) {
 	}
 	if (addons_enabled("brick_breaker")) {
 		brick_breaker_init(cfg);
+	}
+	if (addons_enabled("pebble_deluxe")) {
+		pebble_deluxe_init(cfg);
 	}
 	gamespage_init(cfg);
 	morepage_init(cfg);

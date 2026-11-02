@@ -534,6 +534,11 @@ static void release_cb(lv_event_t *e) {
 	game_frame_t *g = lv_event_get_user_data(e);
 	g->touch.down = false;
 	g->touch.swiped = false;
+	if (g->active && !g->overlay_up && g->hooks && g->hooks->on_release) {
+		lv_point_t p;
+		get_field_point(g, &p);
+		g->hooks->on_release(&p);
+	}
 }
 
 // ---------------------------------------------------------------------------

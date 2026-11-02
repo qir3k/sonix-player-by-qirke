@@ -1751,8 +1751,14 @@ int ytmusic_search_items(const char *query, ytmusic_filter_t filter,
 	}
 	// The songs filter and the podcasts one. Both are the store's own encoded
 	// filter values, the same ones its search chips send.
-	const char *params = filter == YTMUSIC_FILTER_PODCASTS ? "EgWKAQJQAWoMEA4QChADEAQQCRAF"
-														 : "EgWKAQIIAWoKEAkQBRAKEAMQBA==";
+	const char *params = "EgWKAQIIAWoKEAkQBRAKEAMQBA==";
+	if (filter == YTMUSIC_FILTER_ALBUMS) {
+		params = "EgWKAQIYAWoKEAkQBRAKEAMQBA==";
+	} else if (filter == YTMUSIC_FILTER_ARTISTS) {
+		params = "EgWKAQIgAWoKEAkQBRAKEAMQBA==";
+	} else if (filter == YTMUSIC_FILTER_PODCASTS) {
+		params = "EgWKAQJQAWoMEA4QChADEAQQCRAF";
+	}
 	snprintf(request, sizeof(request),
 		"{\"context\":{\"client\":{\"clientName\":\"WEB_REMIX\",\"clientVersion\":\"1.20250101.00.00\",\"hl\":\"%s\",\"gl\":\"%s\"}},\"query\":\"%s\",\"params\":\"%s\"}",
 		hl, gl, escaped, params);

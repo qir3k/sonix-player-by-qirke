@@ -68,6 +68,7 @@ static const addon_t ADDONS[] = {
 	{"guess_song", "guess_song", "addon_guess_song_note", "plugins_section_games"},
 	{"stack_it", "stack_it", "addon_stack_it_note", "plugins_section_games"},
 	{"brick_breaker", "brick_breaker", "addon_brick_breaker_note", "plugins_section_games"},
+	{"pebble_deluxe", "pebble_deluxe", "addon_pebble_deluxe_note", "plugins_section_games"},
 };
 
 int addons_count(void) { return (int)(sizeof(ADDONS) / sizeof(ADDONS[0])); }
@@ -141,5 +142,6 @@ bool addons_any_game_enabled(void) {
 	       addons_enabled("sudoku") ||
 	       addons_enabled("guess_song") ||
 	       addons_enabled("stack_it") ||
-	       addons_enabled("brick_breaker");
+	       addons_enabled("brick_breaker") ||
+	       addons_enabled("pebble_deluxe");
 }

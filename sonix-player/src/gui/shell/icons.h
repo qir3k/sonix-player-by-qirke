@@ -141,6 +141,7 @@ extern const lv_image_dsc_t icon_game_sudoku;
 extern const lv_image_dsc_t icon_game_guess_song;
 extern const lv_image_dsc_t icon_game_stack;
 extern const lv_image_dsc_t icon_game_bricks;
+extern const lv_image_dsc_t icon_game_pebble;
 extern const lv_image_dsc_t icon_files_book;
 extern const lv_image_dsc_t icon_trash;
 extern const lv_image_dsc_t icon_folder_new;

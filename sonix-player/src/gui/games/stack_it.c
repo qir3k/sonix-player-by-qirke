@@ -41,6 +41,8 @@ static int current_floor;
 static int base_x, base_w;
 static bool game_over;
 static int combo = 0;
+static int flash_slot = -1;
+static int flash_ticks = 0;
 
 static const lv_color_t floor_colors[] = {
 	LV_COLOR_MAKE(0x4a, 0x9e, 0xff), // blue
@@ -67,7 +69,11 @@ static void update_visuals(void) {
 			int y = FIELD_H - (i + 1) * BLOCK_H;
 			lv_obj_set_pos(block_objs[i], block_x[i], y);
 			int f = (current_floor >= MAX_VISIBLE) ? (current_floor - MAX_VISIBLE + 1 + i) : i;
-			lv_obj_set_style_bg_color(block_objs[i], color_for_floor(f), 0);
+			if (i == flash_slot && flash_ticks > 0) {
+				lv_obj_set_style_bg_color(block_objs[i], lv_color_white(), 0);
+			} else {
+				lv_obj_set_style_bg_color(block_objs[i], color_for_floor(f), 0);
+			}
 		} else {
 			lv_obj_set_hidden(block_objs[i], true);
 		}
@@ -98,6 +104,8 @@ static void new_game(void) {
 	game_frame_hide_overlay(&frame);
 	game_over = false;
 	current_floor = 0;
+	flash_slot = -1;
+	flash_ticks = 0;
 	combo = 0;
 	base_x = (FIELD_W - INITIAL_WIDTH) / 2;
 	base_w = INITIAL_WIDTH;
@@ -133,8 +141,8 @@ static void drop_block(void) {
 		return;
 	}
 
-	// Perfect match?
-	if (abs(active_x - base_x) <= 2) {
+	bool perfect = (abs(active_x - base_x) <= 2);
+	if (perfect) {
 		left = base_x;
 		overlap = base_w;
 		combo++;
@@ -150,7 +158,9 @@ static void drop_block(void) {
 	base_x = left;
 	base_w = overlap;
 
+	int placed_slot;
 	if (current_floor < MAX_VISIBLE - 1) {
+		placed_slot = current_floor;
 		block_x[current_floor] = base_x;
 		block_w[current_floor] = base_w;
 	} else {
@@ -159,10 +169,18 @@ static void drop_block(void) {
 			block_x[i] = block_x[i + 1];
 			block_w[i] = block_w[i + 1];
 		}
+		placed_slot = MAX_VISIBLE - 2;
 		block_x[MAX_VISIBLE - 2] = base_x;
 		block_w[MAX_VISIBLE - 2] = base_w;
 	}
 
+	if (perfect) {
+		flash_slot = placed_slot;
+		flash_ticks = 6; // ~150ms flash
+	} else {
+		flash_slot = -1;
+		flash_ticks = 0;
+	}
 	current_floor++;
 	game_frame_add_score(&frame, 1);
 	spawn_active();
@@ -174,6 +192,16 @@ static void tap_cb(const lv_point_t *p) {
 }
 
 static void tick_cb(void) {
+	if (flash_ticks > 0) {
+		flash_ticks--;
+		if (flash_ticks == 0 && flash_slot >= 0) {
+			int f = (current_floor >= MAX_VISIBLE) ? (current_floor - MAX_VISIBLE + 1 + flash_slot) : flash_slot;
+			if (flash_slot < MAX_VISIBLE && block_objs[flash_slot]) {
+				lv_obj_set_style_bg_color(block_objs[flash_slot], color_for_floor(f), 0);
+			}
+			flash_slot = -1;
+		}
+	}
 	if (game_over) return;
 
 	active_x += active_dir * active_speed;

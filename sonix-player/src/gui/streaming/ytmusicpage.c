@@ -82,6 +82,9 @@ static pthread_mutex_t page_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool page_busy;
 static unsigned list_generation;
 static ytmusic_filter_t search_filter;
+static int search_kind_index; // 0 tracks, 1 albums, 2 artists
+static lv_obj_t *search_pills[3];
+static lv_obj_t *search_pill_row;
 static ytmusic_item_t result_items[YTMUSIC_PAGE_RESULTS];
 static int result_count;
 static ytmusic_item_t track_items[YTMUSIC_PAGE_RESULTS];
@@ -2038,8 +2041,29 @@ static void history_remember(const char *term) {
 	history_save();
 }
 
+static void paint_search_pills(void) {
+	for (int i = 0; i < 3; i++) {
+		if (!search_pills[i]) continue;
+		bool on = i == search_kind_index;
+		lv_obj_set_style_bg_color(search_pills[i], on ? theme()->accent : theme()->surface_pressed, 0);
+		lv_obj_set_style_text_color(lv_obj_get_child(search_pills[i], 0), on ? theme_on_accent() : theme()->text_primary, 0);
+	}
+}
+
+static void search_pill_cb(lv_event_t *e) {
+	if (switcher_back_drag_active() || player_sheet_drag_active()) return;
+	search_kind_index = (int)(intptr_t)lv_event_get_user_data(e);
+	if (search_filter != YTMUSIC_FILTER_PODCASTS) {
+		search_filter = search_kind_index == 1 ? YTMUSIC_FILTER_ALBUMS : (search_kind_index == 2 ? YTMUSIC_FILTER_ARTISTS : YTMUSIC_FILTER_SONGS);
+	}
+	paint_search_pills();
+}
+
 // Runs what is in the field, and remembers it.
 static void search_run(void) {
+	if (search_filter != YTMUSIC_FILTER_PODCASTS) {
+		search_filter = search_kind_index == 1 ? YTMUSIC_FILTER_ALBUMS : (search_kind_index == 2 ? YTMUSIC_FILTER_ARTISTS : YTMUSIC_FILTER_SONGS);
+	}
 	const char *text = lv_textarea_get_text(search_field);
 	if (!text || !text[0]) {
 		return;
@@ -2185,6 +2209,13 @@ static void search_loaded_cb(lv_event_t *e) {
 
 static void show_search(ytmusic_filter_t filter) {
 	search_filter = filter;
+	if (search_pill_row) {
+		lv_obj_set_hidden(search_pill_row, filter == YTMUSIC_FILTER_PODCASTS);
+	}
+	if (filter != YTMUSIC_FILTER_PODCASTS) {
+		search_filter = search_kind_index == 1 ? YTMUSIC_FILTER_ALBUMS : (search_kind_index == 2 ? YTMUSIC_FILTER_ARTISTS : YTMUSIC_FILTER_SONGS);
+		paint_search_pills();
+	}
 	lv_label_set_text(search_title, tr(filter == YTMUSIC_FILTER_PODCASTS ? "ytmusic_podcasts" : "ytmusic_search"));
 	lv_textarea_set_text(search_field, "");
 	keyboard_reset(search_keyboard);
@@ -2322,22 +2353,57 @@ static void build_search_page(void) {
 	search_field = lv_textarea_create(search_screen);
 	lv_textarea_set_one_line(search_field, true);
 	lv_textarea_set_placeholder_text(search_field, tr("artist_album_or_track"));
-	const int field_h = 62;
+	const bool compact = page_cfg->screen_width < 320;
+	const int top = settingsrow_content_top(page_cfg);
+	const int field_h = compact ? 38 : 62;
+	const int pill_h = compact ? 30 : 42;
+	const int pill_gap = compact ? 4 : 8;
 	lv_obj_set_size(search_field, page_cfg->screen_width - 2 * page_cfg->padding, field_h);
 	lv_obj_align(search_field, LV_ALIGN_TOP_LEFT, page_cfg->padding, settingsrow_content_top(page_cfg));
 	lv_obj_add_style(search_field, &theme_style_card, 0);
 	lv_obj_set_scrollbar_mode(search_field, LV_SCROLLBAR_MODE_OFF);
-	lv_obj_set_style_radius(search_field, 12, 0);
+	lv_obj_set_style_radius(search_field, compact ? 10 : 12, 0);
 	lv_obj_set_style_border_width(search_field, 0, 0);
 	lv_obj_set_style_shadow_width(search_field, 0, 0);
-	lv_obj_set_style_pad_all(search_field, 14, 0);
-	lv_obj_set_style_text_font(search_field, &font_ui_24, 0);
+	lv_obj_set_style_pad_all(search_field, compact ? 8 : 14, 0);
+	lv_obj_set_style_text_font(search_field, compact ? &font_ui_18 : &font_ui_24, 0);
 	keyboard_style_caret(search_field);
 	lv_obj_add_event_cb(search_field, search_field_cb, LV_EVENT_CLICKED, NULL);
 	// Under the field: the history while nothing is typed, the keyboard while
 	// something is. The two take the same space, so only one of them is ever
 	// shown (see search_keyboard_show).
-	int history_top = settingsrow_content_top(page_cfg) + field_h;
+	search_pill_row = lv_obj_create(search_screen);
+	lv_obj_set_size(search_pill_row, page_cfg->screen_width - 2 * page_cfg->padding, pill_h);
+	lv_obj_align(search_pill_row, LV_ALIGN_TOP_LEFT, page_cfg->padding, top + field_h + pill_gap);
+	lv_obj_set_style_bg_opa(search_pill_row, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(search_pill_row, 0, 0);
+	lv_obj_set_style_pad_all(search_pill_row, 0, 0);
+	lv_obj_set_style_pad_column(search_pill_row, compact ? 6 : 10, 0);
+	lv_obj_set_scroll_dir(search_pill_row, LV_DIR_HOR);
+	lv_obj_set_scrollbar_mode(search_pill_row, LV_SCROLLBAR_MODE_OFF);
+	lv_obj_set_event_bubble(search_pill_row, true);
+	lv_obj_set_flex_flow(search_pill_row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(search_pill_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+	static const char *const KINDS[] = {"search_tracks_2", "albums", "artists"};
+	for (int i = 0; i < 3; i++) {
+		lv_obj_t *pill = lv_btn_create(search_pill_row);
+		lv_obj_set_size(pill, LV_SIZE_CONTENT, pill_h);
+		lv_obj_set_style_pad_hor(pill, compact ? 12 : 22, 0);
+		lv_obj_set_style_radius(pill, LV_RADIUS_CIRCLE, 0);
+		lv_obj_set_style_shadow_width(pill, 0, 0);
+		lv_obj_set_style_border_width(pill, 0, 0);
+		lv_obj_add_event_cb(pill, search_pill_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+		lv_obj_t *label = lv_label_create(pill);
+		lv_label_set_text(label, tr(KINDS[i]));
+		lv_obj_set_style_text_font(label, compact ? &font_ui_16 : &font_ui_20, 0);
+		lv_obj_center(label);
+		search_pills[i] = pill;
+	}
+	paint_search_pills();
+
+	int history_top = top + field_h + pill_gap + pill_h + pill_gap;
 	int history_h = page_cfg->screen_height - history_top - page_cfg->padding;
 	if (history_h < 40) {
 		history_h = 40;
@@ -2376,6 +2442,7 @@ static void build_search_page(void) {
 	search_keyboard_show(false);
 	lv_obj_add_event_cb(search_screen, search_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
 	switcher_attach_back_gesture(search_screen);
+	theme_register_refresh(paint_search_pills);
 
 	results_screen = lv_obj_create(NULL);
 	lv_obj_add_style(results_screen, &theme_style_screen, 0);

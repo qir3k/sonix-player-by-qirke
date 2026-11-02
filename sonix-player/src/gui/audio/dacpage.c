@@ -17,6 +17,7 @@
 lv_obj_t *dacpage_screen;
 
 static lv_obj_t *mode_switch;
+static lv_obj_t *gain_switch;
 static lv_obj_t *format_label;
 static lv_obj_t *status_label;
 static lv_obj_t *charge_btn;
@@ -65,18 +66,54 @@ static void eq_cb(lv_event_t *e) {
 	(void)e;
 	musicsettings_set_eq_enabled(!eq_get_enabled());
 	paint_equaliser_pills();
+	if (gain_switch) {
+		if (musicsettings_high_gain()) {
+			lv_obj_add_state(gain_switch, LV_STATE_CHECKED);
+		} else {
+			lv_obj_remove_state(gain_switch, LV_STATE_CHECKED);
+		}
+	}
 }
 
 static void peq_cb(lv_event_t *e) {
 	(void)e;
 	peq_set_enabled(!peq_get_enabled());
 	paint_equaliser_pills();
+	if (gain_switch) {
+		if (musicsettings_high_gain()) {
+			lv_obj_add_state(gain_switch, LV_STATE_CHECKED);
+		} else {
+			lv_obj_remove_state(gain_switch, LV_STATE_CHECKED);
+		}
+	}
 }
 
 static void mseb_cb(lv_event_t *e) {
 	(void)e;
 	musicsettings_set_mseb_enabled(!mseb_get_enabled());
 	paint_equaliser_pills();
+	if (gain_switch) {
+		if (musicsettings_high_gain()) {
+			lv_obj_add_state(gain_switch, LV_STATE_CHECKED);
+		} else {
+			lv_obj_remove_state(gain_switch, LV_STATE_CHECKED);
+		}
+	}
+}
+
+static void gain_toggle_cb(lv_event_t *e) {
+	(void)e;
+	musicsettings_set_high_gain(lv_obj_has_state(gain_switch, LV_STATE_CHECKED));
+}
+
+static void gain_row_cb(lv_event_t *e) {
+	(void)e;
+	if (lv_obj_has_state(gain_switch, LV_STATE_CHECKED)) {
+		lv_obj_remove_state(gain_switch, LV_STATE_CHECKED);
+	} else {
+		lv_obj_add_state(gain_switch, LV_STATE_CHECKED);
+	}
+	musicsettings_set_high_gain(lv_obj_has_state(gain_switch, LV_STATE_CHECKED));
 }
 
 // The host's rate, or nothing at all.
@@ -144,6 +181,13 @@ static void refresh(void) {
 	lv_obj_set_style_opa(charge_glyph, st.active ? LV_OPA_COVER : LV_OPA_40, 0);
 	refresh_charge_glyph();
 	paint_equaliser_pills();
+	if (gain_switch) {
+		if (musicsettings_high_gain()) {
+			lv_obj_add_state(gain_switch, LV_STATE_CHECKED);
+		} else {
+			lv_obj_remove_state(gain_switch, LV_STATE_CHECKED);
+		}
+	}
 
 	// Back to the theme's colour unless the checks below make it red. Set, never
 	// removed: lv_obj_remove_style(obj, NULL, ...) drops every local style on
@@ -352,6 +396,11 @@ void dacpage_init(gui_config_t *cfg) {
 	peq_pill = settingsrow_pill(equaliser_pills, "peq", 1, peq_cb);
 	mseb_pill = settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb);
 	paint_equaliser_pills();
+
+	gain_switch = NULL;
+	lv_obj_t *gain_row = settingsrow_toggle(container, "musicsettings_high_gain", &gain_switch, gain_toggle_cb);
+	lv_obj_set_clickable(gain_row, true);
+	lv_obj_add_event_cb(gain_row, gain_row_cb, LV_EVENT_CLICKED, NULL);
 
 	// Straight into the flex flow, with no alignment of its own: the container
 	// settingsrow_page() builds already centres its children on the cross axis,

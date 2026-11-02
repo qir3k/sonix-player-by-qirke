@@ -57,6 +57,7 @@ typedef struct {
 	void (*on_drag)(const lv_point_t *p);		// finger moving while pressed
 	void (*on_long_press)(const lv_point_t *p);	// finger held in the field
 	void (*on_swipe)(lv_dir_t dir, const lv_point_t *p); // a finger crossed the field
+	void (*on_release)(const lv_point_t *p); // finger released
 	void (*on_frozen)(bool frozen); // the panel went dark, or came back
 	// The palette moved: recolour what is yours. Called while the page is on
 	// screen when the palette changes; a page that was not on screen then is

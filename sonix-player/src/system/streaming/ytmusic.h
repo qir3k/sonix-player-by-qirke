@@ -70,6 +70,8 @@ typedef struct {
 // returns shows, which open like any other container.
 typedef enum {
 	YTMUSIC_FILTER_SONGS = 0,
+	YTMUSIC_FILTER_ALBUMS,
+	YTMUSIC_FILTER_ARTISTS,
 	YTMUSIC_FILTER_PODCASTS,
 } ytmusic_filter_t;
 
