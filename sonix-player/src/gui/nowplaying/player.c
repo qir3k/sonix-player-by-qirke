@@ -5350,7 +5350,7 @@ static void update_fav_button(void) {
 	long long feed_id = 0;
 	char yt_id[YTLIKES_ID_MAX] = "";
 	if (radio_current_station(&station)) {
-		starred = radio_fav_contains(station.uuid);
+		starred = radio_fav_contains_station(&station);
 	} else if (podcast_current_feed(&feed_id, NULL)) {
 		// On a podcast the star does not mark a liked track: it follows the
 		// podcast, so it turns up in the followed list without searching. The
@@ -5453,8 +5453,8 @@ static void fav_btn_event_cb(lv_event_t *e) {
 
 	radio_station_t station;
 	if (radio_current_station(&station)) {
-		if (radio_fav_contains(station.uuid)) {
-			radio_fav_remove(station.uuid);
+		if (radio_fav_contains_station(&station)) {
+			radio_fav_remove_station(&station);
 		} else {
 			radio_fav_add(&station);
 		}

@@ -56,6 +56,7 @@ static const addon_t ADDONS[] = {
 	{"listenbrainz", "listenbrainz", "addon_listenbrainz_note", "plugins_section_features"},
 	{"calculator", "calculator", "addon_calculator_note", "plugins_section_tools"},
 	{"notes", "notes", "addon_notes_note", "plugins_section_tools"},
+	{"tagmanager", "tag_manager", "addon_tagmanager_note", "plugins_section_tools"},
 	{"flappy", "flappy_bird", "addon_flappy_note", "plugins_section_tools"},
 	{"gearboy", "gearboy", "addon_gearboy_note", "plugins_section_tools"},
 	{"metronome", "metronome", "addon_metronome_note", "plugins_section_tools"},

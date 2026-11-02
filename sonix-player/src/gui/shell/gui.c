@@ -55,6 +55,7 @@
 #include "src/gui/notes/noteeditor.h"
 #include "src/gui/metronome/metronome.h"
 #include "src/gui/notes/notes.h"
+#include "src/gui/tagmanager/tagmanager.h"
 #include "src/gui/shell/morepage.h"
 #include "src/gui/shell/popover.h"
 #include "src/gui/nowplaying/trackmenu.h"
@@ -783,6 +784,9 @@ void gui_init(gui_config_t *cfg) {
 	if (addons_enabled("notes")) {
 		noteeditor_init(cfg); // before notes: a row of the shelf opens it
 		notes_init(cfg);
+	}
+	if (addons_enabled("tagmanager")) {
+		tagmanager_init(cfg);
 	}
 	if (addons_enabled("metronome")) {
 		metronome_init(cfg); // before morepage: its tile opens it

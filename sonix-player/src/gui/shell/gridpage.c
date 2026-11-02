@@ -255,6 +255,8 @@ static bool gridpage_tokyo_icon(const char *label, const lv_image_dsc_t **icon, 
 		{"flappy_bird", &icon_bird, THEME_SEMANTIC_PURPLE},
 		{"calculator", &icon_calculator, THEME_SEMANTIC_CYAN},
 		{"notes", &icon_notes, THEME_SEMANTIC_PURPLE},
+		{"tag_manager", &icon_tag_manager, THEME_SEMANTIC_CYAN},
+		{"Tag Manager", &icon_tag_manager, THEME_SEMANTIC_CYAN},
 	};
 
 	if (!label || !icon || !tone) {

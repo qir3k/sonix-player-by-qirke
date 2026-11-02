@@ -169,8 +169,10 @@ void radio_store_reopen_if_replaced(void);
 int radio_fav_count(void);
 bool radio_fav_get(int index, radio_station_t *out);
 bool radio_fav_contains(const char *uuid);
+bool radio_fav_contains_station(const radio_station_t *station);
 void radio_fav_add(const radio_station_t *station);
 void radio_fav_remove(const char *uuid);
+void radio_fav_remove_station(const radio_station_t *station);
 
 // The cached icon of a station, when one has been downloaded (see
 // radio_station_t.favicon and fetch_favicon() in radio.c). No network and no

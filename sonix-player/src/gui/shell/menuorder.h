@@ -35,6 +35,8 @@ enum {
 	MENU_MORE_FLAPPY_BIRD,
 	MENU_MORE_CALCULATOR,
 	MENU_MORE_NOTES,
+	MENU_MORE_METRONOME,
+	MENU_MORE_TAG_MANAGER,
 };
 
 int menuorder_count(menuorder_section_t section);

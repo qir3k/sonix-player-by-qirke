@@ -258,6 +258,7 @@ TAGS_DECODE_SRC = $(ROOT)/src/system/decode/decode.c \
                   $(ROOT)/src/system/decode/growfile.c \
                   $(ROOT)/src/system/streaming/streambridge.c
 TAGS_SRC = test_tags.c \
+           $(ROOT)/src/system/tagmanager/tagwrite.c \
            $(ROOT)/src/system/library/metadata.c \
            $(ROOT)/src/system/library/oggtags.c \
            $(ROOT)/src/system/library/vorbischap.c \
@@ -304,6 +305,7 @@ $(BUILD)/test_alac: $(ALAC_SRC) $(TAGS_DECODE_SRC)
 # SD-card mmap artwork (>8 MB), SIGBUS card-removal recovery, streaming Ogg and
 # APEv2 embedded covers, 1000-row JPEG player_covers cache and id_worker.
 COVERS_SRC = test_covers.c \
+             $(ROOT)/src/system/tagmanager/tagwrite.c \
              $(ROOT)/src/system/library/albumart.c \
              $(ROOT)/src/system/library/oggtags.c \
              $(ROOT)/src/system/library/cue.c \
@@ -649,6 +651,19 @@ basebuild: $(BUILD)/test_sysinfo
 $(BUILD)/test_sysinfo: test_sysinfo.c $(ROOT)/src/system/device/sysinfo.c $(ROOT)/src/system/device/sysinfo.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -DHOST_BUILD -o $@ test_sysinfo.c $(ROOT)/src/system/device/sysinfo.c $(LDFLAGS) $(LDLIBS)
+
+# Lossless metadata rewrites and malformed input safety.
+.PHONY: tagwrite
+tagwrite:
+	python3 test_tagwrite.py
+
+.PHONY: artsearch
+artsearch: $(BUILD)/test_artsearch
+	$(BUILD)/test_artsearch
+
+$(BUILD)/test_artsearch: test_artsearch.c $(ROOT)/src/system/tagmanager/artsearch.c $(ROOT)/src/system/core/json.c $(ROOT)/src/system/library/jpeginfo.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 # Everything, in the order the workflow runs it. `make test` stays the default
 # target; this is the one to run before merging into personal.

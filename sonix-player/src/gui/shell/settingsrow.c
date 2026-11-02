@@ -187,6 +187,23 @@ static void refit_titles(void) {
 	}
 }
 
+// Beside the back button, not above it: the two read as one header row.
+int settingsrow_header_text_left(gui_config_t *cfg) {
+	if (!cfg) {
+		return 0;
+	}
+	int button = settingsrow_corner_button_size(cfg);
+	int air = cfg->screen_width < 320 ? 6 : 14;
+	return cfg->padding + button + air;
+}
+
+int settingsrow_header_text_top(gui_config_t *cfg) {
+	if (!cfg) {
+		return 0;
+	}
+	return cfg->top_bar_height + cfg->padding + (cfg->screen_width < 320 ? 6 : 10);
+}
+
 lv_obj_t *settingsrow_title(lv_obj_t *screen, gui_config_t *cfg, const char *text) {
 	lv_obj_t *label = lv_label_create(screen);
 	lv_label_set_text(label, tr(text));
@@ -197,7 +214,7 @@ lv_obj_t *settingsrow_title(lv_obj_t *screen, gui_config_t *cfg, const char *tex
 	// Beside the back button, not above it: the two read as one header row.
 	int button = settingsrow_corner_button_size(cfg);
 	int air = cfg->screen_width < 320 ? 6 : 14;
-	int left = cfg->padding + button + air;
+	int left = settingsrow_header_text_left(cfg);
 	lv_obj_set_width(label, cfg->screen_width - left - cfg->padding - button - air);
 	// Always one line. LV_LABEL_LONG_DOT wraps first and puts the ellipsis at
 	// the end of the last line that fits, so a long album name would grow the

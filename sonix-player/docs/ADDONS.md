@@ -64,6 +64,7 @@ what makes a hand-edited config safe.
 | `metronome` | The metronome | More |
 | `calculator` | The calculator | More |
 | `notes` | The notes shelf and its editor | More |
+| `tagmanager` | On-device ID3/FLAC tag editor and cover art finder | More |
 | `flappy` | Flappy Bird | More |
 | `gearboy` | The Game Boy emulator, its settings and player | More |
 | `ebook` | The Books shelf and the EPUB reader | More |

@@ -279,6 +279,13 @@ typedef struct {
 	bool misans_tail; // MiSans has to close every chain
 } face_t;
 
+static void face_copy(face_t *dest, const face_t *src) {
+	*dest = *src;
+	if (dest->card_copy[0]) {
+		dest->regular_file = dest->card_copy;
+	}
+}
+
 static face_t active;
 static face_t pending;
 static const face_t *building = &active;
@@ -1053,7 +1060,7 @@ bool fonts_set_face(const char *id) {
 		return false;
 	}
 
-	pending = wanted;
+	face_copy(&pending, &wanted);
 	building = &pending;
 	memset(&staged_set, 0, sizeof(staged_set));
 	bool built = build_font_set(&staged_set, text_size, false);
@@ -1075,7 +1082,7 @@ bool fonts_set_face(const char *id) {
 	// filled from the new set in the same breath: there is no moment where a
 	// label can ask for a glyph from a font that has been handed back.
 	const face_t previous = active;
-	active = wanted;
+	face_copy(&active, &wanted);
 	for (int i = 0; i < FONTS_TEXT_COUNT; i++) {
 		free_font_set(&current_sets[i]);
 	}

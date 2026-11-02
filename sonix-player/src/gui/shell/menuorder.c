@@ -34,6 +34,7 @@ static const menu_item_t MORE_ITEMS[] = {
 	// in the arrangement too: without a slug here the page drew it -- it is in
 	// morepage's own table -- but Arrange could neither move nor hide it.
 	{"metronome", "metronome"},
+	{"tag_manager", "tag_manager"},
 };
 
 static const menu_item_t STREAMING_ITEMS[] = {

@@ -462,7 +462,7 @@ static void refresh_now_playing_card(void) {
 	long tidal_id = 0;
 	char yt_id[YTLIKES_ID_MAX] = "";
 	if (radio_current_station(&station)) {
-		fav = radio_fav_contains(station.uuid);
+		fav = radio_fav_contains_station(&station);
 	} else if (podcast) {
 		// On a podcast the heart reports whether the feed is followed, exactly
 		// as the player's heart does.
@@ -1294,8 +1294,8 @@ static void star_cb(lv_event_t *e) {
 
 	radio_station_t station;
 	if (radio_current_station(&station)) {
-		if (radio_fav_contains(station.uuid)) {
-			radio_fav_remove(station.uuid);
+		if (radio_fav_contains_station(&station)) {
+			radio_fav_remove_station(&station);
 		} else {
 			radio_fav_add(&station);
 		}
