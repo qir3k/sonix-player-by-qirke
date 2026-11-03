@@ -504,6 +504,9 @@ typedef struct {
 	int start_row;
 	int start_slot;
 	int built;
+	// The track playing when the request arrived, so a job whose download
+	// outlasted the user's patience can tell it has been overtaken.
+	char then_playing[512];
 	char (*paths)[512];
 	const char **pointers;
 	sonixlink_stream_row_t rows[SONIXLINK_STREAM_ROWS];
@@ -517,6 +520,18 @@ static void job_free(play_job_t *job) {
 
 static void queue_start(void *user) {
 	play_job_t *job = user;
+	// This runs on the GUI thread long after the request: the download may have
+	// taken minutes on a slow network. If the player has moved on in the
+	// meantime -- the user started something else, local or not -- the request
+	// is stale, and starting it now would cut off what they chose to hear.
+	device_state_t now;
+	device_state_get(&now);
+	if (strcmp(now.current_file, job->then_playing) != 0) {
+		fprintf(stderr, "sonixlink: dropping %s play: the player moved from '%s' to '%s'\n",
+				job->service, job->then_playing, now.current_file);
+		job_free(job);
+		return;
+	}
 	if (job->built > 0 && job->start_slot >= 0) {
 		if (strcmp(job->service, "podcasts") == 0) {
 			device_state_play_list_ordered(job->pointers, job->built, job->start_slot);
@@ -736,6 +751,12 @@ bool sonixlink_stream_play(const char *service, int index, char *error, size_t e
 	job->start_slot = -1;
 	memcpy(job->rows, last_list.rows, sizeof(job->rows));
 	pthread_mutex_unlock(&list_lock);
+
+	// Taken after the unlock: device_state has its own lock, and holding this
+	// one across it invites a deadlock for a value nobody else wants.
+	device_state_t now;
+	device_state_get(&now);
+	snprintf(job->then_playing, sizeof(job->then_playing), "%s", now.current_file);
 
 	streamturn_abandon_all();
 	pthread_t worker;

@@ -268,6 +268,8 @@ static void waiting_spinner_hide_async(void *user) {
 	waiting_spinner_hide();
 }
 
+static void busy_dismiss_cb(lv_event_t *e);
+
 static void busy_show(const char *text) {
 	(void)text;
 	if (!busy_layer) {
@@ -290,6 +292,10 @@ static void build_busy_layer(void) {
 	lv_obj_set_style_radius(busy_layer, 0, 0);
 	lv_obj_set_scrollable(busy_layer, false);
 	lv_obj_set_clickable(busy_layer, true);
+	// A tap on the veil always ends the wait, whatever the download is doing.
+	// It is the last thing between the user and the screen, so it must never be
+	// able to keep the player covered and unresponsive.
+	lv_obj_add_event_cb(busy_layer, busy_dismiss_cb, LV_EVENT_CLICKED, NULL);
 	lv_obj_set_hidden(busy_layer, true);
 	lv_obj_set_flex_flow(busy_layer, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_flex_align(busy_layer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -2082,6 +2088,15 @@ static void waiting_note_async(void *user) {
 	}
 }
 
+static void busy_dismiss_cb(lv_event_t *e) {
+	(void)e;
+	// The queue keeps its missing track and stays stopped; pressing play asks
+	// for it again, this time with the screen usable.
+	waiting_for_track = false;
+	waiting_track_id = 0;
+	busy_hide();
+}
+
 static void waiting_failed_async(void *user) {
 	long id = (long)(intptr_t)user;
 	if (!waiting_for_track || waiting_track_id != id) return;
@@ -2093,7 +2108,17 @@ static void waiting_failed_async(void *user) {
 
 bool tidalpage_prepare_track(char *path, size_t path_size) {
 	if (!tidalcache_owns(path)) {
-		waiting_for_track = false;
+		// The queue has moved to a file this page is not waiting for: a local
+		// track, or another service's. The wait is over, and so is the veil that
+		// announced it. Clearing the flag alone used to leave that veil up: it
+		// covers the screen, it is clickable, and the one watcher that hides it
+		// only looks while the flag is raised -- so the player went on playing
+		// behind a screen that answered nothing.
+		if (waiting_for_track || waiting_spinner_active) {
+			waiting_for_track = false;
+			waiting_track_id = 0;
+			gui_post(waiting_spinner_hide_async, NULL);
+		}
 		return true; // not a Tidal file
 	}
 	// If another page (Qobuz) says "not yet" first, this function is not called
@@ -2558,6 +2583,12 @@ static void queue_watch_cb(lv_timer_t *timer) {
 			waiting_track_id = 0;
 			gui_post(waiting_spinner_hide_async, NULL);
 		}
+	}
+
+	// Backstop for the veil: any other way the wait can end without reaching
+	// waiting_spinner_hide() would leave the screen covered for good.
+	if (!waiting_for_track && waiting_spinner_active) {
+		waiting_spinner_hide();
 	}
 
 	tidalcache_set_network_wanted(want_id != 0 || waiting_for_track);
