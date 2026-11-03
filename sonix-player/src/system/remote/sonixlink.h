@@ -170,6 +170,7 @@ typedef enum {
 	SONIXLINK_LIST_QUEUE,	 // the queue as it stands: do not rebuild it
 	SONIXLINK_LIST_FOLDER,	 // the track's folder, as the file browser queues it
 	SONIXLINK_LIST_ALBUMS,	 // every record, each in its running order (circle-play on Albums)
+	SONIXLINK_LIST_YEAR,	 // the tracks of one release year
 } sonixlink_list_t;
 
 typedef struct {

@@ -290,6 +290,9 @@ static library_index_t *open_list(int list, const char *value) {
 	case SONIXLINK_LIST_GENRE:
 		filter = LIBRARY_FILTER_GENRE;
 		break;
+	case SONIXLINK_LIST_YEAR:
+		filter = LIBRARY_FILTER_YEAR;
+		break;
 	case SONIXLINK_LIST_FAVOURITES:
 		kind = LIBRARY_LIST_FAVOURITES;
 		value = NULL;
@@ -497,6 +500,9 @@ static void apply_command(const sonixlink_command_t *cmd) {
 			break;
 		case SONIXLINK_LIST_GENRE:
 			filter = LIBRARY_FILTER_GENRE;
+			break;
+		case SONIXLINK_LIST_YEAR:
+			filter = LIBRARY_FILTER_YEAR;
 			break;
 		case SONIXLINK_LIST_FAVOURITES:
 			kind = LIBRARY_LIST_FAVOURITES;

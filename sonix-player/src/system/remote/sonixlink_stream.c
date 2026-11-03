@@ -1,0 +1,698 @@
+#include "sonixlink_stream.h"
+
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "src/gui/shell/gui.h"
+#include "src/system/playback/device_state.h"
+#include "src/system/streaming/podcast.h"
+#include "src/system/streaming/podcastcache.h"
+#include "src/system/streaming/podcastsubs.h"
+#include "src/system/streaming/qobuz.h"
+#include "src/system/streaming/qobuzcache.h"
+#include "src/system/streaming/radio.h"
+#include "src/system/streaming/streamturn.h"
+#include "src/system/streaming/tidal.h"
+#include "src/system/streaming/tidalcache.h"
+#include "src/system/streaming/ytmusic.h"
+
+// How many rows one request asks a service for. The pages use their own,
+// smaller, limits; the phone can draw more in one go.
+#define STREAM_PAGE 50
+
+// The last list each service returned. A play request names an index into
+// exactly this list, so the metadata the phone does not carry is still here.
+static pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;
+static sonixlink_stream_list_t last_list;
+static char last_service[16];
+
+// ---------------------------------------------------------------------------
+// rows
+// ---------------------------------------------------------------------------
+
+static void row_set(sonixlink_stream_row_t *row, const char *kind, const char *id, const char *title,
+					const char *subtitle) {
+	memset(row, 0, sizeof(*row));
+	snprintf(row->kind, sizeof(row->kind), "%s", kind ? kind : "container");
+	snprintf(row->id, sizeof(row->id), "%s", id ? id : "");
+	snprintf(row->title, sizeof(row->title), "%s", title ? title : "");
+	snprintf(row->subtitle, sizeof(row->subtitle), "%s", subtitle ? subtitle : "");
+	row->playable = strcmp(row->kind, "track") == 0 || strcmp(row->kind, "episode") == 0 ||
+					strcmp(row->kind, "station") == 0;
+}
+
+static long id_number(const char *text) {
+	return text && text[0] ? strtol(text, NULL, 10) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// services
+// ---------------------------------------------------------------------------
+
+int sonixlink_stream_services(sonixlink_stream_service_t *out, int max) {
+	if (!out || max <= 0) {
+		return 0;
+	}
+	int n = 0;
+	struct {
+		const char *id;
+		const char *name;
+		bool available;
+		bool signed_in;
+		const char *detail;
+	} list[] = {
+		{"youtube", "YouTube Music", ytmusic_configured(), ytmusic_session_cookie_attached(),
+		 !ytmusic_configured() ? "not_configured" : (ytmusic_session_cookie_attached() ? "" : "signed_out")},
+		{"tidal", "Tidal", tidal_configured(), tidal_logged_in(),
+		 !tidal_configured() ? "not_configured" : (tidal_logged_in() ? "" : "signed_out")},
+		{"qobuz", "Qobuz", qobuz_configured(), qobuz_logged_in(),
+		 !qobuz_configured() ? "not_configured" : (qobuz_logged_in() ? "" : "signed_out")},
+		{"podcasts", "Podcasts", podcast_configured(), podcast_configured(),
+		 podcast_configured() ? "" : "not_configured"},
+		{"radio", "Internet radio", true, true, ""},
+	};
+	for (size_t i = 0; i < sizeof(list) / sizeof(list[0]) && n < max; i++) {
+		memset(&out[n], 0, sizeof(out[n]));
+		snprintf(out[n].id, sizeof(out[n].id), "%s", list[i].id);
+		snprintf(out[n].name, sizeof(out[n].name), "%s", list[i].name);
+		out[n].available = list[i].available;
+		out[n].signed_in = list[i].signed_in;
+		snprintf(out[n].detail, sizeof(out[n].detail), "%s", list[i].detail);
+		n++;
+	}
+	return n;
+}
+
+// ---------------------------------------------------------------------------
+// YouTube Music
+// ---------------------------------------------------------------------------
+
+static void yt_row(const ytmusic_item_t *item, sonixlink_stream_row_t *row) {
+	if (item->kind == YTMUSIC_ITEM_CONTAINER) {
+		row_set(row, "container", item->browse_id, item->title, item->subtitle);
+	} else {
+		row_set(row, "track", item->id, item->title, item->subtitle);
+	}
+	snprintf(row->album, sizeof(row->album), "%s", item->album);
+	snprintf(row->art, sizeof(row->art), "%s", item->thumbnail);
+	row->duration = item->duration;
+}
+
+static void list_youtube(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
+	ytmusic_item_t items[STREAM_PAGE];
+	int count;
+	char error[192] = "";
+	const char *mode = kind && kind[0] ? kind : "explore";
+
+	if (strcmp(mode, "explore") == 0) {
+		ytmusic_section_t sections[YTMUSIC_SECTIONS_MAX];
+		int n = ytmusic_explore_sections(sections, YTMUSIC_SECTIONS_MAX, error, sizeof(error));
+		snprintf(out->title, sizeof(out->title), "%s", "Explore");
+		if (n < 0) {
+			snprintf(out->error, sizeof(out->error), "%s", error[0] ? error : "request_failed");
+			return;
+		}
+		for (int s = 0; s < n && out->count < SONIXLINK_STREAM_ROWS; s++) {
+			for (int i = 0; i < sections[s].count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+				yt_row(&sections[s].items[i], &out->rows[out->count++]);
+			}
+		}
+		return;
+	}
+	if (strcmp(mode, "search") == 0) {
+		if (!q || !q[0]) {
+			snprintf(out->error, sizeof(out->error), "empty_search");
+			return;
+		}
+		count = ytmusic_search_items(q, YTMUSIC_FILTER_SONGS, items, STREAM_PAGE, error, sizeof(error));
+		snprintf(out->title, sizeof(out->title), "%s", q);
+	} else if (strcmp(mode, "charts") == 0) {
+		count = ytmusic_browse_items("FEmusic_charts", items, STREAM_PAGE, error, sizeof(error));
+		snprintf(out->title, sizeof(out->title), "%s", "Charts");
+	} else if (strcmp(mode, "liked") == 0) {
+		count = ytmusic_browse_items("VLLM", items, STREAM_PAGE, error, sizeof(error));
+		snprintf(out->title, sizeof(out->title), "%s", "Liked songs");
+	} else if (strcmp(mode, "open") == 0) {
+		if (!id || !id[0]) {
+			snprintf(out->error, sizeof(out->error), "missing_id");
+			return;
+		}
+		count = ytmusic_browse_items(id, items, STREAM_PAGE, error, sizeof(error));
+	} else {
+		snprintf(out->error, sizeof(out->error), "unknown_kind");
+		return;
+	}
+	if (count < 0) {
+		snprintf(out->error, sizeof(out->error), "%s", error[0] ? error : "request_failed");
+		return;
+	}
+	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+		yt_row(&items[i], &out->rows[out->count++]);
+	}
+	out->more = count >= STREAM_PAGE;
+}
+
+// ---------------------------------------------------------------------------
+// Tidal and Qobuz
+// ---------------------------------------------------------------------------
+
+static void tidal_track_row(const tidal_track_t *t, sonixlink_stream_row_t *row) {
+	row_set(row, "track", "", t->title, t->artist);
+	snprintf(row->id, sizeof(row->id), "%ld", t->id);
+	snprintf(row->album, sizeof(row->album), "%s", t->album);
+	snprintf(row->art, sizeof(row->art), "%s", t->cover);
+	row->duration = t->duration;
+	row->track_number = t->track_number;
+	row->playable = t->streamable;
+}
+
+static void tidal_album_row(const tidal_album_t *a, sonixlink_stream_row_t *row) {
+	row_set(row, "album", a->id_text, a->title, a->artist);
+	snprintf(row->art, sizeof(row->art), "%s", a->cover);
+	row->track_number = a->track_count;
+}
+
+static void list_tidal(const char *kind, const char *id, const char *q, int offset, sonixlink_stream_list_t *out) {
+	const char *mode = kind && kind[0] ? kind : "featured";
+	tidal_track_t tracks[STREAM_PAGE];
+	tidal_album_t albums[STREAM_PAGE];
+	int count = 0;
+
+	if (strcmp(mode, "search") == 0) {
+		if (!q || !q[0]) {
+			snprintf(out->error, sizeof(out->error), "empty_search");
+			return;
+		}
+		count = tidal_search_tracks(q, offset, tracks, STREAM_PAGE);
+		snprintf(out->title, sizeof(out->title), "%s", q);
+	} else if (strcmp(mode, "favorites") == 0) {
+		count = tidal_favorite_tracks(offset, tracks, STREAM_PAGE);
+		snprintf(out->title, sizeof(out->title), "%s", "Favourites");
+	} else if (strcmp(mode, "album") == 0) {
+		count = tidal_album_tracks(id, offset, tracks, STREAM_PAGE);
+	} else if (strcmp(mode, "playlist") == 0) {
+		count = tidal_playlist_tracks(id, offset, tracks, STREAM_PAGE);
+	} else if (strcmp(mode, "artist") == 0) {
+		count = tidal_artist_albums(id_number(id), offset, albums, STREAM_PAGE);
+	} else if (strcmp(mode, "featured") == 0) {
+		count = tidal_featured_albums("new", offset, albums, STREAM_PAGE);
+		snprintf(out->title, sizeof(out->title), "%s", "New releases");
+	} else {
+		snprintf(out->error, sizeof(out->error), "unknown_kind");
+		return;
+	}
+
+	if (count < 0) {
+		const char *why = tidal_last_error();
+		snprintf(out->error, sizeof(out->error), "%s", why && why[0] ? why : "request_failed");
+		return;
+	}
+	bool album_mode = strcmp(mode, "artist") == 0 || strcmp(mode, "featured") == 0;
+	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+		if (album_mode) {
+			tidal_album_row(&albums[i], &out->rows[out->count++]);
+		} else {
+			tidal_track_row(&tracks[i], &out->rows[out->count++]);
+		}
+	}
+	out->more = count >= STREAM_PAGE;
+}
+
+static void qobuz_track_row(const qobuz_track_t *t, sonixlink_stream_row_t *row) {
+	row_set(row, "track", "", t->title, t->artist);
+	snprintf(row->id, sizeof(row->id), "%ld", t->id);
+	snprintf(row->album, sizeof(row->album), "%s", t->album);
+	snprintf(row->art, sizeof(row->art), "%s", t->cover);
+	row->duration = t->duration;
+	row->track_number = t->track_number;
+	row->playable = t->streamable;
+}
+
+static void qobuz_album_row(const qobuz_album_t *a, sonixlink_stream_row_t *row) {
+	row_set(row, "album", a->id_text, a->title, a->artist);
+	snprintf(row->art, sizeof(row->art), "%s", a->cover);
+	row->track_number = a->track_count;
+}
+
+static void list_qobuz(const char *kind, const char *id, const char *q, int offset, sonixlink_stream_list_t *out) {
+	const char *mode = kind && kind[0] ? kind : "featured";
+	qobuz_track_t tracks[STREAM_PAGE];
+	qobuz_album_t albums[STREAM_PAGE];
+	int count = 0;
+
+	if (strcmp(mode, "search") == 0) {
+		if (!q || !q[0]) {
+			snprintf(out->error, sizeof(out->error), "empty_search");
+			return;
+		}
+		count = qobuz_search_tracks(q, offset, tracks, STREAM_PAGE);
+		snprintf(out->title, sizeof(out->title), "%s", q);
+	} else if (strcmp(mode, "favorites") == 0) {
+		count = qobuz_favorite_tracks(offset, tracks, STREAM_PAGE);
+		snprintf(out->title, sizeof(out->title), "%s", "Favourites");
+	} else if (strcmp(mode, "album") == 0) {
+		count = qobuz_album_tracks(id, offset, tracks, STREAM_PAGE);
+	} else if (strcmp(mode, "playlist") == 0) {
+		count = qobuz_playlist_tracks(id_number(id), offset, tracks, STREAM_PAGE);
+	} else if (strcmp(mode, "artist") == 0) {
+		count = qobuz_artist_albums(id_number(id), offset, albums, STREAM_PAGE);
+	} else if (strcmp(mode, "featured") == 0) {
+		count = qobuz_featured_albums("new", offset, albums, STREAM_PAGE);
+		snprintf(out->title, sizeof(out->title), "%s", "New releases");
+	} else {
+		snprintf(out->error, sizeof(out->error), "unknown_kind");
+		return;
+	}
+
+	if (count < 0) {
+		const char *why = qobuz_last_error();
+		snprintf(out->error, sizeof(out->error), "%s", why && why[0] ? why : "request_failed");
+		return;
+	}
+	bool album_mode = strcmp(mode, "artist") == 0 || strcmp(mode, "featured") == 0;
+	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+		if (album_mode) {
+			qobuz_album_row(&albums[i], &out->rows[out->count++]);
+		} else {
+			qobuz_track_row(&tracks[i], &out->rows[out->count++]);
+		}
+	}
+	out->more = count >= STREAM_PAGE;
+}
+
+// ---------------------------------------------------------------------------
+// Podcasts
+// ---------------------------------------------------------------------------
+
+static void list_podcasts(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
+	const char *mode = kind && kind[0] ? kind : "trending";
+	podcast_feed_t feeds[PODCAST_PAGE_LIMIT];
+	podcast_episode_t episodes[PODCAST_PAGE_LIMIT];
+	int count = 0;
+
+	if (strcmp(mode, "search") == 0) {
+		if (!q || !q[0]) {
+			snprintf(out->error, sizeof(out->error), "empty_search");
+			return;
+		}
+		count = podcast_search(q, feeds, PODCAST_PAGE_LIMIT);
+		snprintf(out->title, sizeof(out->title), "%s", q);
+	} else if (strcmp(mode, "followed") == 0) {
+		count = podcastsubs_list(feeds, PODCAST_PAGE_LIMIT);
+		snprintf(out->title, sizeof(out->title), "%s", "Followed");
+	} else if (strcmp(mode, "feed") == 0) {
+		count = podcast_episodes((long long)atoll(id), episodes, PODCAST_PAGE_LIMIT);
+	} else if (strcmp(mode, "trending") == 0) {
+		count = podcast_trending(feeds, PODCAST_PAGE_LIMIT);
+		snprintf(out->title, sizeof(out->title), "%s", "Trending");
+	} else {
+		snprintf(out->error, sizeof(out->error), "unknown_kind");
+		return;
+	}
+
+	if (count < 0) {
+		const char *why = podcast_last_error();
+		snprintf(out->error, sizeof(out->error), "%s", why && why[0] ? why : "request_failed");
+		return;
+	}
+	if (strcmp(mode, "feed") == 0) {
+		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+			podcast_episode_t *e = &episodes[i];
+			sonixlink_stream_row_t *row = &out->rows[out->count++];
+			row_set(row, "episode", "", e->title, e->feed_title);
+			snprintf(row->id, sizeof(row->id), "%lld", e->id);
+			snprintf(row->art, sizeof(row->art), "%s", e->image);
+			snprintf(row->mime, sizeof(row->mime), "%s", e->mime[0] ? e->mime : "audio/mpeg");
+			row->duration = e->duration_secs;
+			row->playable = e->enclosure[0] != '\0';
+		}
+	} else {
+		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+			podcast_feed_t *f = &feeds[i];
+			sonixlink_stream_row_t *row = &out->rows[out->count++];
+			row_set(row, "feed", "", f->title, f->author);
+			snprintf(row->id, sizeof(row->id), "%lld", f->id);
+			snprintf(row->art, sizeof(row->art), "%s", f->image);
+			row->track_number = f->episode_count;
+		}
+	}
+	out->more = count >= PODCAST_PAGE_LIMIT;
+}
+
+// ---------------------------------------------------------------------------
+// Internet radio
+// ---------------------------------------------------------------------------
+
+static bool radio_wait(unsigned serial) {
+	for (int i = 0; i < 160; i++) {
+		radio_job_t state = radio_job_state();
+		if (radio_job_serial() != serial && (state == RADIO_JOB_OK || state == RADIO_JOB_FAILED)) {
+			return state == RADIO_JOB_OK;
+		}
+		usleep(50 * 1000);
+	}
+	return false;
+}
+
+static radio_browse_t radio_kind_of(const char *kind) {
+	if (kind && strcmp(kind, "genres") == 0) {
+		return RADIO_BROWSE_GENRES;
+	}
+	if (kind && strcmp(kind, "languages") == 0) {
+		return RADIO_BROWSE_LANGUAGES;
+	}
+	return RADIO_BROWSE_COUNTRIES;
+}
+
+static void radio_station_row(const radio_station_t *s, sonixlink_stream_row_t *row) {
+	row_set(row, "station", s->uuid, s->name, s->country);
+	snprintf(row->art, sizeof(row->art), "%s", s->favicon);
+	snprintf(row->mime, sizeof(row->mime), "%s", s->codec);
+	row->track_number = s->bitrate;
+	row->playable = radio_station_problem(s) == NULL;
+}
+
+static void list_radio(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
+	const char *mode = kind && kind[0] ? kind : "recommended";
+
+	if (strcmp(mode, "terms") == 0) {
+		radio_browse_t which = radio_kind_of(id);
+		unsigned serial = radio_job_serial();
+		radio_request_terms(which);
+		if (!radio_wait(serial)) {
+			snprintf(out->error, sizeof(out->error), "radio_unavailable");
+			return;
+		}
+		radio_term_t terms[200];
+		int count = radio_get_terms(terms, 200);
+		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+			sonixlink_stream_row_t *row = &out->rows[out->count++];
+			row_set(row, "term", terms[i].name, terms[i].label, "");
+			snprintf(row->album, sizeof(row->album), "%s", id ? id : "countries");
+			row->track_number = terms[i].stationcount;
+		}
+		snprintf(out->title, sizeof(out->title), "%s", "Browse");
+		return;
+	}
+	if (strcmp(mode, "favorites") == 0) {
+		int count = radio_fav_count();
+		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+			radio_station_t station;
+			if (radio_fav_get(i, &station)) {
+				radio_station_row(&station, &out->rows[out->count++]);
+			}
+		}
+		snprintf(out->title, sizeof(out->title), "%s", "Favourites");
+		return;
+	}
+	if (strcmp(mode, "custom") == 0) {
+		int count = radio_custom_count();
+		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+			radio_station_t station;
+			if (radio_custom_get(i, &station)) {
+				radio_station_row(&station, &out->rows[out->count++]);
+			}
+		}
+		snprintf(out->title, sizeof(out->title), "%s", "My stations");
+		return;
+	}
+
+	unsigned serial = radio_job_serial();
+	if (strcmp(mode, "search") == 0) {
+		if (!q || !q[0]) {
+			snprintf(out->error, sizeof(out->error), "empty_search");
+			return;
+		}
+		radio_request_search(q, 0);
+		snprintf(out->title, sizeof(out->title), "%s", q);
+	} else if (strcmp(mode, "stations") == 0) {
+		radio_request_stations(radio_kind_of(q), id, 0);
+	} else if (strcmp(mode, "recommended") == 0) {
+		radio_request_recommended(0);
+		snprintf(out->title, sizeof(out->title), "%s", "Popular stations");
+	} else {
+		snprintf(out->error, sizeof(out->error), "unknown_kind");
+		return;
+	}
+	if (!radio_wait(serial)) {
+		snprintf(out->error, sizeof(out->error), "radio_unavailable");
+		return;
+	}
+	radio_station_t stations[RADIO_PAGE_SIZE];
+	int count = radio_get_stations(stations, RADIO_PAGE_SIZE);
+	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
+		radio_station_row(&stations[i], &out->rows[out->count++]);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// one list
+// ---------------------------------------------------------------------------
+
+bool sonixlink_stream_list(const char *service, const char *kind, const char *id, const char *q, int offset,
+						   sonixlink_stream_list_t *out) {
+	if (!service || !service[0] || !out) {
+		return false;
+	}
+	memset(out, 0, sizeof(*out));
+
+	if (strcmp(service, "youtube") == 0) {
+		list_youtube(kind, id, q, out);
+	} else if (strcmp(service, "tidal") == 0) {
+		list_tidal(kind, id, q, offset, out);
+	} else if (strcmp(service, "qobuz") == 0) {
+		list_qobuz(kind, id, q, offset, out);
+	} else if (strcmp(service, "podcasts") == 0) {
+		list_podcasts(kind, id, q, out);
+	} else if (strcmp(service, "radio") == 0) {
+		list_radio(kind, id, q, out);
+	} else {
+		snprintf(out->error, sizeof(out->error), "unknown_service");
+		return false;
+	}
+	if (out->error[0]) {
+		return false;
+	}
+	if (out->count > 0) {
+		pthread_mutex_lock(&list_lock);
+		memcpy(&last_list, out, sizeof(*out));
+		snprintf(last_service, sizeof(last_service), "%s", service);
+		pthread_mutex_unlock(&list_lock);
+	}
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// playback
+// ---------------------------------------------------------------------------
+
+typedef struct {
+	char service[16];
+	int row_count;
+	int start_row;
+	int start_slot;
+	int built;
+	char (*paths)[512];
+	const char **pointers;
+	sonixlink_stream_row_t rows[SONIXLINK_STREAM_ROWS];
+} play_job_t;
+
+static void job_free(play_job_t *job) {
+	free(job->paths);
+	free(job->pointers);
+	free(job);
+}
+
+static void queue_start(void *user) {
+	play_job_t *job = user;
+	if (job->built > 0 && job->start_slot >= 0) {
+		if (strcmp(job->service, "podcasts") == 0) {
+			device_state_play_list_ordered(job->pointers, job->built, job->start_slot);
+		} else {
+			device_state_play_list(job->pointers, job->built, job->start_slot);
+		}
+	}
+	job_free(job);
+}
+
+static void radio_start(void *user) {
+	play_job_t *job = user;
+	radio_station_t stations[SONIXLINK_STREAM_ROWS];
+	int count = 0;
+	int start = -1;
+	for (int i = 0; i < job->row_count; i++) {
+		const sonixlink_stream_row_t *row = &job->rows[i];
+		if (strcmp(row->kind, "station") != 0 || !row->id[0]) {
+			continue;
+		}
+		radio_station_t *s = &stations[count];
+		memset(s, 0, sizeof(*s));
+		snprintf(s->uuid, sizeof(s->uuid), "%s", row->id);
+		snprintf(s->name, sizeof(s->name), "%s", row->title);
+		snprintf(s->country, sizeof(s->country), "%s", row->subtitle);
+		snprintf(s->favicon, sizeof(s->favicon), "%s", row->art);
+		snprintf(s->codec, sizeof(s->codec), "%s", row->mime);
+		s->bitrate = row->track_number;
+		if (i == job->start_row) {
+			start = count;
+		}
+		count++;
+	}
+	if (start >= 0 && count > 0) {
+		radio_set_list(stations, count);
+		radio_play(&stations[start]);
+	}
+	job_free(job);
+}
+
+// Builds the cache paths the queue holds. The service's own cache names the
+// files, and the sidecars give every entry a title before it has arrived.
+static bool prepare_queue(play_job_t *job) {
+	job->paths = calloc(SONIXLINK_STREAM_ROWS, sizeof(*job->paths));
+	job->pointers = calloc(SONIXLINK_STREAM_ROWS, sizeof(*job->pointers));
+	if (!job->paths || !job->pointers) {
+		return false;
+	}
+
+	for (int i = 0; i < job->row_count; i++) {
+		sonixlink_stream_row_t *row = &job->rows[i];
+		if (strcmp(row->kind, "track") != 0 && strcmp(row->kind, "episode") != 0) {
+			continue;
+		}
+		char path[512] = "";
+		if (strcmp(job->service, "tidal") == 0) {
+			tidalcache_path(id_number(row->id), tidal_expected_mime(), path, sizeof(path));
+			if (!path[0]) continue;
+			tidalcache_write_sidecars_at(path, row->title, row->subtitle, row->album, "", row->track_number,
+										 row->duration, row->art);
+		} else if (strcmp(job->service, "qobuz") == 0) {
+			long id = id_number(row->id);
+			qobuzcache_path(id, qobuz_expected_mime(), path, sizeof(path));
+			if (!path[0]) continue;
+			qobuzcache_write_sidecars(id, qobuz_expected_mime(), row->title, row->subtitle, row->album, "",
+									  row->track_number, row->art);
+		} else if (strcmp(job->service, "youtube") == 0) {
+			if (!ytmusic_cache_path_for(row->id, path, sizeof(path))) continue;
+			ytmusic_track_t track;
+			memset(&track, 0, sizeof(track));
+			snprintf(track.id, sizeof(track.id), "%s", row->id);
+			snprintf(track.title, sizeof(track.title), "%s", row->title);
+			snprintf(track.artist, sizeof(track.artist), "%s", row->subtitle);
+			snprintf(track.album, sizeof(track.album), "%s", row->album);
+			snprintf(track.thumbnail, sizeof(track.thumbnail), "%s", row->art);
+			track.duration = row->duration;
+			ytmusic_cache_write_sidecars(&track, path);
+		} else if (strcmp(job->service, "podcasts") == 0) {
+			const char *mime = row->mime[0] ? row->mime : "audio/mpeg";
+			podcastcache_path((long long)atoll(row->id), mime, path, sizeof(path));
+			if (!path[0]) continue;
+			podcastcache_write_sidecars((long long)atoll(row->id), mime, row->title, row->subtitle, 0, "", "",
+										row->art, false);
+		}
+		if (i == job->start_row) {
+			job->start_slot = job->built;
+		}
+		snprintf(job->paths[job->built], sizeof(job->paths[0]), "%s", path);
+		job->pointers[job->built] = job->paths[job->built];
+		job->built++;
+	}
+	return job->built > 0 && job->start_slot >= 0;
+}
+
+static void *play_worker(void *arg) {
+	play_job_t *job = arg;
+	if (strcmp(job->service, "radio") == 0) {
+		gui_post(radio_start, job);
+		return NULL;
+	}
+	if (!prepare_queue(job)) {
+		job_free(job);
+		return NULL;
+	}
+
+	sonixlink_stream_row_t *start = &job->rows[job->start_row];
+	if (strcmp(job->service, "tidal") == 0) {
+		long id = id_number(start->id);
+		tidal_stream_t *stream = calloc(1, sizeof(*stream));
+		if (stream && tidal_track_stream(id, stream)) {
+			char path[512];
+			tidalcache_start(id, stream, start->duration, true, path, sizeof(path));
+		}
+		free(stream);
+	} else if (strcmp(job->service, "qobuz") == 0) {
+		long id = id_number(start->id);
+		char url[QOBUZ_URL_MAX];
+		char mime[64];
+		if (qobuz_track_url(id, url, sizeof(url), mime, sizeof(mime), NULL)) {
+			char path[512];
+			qobuzcache_start(id, url, mime, start->duration, path, sizeof(path));
+		}
+	} else if (strcmp(job->service, "podcasts") == 0) {
+		podcast_episode_t episode;
+		if (podcast_episode((long long)atoll(start->id), &episode)) {
+			char path[512];
+			podcastcache_start(episode.id, episode.enclosure, episode.mime, episode.duration_secs, path,
+							   sizeof(path));
+		}
+	} else if (strcmp(job->service, "youtube") == 0) {
+		ytmusic_track_t track;
+		memset(&track, 0, sizeof(track));
+		snprintf(track.id, sizeof(track.id), "%s", start->id);
+		snprintf(track.title, sizeof(track.title), "%s", start->title);
+		snprintf(track.artist, sizeof(track.artist), "%s", start->subtitle);
+		snprintf(track.album, sizeof(track.album), "%s", start->album);
+		snprintf(track.thumbnail, sizeof(track.thumbnail), "%s", start->art);
+		track.duration = start->duration;
+		// Whole, before the queue starts: the prepare hook the page uses is not
+		// running for a list the page did not build, and a half file is not a
+		// queue entry this bridge can resume on its own.
+		char path[512];
+		char error[192];
+		ytmusic_download_for_playback(&track, path, sizeof(path), error, sizeof(error));
+	}
+
+	gui_post(queue_start, job);
+	return NULL;
+}
+
+bool sonixlink_stream_play(const char *service, int index, char *error, size_t error_size) {
+	if (error && error_size) {
+		error[0] = '\0';
+	}
+	if (!service || !service[0] || index < 0) {
+		if (error && error_size) snprintf(error, error_size, "bad_request");
+		return false;
+	}
+
+	pthread_mutex_lock(&list_lock);
+	if (strcmp(last_service, service) != 0 || index >= last_list.count) {
+		pthread_mutex_unlock(&list_lock);
+		if (error && error_size) snprintf(error, error_size, "stale_list");
+		return false;
+	}
+	play_job_t *job = calloc(1, sizeof(*job));
+	if (!job) {
+		pthread_mutex_unlock(&list_lock);
+		if (error && error_size) snprintf(error, error_size, "out_of_memory");
+		return false;
+	}
+	snprintf(job->service, sizeof(job->service), "%s", service);
+	job->row_count = last_list.count;
+	job->start_row = index;
+	job->start_slot = -1;
+	memcpy(job->rows, last_list.rows, sizeof(job->rows));
+	pthread_mutex_unlock(&list_lock);
+
+	streamturn_abandon_all();
+	pthread_t worker;
+	if (pthread_create(&worker, NULL, play_worker, job) != 0) {
+		job_free(job);
+		if (error && error_size) snprintf(error, error_size, "no_worker");
+		return false;
+	}
+	pthread_detach(worker);
+	return true;
+}

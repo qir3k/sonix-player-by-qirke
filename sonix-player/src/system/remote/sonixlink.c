@@ -1,5 +1,6 @@
 #include "sonixlink.h"
 #include "sonixlink_bt.h"
+#include "sonixlink_stream.h"
 
 #include "src/system/core/respath.h"
 
@@ -894,7 +895,7 @@ static void route_info(client_t *c) {
 	memset(&j, 0, sizeof(j));
 	buf_str(&j, "{");
 	buf_json_field(&j, "name", device_name_text, true);
-	buf_json_field(&j, "model", "HiBy R3 Pro II", true);
+	buf_json_field(&j, "model", "TempoTec V1", true);
 	buf_json_field(&j, "firmware", sysinfo_os_version(), true);
 	buf_json_field(&j, "serial", sysinfo_serial_number(), true);
 	buf_fmt(&j, "\"api\":1,\"port\":%d,", SONIXLINK_PORT);
@@ -1107,6 +1108,9 @@ static int list_from_name(const char *name) {
 	}
 	if (strcmp(name, "folder") == 0) {
 		return SONIXLINK_LIST_FOLDER;
+	}
+	if (strcmp(name, "year") == 0) {
+		return SONIXLINK_LIST_YEAR;
 	}
 	return -1;
 }
@@ -2269,6 +2273,91 @@ static void route_root(client_t *c) {
 // The request
 // ---------------------------------------------------------------------------
 
+static void route_stream_services(client_t *c) {
+	sonixlink_stream_service_t services[8];
+	int count = sonixlink_stream_services(services, 8);
+
+	buf_t j;
+	memset(&j, 0, sizeof(j));
+	buf_str(&j, "{\"services\":[");
+	for (int i = 0; i < count; i++) {
+		if (i) {
+			buf_str(&j, ",");
+		}
+		buf_str(&j, "{");
+		buf_json_field(&j, "id", services[i].id, true);
+		buf_json_field(&j, "name", services[i].name, true);
+		buf_fmt(&j, "\"available\":%s,\"signed_in\":%s,", services[i].available ? "true" : "false",
+				services[i].signed_in ? "true" : "false");
+		buf_json_field(&j, "detail", services[i].detail, false);
+		buf_str(&j, "}");
+	}
+	buf_str(&j, "]}");
+	reply_json(c, &j);
+}
+
+static void route_stream_list(client_t *c, const char *query) {
+	char service[16], kind[24], id[SONIXLINK_STREAM_ID], q[200], offset_text[16];
+	query_value(query, "service", service, sizeof(service));
+	query_value(query, "kind", kind, sizeof(kind));
+	query_value(query, "id", id, sizeof(id));
+	query_value(query, "q", q, sizeof(q));
+	query_value(query, "offset", offset_text, sizeof(offset_text));
+	int offset = offset_text[0] ? atoi(offset_text) : 0;
+
+	sonixlink_stream_list_t *list = calloc(1, sizeof(*list));
+	if (!list) {
+		reply_status(c, "503 Service Unavailable", "out of memory");
+		return;
+	}
+	sonixlink_stream_list(service, kind, id, q, offset, list);
+
+	buf_t j;
+	memset(&j, 0, sizeof(j));
+	buf_str(&j, "{");
+	buf_json_field(&j, "service", service, true);
+	buf_json_field(&j, "title", list->title, true);
+	buf_fmt(&j, "\"count\":%d,\"more\":%s,", list->count, list->more ? "true" : "false");
+	buf_json_field(&j, "error", list->error, true);
+	buf_str(&j, "\"rows\":[");
+	for (int i = 0; i < list->count; i++) {
+		const sonixlink_stream_row_t *row = &list->rows[i];
+		if (i) {
+			buf_str(&j, ",");
+		}
+		buf_str(&j, "{");
+		buf_json_field(&j, "kind", row->kind, true);
+		buf_json_field(&j, "id", row->id, true);
+		buf_json_field(&j, "title", row->title, true);
+		buf_json_field(&j, "subtitle", row->subtitle, true);
+		buf_json_field(&j, "album", row->album, true);
+		buf_json_field(&j, "art", row->art, true);
+		buf_json_field(&j, "mime", row->mime, true);
+		buf_fmt(&j, "\"duration\":%d,\"track_number\":%d,\"playable\":%s", row->duration, row->track_number,
+				row->playable ? "true" : "false");
+		buf_str(&j, "}");
+	}
+	buf_str(&j, "]}");
+	reply_json(c, &j);
+	free(list);
+}
+
+static void route_stream_play(client_t *c, const char *query) {
+	char service[16], index_text[16], error[SONIXLINK_STREAM_ERROR];
+	query_value(query, "service", service, sizeof(service));
+	query_value(query, "index", index_text, sizeof(index_text));
+	bool ok = sonixlink_stream_play(service, index_text[0] ? atoi(index_text) : -1, error, sizeof(error));
+
+	buf_t j;
+	memset(&j, 0, sizeof(j));
+	buf_str(&j, "{");
+	buf_fmt(&j, "\"ok\":%s,", ok ? "true" : "false");
+	buf_json_field(&j, "error", ok ? "" : error, false);
+	buf_str(&j, "}");
+	reply_json(c, &j);
+}
+
+
 static void serve_request(client_t *c) {
 	// "METHOD /path?query HTTP/1.1". The method is not looked at: nothing here
 	// is destructive enough to need protecting from a browser, and every
@@ -2302,7 +2391,13 @@ static void serve_request(client_t *c) {
 		printf("sonixlink: %s?%s\n", target, query);
 	}
 
-	if (strcmp(target, "/api/info") == 0) {
+	if (strcmp(target, "/api/stream/services") == 0) {
+		route_stream_services(c);
+	} else if (strcmp(target, "/api/stream/list") == 0) {
+		route_stream_list(c, query);
+	} else if (strcmp(target, "/api/stream/play") == 0) {
+		route_stream_play(c, query);
+	} else if (strcmp(target, "/api/info") == 0) {
 		route_info(c);
 	} else if (strcmp(target, "/api/state") == 0) {
 		route_state(c);
