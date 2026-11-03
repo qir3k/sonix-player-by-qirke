@@ -5,7 +5,6 @@
 #include "lvgl/lvgl.h"
 
 #include "src/gui/fonts/fonts.h"
-#include "src/gui/settings/processespage.h"
 #include "src/gui/shell/settingsrow.h"
 #include "src/gui/shell/switcher.h"
 #include "src/gui/shell/theme.h"
@@ -179,10 +178,6 @@ void devoptions_init(gui_config_t *cfg) {
 				 status ? "\n" : "", status ? status : "(marker untouched so far)");
 		lv_label_set_text(trace_label, trace_text);
 	}
-
-	// Opens the page showing RAM and running processes. A navigation row with a
-	// chevron, like the developer options entry on the previous page.
-	settingsrow_add(container, "processes", NULL, switch_screen_cb, processespage_screen);
 
 	update_adb_row();
 	update_log_row();

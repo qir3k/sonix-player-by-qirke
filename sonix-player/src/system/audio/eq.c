@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "src/system/core/config.h"
+#include "src/system/addons/addons.h"
 
 // The classic ISO octave centres every 10-band graphic EQ uses (and the ten
 // bands the stock player's geq carries).
@@ -313,14 +314,14 @@ void eq_init(void) {
 		}
 		band_gain_db[i] = (int)g;
 	}
-	sf_enabled = (int)config_get_int("soundfield", "enabled", 0);
+	sf_enabled = addons_enabled("soundfield") && config_get_int("soundfield", "enabled", 0);
 	sf_width = clamp_width((int)config_get_int("soundfield", "width", SOUNDFIELD_WIDTH_DEFAULT));
 
-	bal_enabled = (int)config_get_int("balance", "enabled", 0);
+	bal_enabled = addons_enabled("channel_balance") && config_get_int("balance", "enabled", 0);
 	mono_enabled = config_get_int("audio", "mono", 0) ? 1 : 0;
 	balance_set_gains(clamp_balance((int)config_get_int("balance", "value", BALANCE_CENTRE)));
 
-	cf_enabled = (int)config_get_int("crossfeed", "enabled", 0);
+	cf_enabled = addons_enabled("crossfeed") && config_get_int("crossfeed", "enabled", 0);
 	cf_level = clamp_step((int)config_get_int("crossfeed", "level", CROSSFEED_LEVEL_DEFAULT), CROSSFEED_LEVEL_MIN,
 						  CROSSFEED_LEVEL_MAX, CROSSFEED_LEVEL_STEP);
 	cf_cutoff = clamp_step((int)config_get_int("crossfeed", "cutoff", CROSSFEED_CUTOFF_DEFAULT), CROSSFEED_CUTOFF_MIN,

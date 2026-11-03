@@ -2625,7 +2625,9 @@ int main(int argc, char **argv) {
 	// sleeps until a page asks for one, so starting it costs a thread and
 	// nothing else.
 	waveform_set_cache_dir(gui_cfg.sd_root_path);
-	waveform_start();
+	if (addons_enabled("layout_waveform")) {
+		waveform_start();
+	}
 
 	// User playlists: plain .m3u files in <card>/Playlist.
 	playlists_init(gui_cfg.sd_root_path);
@@ -2967,4 +2969,3 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
-

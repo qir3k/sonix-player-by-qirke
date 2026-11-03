@@ -24,12 +24,14 @@
 #include "src/system/streaming/ytmusic.h"
 
 lv_obj_t *processespage_screen;
+lv_obj_t *optimizepage_screen;
 
 // The page container (a scrolling column) and the parts rebuilt on every open:
 // the RAM card at the top and the process list below it.
 static lv_obj_t *page_container;
 static lv_obj_t *ram_label;
 static lv_obj_t *proc_list; // emptied and refilled on every SCREEN_LOADED
+static lv_obj_t *optimize_container;
 
 // A process, reduced to what is worth showing.
 typedef struct {
@@ -443,7 +445,6 @@ static void optimize_clicked_cb(lv_event_t *e) {
 	fprintf(stderr, "processes: optimize freed %ld kB of RAM, removed %d file(s), %llu kB of junk\n", gained, junk.files,
 			junk.bytes / 1024);
 
-	rebuild();
 	if (optimize_result) {
 		char freed[24], disk[24];
 		format_kb(gained, freed, sizeof(freed));
@@ -469,6 +470,7 @@ static void refresh_clicked_cb(lv_event_t *e) {
 
 void processespage_init(gui_config_t *cfg) {
 	page_container = settingsrow_page(processespage_screen, cfg, "processes");
+	optimize_container = settingsrow_page(optimizepage_screen, cfg, "optimize");
 
 	// The top-right icon, like the other page corner buttons.
 	settingsrow_title_corner_slots(settingsrow_page_title(processespage_screen), cfg, 1);
@@ -504,24 +506,24 @@ void processespage_init(gui_config_t *cfg) {
 	lv_obj_set_style_text_font(ram_label, &font_ui_22, 0);
 	lv_label_set_text(ram_label, "");
 
-	// Optimize, right under what it improves: the figures are the reason
-	// anybody is on this page, and the button is what changes them.
-	lv_obj_t *optimize = settingsrow_add(page_container, "optimize", NULL, optimize_clicked_cb, NULL);
+	// The cleanup action and its choices live on their own System page,
+	// separate from the read-only process list.
+	lv_obj_t *optimize = settingsrow_add(optimize_container, "optimize", NULL, optimize_clicked_cb, NULL);
 	settingsrow_add_caption(optimize, "optimize_note");
 
 	// What the button is allowed to touch, under it: the four parts are not
 	// equally cheap to lose, so each one is the user's to keep or give up.
-	lv_obj_t *what = lv_label_create(page_container);
+	lv_obj_t *what = lv_label_create(optimize_container);
 	lv_label_set_text(what, tr("optimize_what"));
 	lv_obj_add_style(what, &theme_style_text_dim, 0);
 	lv_obj_set_style_text_font(what, &font_ui_18, 0);
 	lv_obj_set_style_pad_top(what, 6, 0);
-	optimize_toggle(page_container, "optimize_memory", optimize_memory_cb, optimize_memory());
-	optimize_toggle(page_container, "optimize_artwork", optimize_artwork_cb, optimize_artwork());
-	optimize_toggle(page_container, "optimize_parts", optimize_parts_cb, optimize_parts());
-	optimize_toggle(page_container, "optimize_caches", optimize_caches_cb, optimize_caches());
+	optimize_toggle(optimize_container, "optimize_memory", optimize_memory_cb, optimize_memory());
+	optimize_toggle(optimize_container, "optimize_artwork", optimize_artwork_cb, optimize_artwork());
+	optimize_toggle(optimize_container, "optimize_parts", optimize_parts_cb, optimize_parts());
+	optimize_toggle(optimize_container, "optimize_caches", optimize_caches_cb, optimize_caches());
 
-	optimize_result = lv_label_create(page_container);
+	optimize_result = lv_label_create(optimize_container);
 	lv_obj_set_width(optimize_result, lv_pct(100));
 	lv_obj_add_style(optimize_result, &theme_style_text_dim, 0);
 	lv_obj_set_style_text_font(optimize_result, &font_ui_18, 0);

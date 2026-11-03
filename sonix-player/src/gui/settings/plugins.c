@@ -33,7 +33,27 @@ static void addon_switch_cb(lv_event_t *e) {
 		return;
 	}
 	lv_obj_t *sw = lv_event_get_target(e);
-	addons_set(id, lv_obj_has_state(sw, LV_STATE_CHECKED));
+	bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+	if (!on && strncmp(id, "layout_", sizeof("layout_") - 1) == 0) {
+		static const char *const layouts[] = {
+			"layout_standard", "layout_waveform", "layout_alternative",
+			"layout_immersive", "layout_poster", "layout_aam",
+		};
+		bool another_enabled = false;
+		for (size_t i = 0; i < sizeof(layouts) / sizeof(layouts[0]); i++) {
+			if (strcmp(id, layouts[i]) != 0 && !(strcmp(layouts[i], "layout_aam") == 0 && !bp_is_tempotec_v1()) &&
+				addons_enabled(layouts[i])) {
+				another_enabled = true;
+				break;
+			}
+		}
+		if (!another_enabled) {
+			lv_obj_add_state(sw, LV_STATE_CHECKED);
+			toast_error("At least one player layout must remain enabled");
+			return;
+		}
+	}
+	addons_set(id, on);
 	toast_success("addon_restart_needed");
 }
 
@@ -115,6 +135,9 @@ void plugins_init(gui_config_t *cfg) {
 	for (int i = 0; i < addons_count(); i++) {
 		const addon_t *addon = addons_at(i);
 		if (!addon) {
+			continue;
+		}
+		if (strcmp(addon->id, "layout_aam") == 0 && !bp_is_tempotec_v1()) {
 			continue;
 		}
 		if (!section || strcmp(section, addon->section) != 0) {

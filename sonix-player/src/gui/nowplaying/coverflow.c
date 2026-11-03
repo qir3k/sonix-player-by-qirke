@@ -18,6 +18,7 @@
 #include "src/gui/shell/theme.h"
 #include "src/gui/shell/topbar.h"
 #include "src/system/core/config.h"
+#include "src/system/addons/addons.h"
 #include "src/system/playback/device_state.h"
 #include "src/system/core/lang.h"
 #include "src/system/library/library.h"
@@ -271,6 +272,9 @@ static bool shortcut_taken;
 // ---------------------------------------------------------------------------
 
 bool coverflow_enabled(void) {
+	if (!addons_enabled("coverflow")) {
+		return false;
+	}
 	if (!enabled_loaded) {
 		enabled_loaded = true;
 		enabled = config_get_int("library", "coverflow", 0) != 0;
@@ -2073,6 +2077,9 @@ static void refresh_theme(void) {
 }
 
 void coverflow_init(gui_config_t *cfg) {
+	if (!addons_enabled("coverflow")) {
+		return;
+	}
 	sheet_cfg = cfg;
 	sheet_h = cfg->screen_height;
 	record_scale = bp_pick(224, LV_SCALE_NONE);

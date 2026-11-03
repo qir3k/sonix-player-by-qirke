@@ -5,10 +5,13 @@
 
 #include "lvgl/lvgl.h"
 
-// The "Processes" page under Developer options: how much RAM is in use and
-// which processes are holding it. Read-only, taken from /proc on every open,
-// so no timer runs behind a page nobody is looking at.
+// The Processes page: how much RAM is in use and which processes are holding
+// it. Read-only, taken from /proc on every open, so no timer runs behind a page
+// nobody is looking at.
 extern lv_obj_t *processespage_screen;
+
+// The separate System > Optimize page.
+extern lv_obj_t *optimizepage_screen;
 
 void processespage_init(gui_config_t *cfg);
 

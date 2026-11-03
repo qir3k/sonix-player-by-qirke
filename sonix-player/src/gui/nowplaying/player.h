@@ -92,6 +92,7 @@ typedef enum {
 
 player_layout_t player_layout_get(void);
 void player_layout_set(player_layout_t layout);
+bool player_layout_enabled(player_layout_t layout);
 
 // Whether the play/pause glyph and the played part of the progress bar take
 // the playing sleeve's main colour instead of the theme's accent, in every

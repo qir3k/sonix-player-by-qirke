@@ -25,6 +25,7 @@
 #include "src/gui/shell/confirm.h"
 #include "src/gui/shell/keyboard.h"
 #include "src/gui/shell/icons.h"
+#include "src/gui/shell/settingsrow.h"
 #include "src/gui/shell/theme.h"
 #include "src/system/core/config.h"
 #include "src/system/core/lang.h"
@@ -528,6 +529,21 @@ int main(int argc, char **argv) {
 	assert(strcmp(config_get("coverart", "contact", ""), "me@example.org") == 0);
 	assert(strcmp(last_toast, "success:coverart_contact_saved") == 0);
 	assert(lv_screen_active() == player_screen);
+
+	/* In Music settings, a long address is a single-line preview rather than
+	 * wrapping into and over the next row. */
+	config_set("coverart", "contact", "a.long.musicbrainz.contact.address@example.org");
+	lv_obj_t *contact_rows = lv_obj_create(NULL);
+	lv_obj_set_size(contact_rows, cfg.screen_width, cfg.screen_height);
+	lv_obj_set_flex_flow(contact_rows, LV_FLEX_FLOW_COLUMN);
+	coversearch_contact_row(contact_rows);
+	lv_screen_load(contact_rows);
+	lv_obj_update_layout(contact_rows);
+	lv_obj_t *contact_preview = find_label(contact_rows, "a.long.musicbrainz.contact.address@example.org");
+	assert(contact_preview);
+	assert(lv_obj_get_height(contact_preview) == lv_font_get_line_height(&font_ui_14));
+	check_within_panel_in(contact_rows, &cfg, "MusicBrainz contact row", true);
+	lv_obj_delete(contact_rows);
 
 	unlink(cover);
 	unlink(config);

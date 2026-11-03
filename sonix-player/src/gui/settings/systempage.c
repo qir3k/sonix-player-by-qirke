@@ -11,6 +11,7 @@
 #include "src/gui/shell/easteregg.h"
 #include "src/gui/fonts/fonts.h"
 #include "src/gui/settings/fwupdate.h"
+#include "src/gui/settings/processespage.h"
 #include "src/gui/settings/settings.h"
 #include "src/gui/shell/settingsrow.h"
 #include "src/gui/shell/switcher.h"
@@ -470,6 +471,8 @@ void systempage_init(gui_config_t *cfg) {
 	lv_obj_t *container = settingsrow_page(systempage_screen, cfg, "system");
 
 	settingsrow_add(container, "system_about", NULL, switch_screen_cb, sysinfo_screen);
+	settingsrow_add(container, "processes", NULL, switch_screen_cb, processespage_screen);
+	settingsrow_add(container, "optimize", NULL, switch_screen_cb, optimizepage_screen);
 	// Actions, not pages: settingsrow_action leaves off the chevron.
 	settingsrow_action(container, "system_update_firmware", firmware_clicked_cb, NULL);
 	settingsrow_action(container, "system_factory_reset", factory_clicked_cb, NULL);

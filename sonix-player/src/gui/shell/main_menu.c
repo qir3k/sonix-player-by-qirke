@@ -680,7 +680,9 @@ void main_menu_init(gui_config_t *cfg) {
 	// as the music grid used to, without entering Music first. With the stock
 	// arrangement chosen the handler stands down by itself (see gestures.h), so
 	// it can be attached either way and needs no rebuild when the setting moves.
-	coverflow_attach_edge(menu_grid, cfg);
+	if (addons_enabled("coverflow")) {
+		coverflow_attach_edge(menu_grid, cfg);
+	}
 
 	// Tokyo Night's compact home chrome: the header, note and live mini-player
 	// are ordinary LVGL objects, and remain hidden in the unchanged Dark/Light

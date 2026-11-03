@@ -1,6 +1,6 @@
 # Addons: what is in the player, and what can be left out
 
-The player is one binary. What an addon switch changes is not the code that is linked, but whether that module's **pages are built at all**: a module that is off is never initialised, so the LVGL screens, lists, and rows it would have held are never allocated. On a low-memory MIPS embedded DAP like the TempoTec V1 where free RAM is precious, this is the optimization that keeps everything fast and responsive.
+The player is one binary. What an addon switch changes is not the code that is linked, but whether that module's **pages are built at all**: a module that is off is never initialised, so the LVGL screens, lists, and rows it would have held are never allocated. Player layouts are the exception: they share one now-playing page, and their switches decide which layout choices and layout-specific resources are available. On a low-memory MIPS embedded DAP like the TempoTec V1 where free RAM is precious, this is the optimization that keeps everything fast and responsive.
 
 ### Fresh Install Defaults (RAM-First Philosophy)
 
@@ -11,11 +11,18 @@ Unlike earlier firmware where every single module was enabled by default, this f
   - `eq` (10-Band Graphic Equaliser)
   - `peq` (10-Band Parametric Equaliser)
   - `mseb` (MageSound 8-ball tuning)
+  - `soundfield` (stereo width processing)
+  - `crossfeed` (headphone crossfeed processing)
+  - `channel_balance` (left/right channel correction)
+  - `volume_limit` (per-output maximum volume ceiling)
+  - `speex_resampler` (Bluetooth audio sample-rate conversion)
+  - `layout_poster` (Poster now-playing layout)
 * **Default OFF:**
   - All Games (`gearboy`, `flappy`, `game2048`, `minesweeper`, `sudoku`, `guess_song`, `stack_it`, `brick_breaker`)
   - All Tools (`calculator`, `notes`, `tagmanager`, `metronome`, `ebook`)
   - Earbuds Bluetooth protocols (`airpods`, `earfun`)
   - Streaming providers requiring separate keys (`tidal`, `qobuz`, `ytmusic`, `podcasts`, `radio`)
+  - Other player layouts and Cover Flow (`layout_standard`, `layout_waveform`, `layout_alternative`, `layout_immersive`, `layout_aam`, `coverflow`)
 
 This ensures that upon first boot, the player launches with ~45–50 MB of free RAM. Existing user settings are never overwritten upon update. A friendly first-run welcome popup invites new users to open **Settings → Plugins** and toggle whichever features they desire.
 
@@ -26,10 +33,17 @@ This ensures that upon first boot, the player launches with ~45–50 MB of free 
 **Settings → Plugins**, a row for each module of this build with a one-line description and a switch, grouped under headings:
 - **Streaming services**
 - **Earbuds**
+- **Bluetooth audio**
 - **Library shelves**
+- **Player layouts**
 - **Music features**
 - **Tools**
 - **Games**
+
+Poster is the default now-playing layout. Other layouts and Cover Flow can be
+enabled here and require a restart; at least one player layout must remain
+enabled. Waveform's buffer and worker are not allocated when that layout is off,
+and the Cover Flow sheet is not built until its plugin is enabled.
 
 Switching one writes `[addons] <id> = true|false` into `device_config.ini` and shows a *Restart to apply* toast: a page that has already been built cannot give its memory back mid-session, so the memory saving is real from the next clean start.
 
@@ -51,13 +65,25 @@ Below the modules, under **Interface**, sit the choices that are not modules —
 | `subsonic` | Streaming | Subsonic / Navidrome / Gonic server streaming |
 | `airpods` | Earbuds | Apple AirPods & Beats battery and ANC/Transparency control |
 | `earfun` | Earbuds | EarFun earbuds over GAIA (battery, ANC, game mode) |
+| `speex_resampler` | Bluetooth audio | Speex sample-rate conversion for Bluetooth audio |
 | `audiobooks` | Library | Audiobooks section: books, series, authors, resume |
 | `ebook` | Library | Books shelf and EPUB reader |
+| `layout_standard` | Player layouts | Standard now-playing layout |
+| `layout_waveform` | Player layouts | Waveform layout for local tracks |
+| `layout_alternative` | Player layouts | Compact alternative layout |
+| `layout_immersive` | Player layouts | Full-screen immersive artwork |
+| `layout_poster` | Player layouts | Poster layout (enabled by default) |
+| `layout_aam` | Player layouts | Album Art Max on TempoTec V1 |
+| `coverflow` | Player layouts | Album carousel and its larger cover cache |
 | `lyrics` | Music features | Synced lyrics pane and LRCLIB online lyrics search |
 | `artwork` | Music features | Cover Art Fetcher: online sleeve search and ID3 writer |
 | `eq` | Music features | 10-band graphic equaliser and tone controls |
 | `peq` | Music features | 10-band parametric equaliser and AutoEq presets |
 | `mseb` | Music features | HiBy MSEB acoustic tuning sliders |
+| `soundfield` | Music features | Optional stereo-width processing and its Music settings page |
+| `crossfeed` | Music features | Optional headphone crossfeed processing and its Music settings page |
+| `channel_balance` | Music features | Optional left/right balance correction and its Music settings page |
+| `volume_limit` | Music features | Optional per-output volume ceiling and its Music settings page |
 | `sleep_timer` | Music features | Sleep timers on player pages and Control Center |
 | `autoeq` | Music features | AutoEQ headphone correction database |
 | `lastfm` | Music features | Scrobbling to Last.fm |
@@ -74,6 +100,16 @@ Below the modules, under **Interface**, sit the choices that are not modules —
 | `guess_song` | Games | Guess The Song audio quiz with real music playback |
 | `stack_it` | Games | Stack It timing block game |
 | `brick_breaker` | Games | Brick Breaker arcade with continuous paddle touch drag |
+
+Soundfield, Crossfeed, Channel Balance, Volume Limit, and Bluetooth Speex
+resampling stay enabled as plugins by default to preserve existing behavior.
+Disabling a plugin removes its settings row and disables its processing after
+restart; saved settings are retained. With these plugins off, normal playback
+continues: Soundfield and Crossfeed simply stop shaping stereo, Channel Balance
+leaves the channels centered, and Bluetooth uses ALSA's default rate converter
+instead of Speex when conversion is needed. Volume Limit is different only in
+that its safety ceiling is removed, so leave it enabled if you rely on that
+protection.
 
 ---
 

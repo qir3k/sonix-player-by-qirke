@@ -1256,6 +1256,18 @@ int main(int argc, char **argv) {
 	char config[640];
 	snprintf(config, sizeof(config), "%s/device_config.ini", card);
 	config_init(config);
+	assert(addons_enabled("layout_poster"));
+	assert(addons_enabled("soundfield"));
+	assert(addons_enabled("crossfeed"));
+	assert(addons_enabled("channel_balance"));
+	assert(addons_enabled("volume_limit"));
+	assert(addons_enabled("speex_resampler"));
+	assert(!addons_enabled("layout_standard"));
+	assert(!addons_enabled("layout_waveform"));
+	assert(!addons_enabled("layout_alternative"));
+	assert(!addons_enabled("layout_immersive"));
+	assert(!addons_enabled("layout_aam"));
+	assert(!addons_enabled("coverflow"));
 	config_set("ui", "language", "English");
 	config_set("keyboard", "layouts", "polish,english");
 	lang_init(argv[1]);
@@ -1334,6 +1346,9 @@ int main(int argc, char **argv) {
 	lv_obj_update_layout(plugins_screen);
 	for (int i = 0; i < addons_count(); i++) {
 		const addon_t *addon = addons_at(i);
+		if (strcmp(addon->id, "layout_aam") == 0 && !bp_is_tempotec_v1()) {
+			continue;
+		}
 		lv_obj_t *name = find_label(plugins_screen, tr(addon->label));
 		assert(name);
 		lv_area_t area;

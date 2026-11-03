@@ -6448,9 +6448,45 @@ void player_play_file(const char *filepath) {
 // again. The button glyph is corrected here rather than left to the next poll
 // because half a second of a pause button over a paused track reads as a
 // control that did not take.
+bool player_layout_enabled(player_layout_t layout) {
+	switch (layout) {
+	case PLAYER_LAYOUT_STANDARD:
+		return addons_enabled("layout_standard");
+	case PLAYER_LAYOUT_ALTERNATIVE:
+		return addons_enabled("layout_waveform");
+	case PLAYER_LAYOUT_STUDIO:
+		return addons_enabled("layout_alternative");
+	case PLAYER_LAYOUT_IMMERSIVE:
+		return addons_enabled("layout_immersive");
+	case PLAYER_LAYOUT_POSTER:
+		return addons_enabled("layout_poster");
+	case PLAYER_LAYOUT_ALBUM_ART_MAX:
+		return bp_is_tempotec_v1() && addons_enabled("layout_aam");
+	default:
+		return false;
+	}
+}
+
+static player_layout_t first_enabled_layout(void) {
+	static const player_layout_t layouts[] = {
+		PLAYER_LAYOUT_POSTER, PLAYER_LAYOUT_STANDARD, PLAYER_LAYOUT_ALTERNATIVE,
+		PLAYER_LAYOUT_STUDIO, PLAYER_LAYOUT_IMMERSIVE, PLAYER_LAYOUT_ALBUM_ART_MAX,
+	};
+	for (size_t i = 0; i < sizeof(layouts) / sizeof(layouts[0]); i++) {
+		if (player_layout_enabled(layouts[i])) {
+			return layouts[i];
+		}
+	}
+	return PLAYER_LAYOUT_POSTER;
+}
+
 player_layout_t player_layout_get(void) { return layout_choice; }
 
 void player_layout_set(player_layout_t layout) {
+	if (!player_layout_enabled(layout)) {
+		fprintf(stderr, "player: refusing unavailable layout %d\n", (int)layout);
+		return;
+	}
 	if (layout == layout_choice) {
 		return;
 	}
@@ -7407,7 +7443,7 @@ void player_init(gui_config_t *cfg) {
 		if (wave_w < WAVEFORM_BARS) {
 			wave_w = WAVEFORM_BARS;
 		}
-		wave_buf = malloc((size_t)wave_w * wave_h * 3);
+		wave_buf = addons_enabled("layout_waveform") ? malloc((size_t)wave_w * wave_h * 3) : NULL;
 		if (wave_buf) {
 			memset(wave_buf, 0, (size_t)wave_w * wave_h * 3);
 			wave_canvas = lv_canvas_create(wave_box);
@@ -7415,7 +7451,7 @@ void player_init(gui_config_t *cfg) {
 			lv_obj_set_size(wave_canvas, wave_w, wave_h);
 			lv_obj_align(wave_canvas, LV_ALIGN_CENTER, 0, 0);
 			lv_obj_set_clickable(wave_canvas, false);
-		} else {
+		} else if (addons_enabled("layout_waveform")) {
 			fprintf(stderr, "player: no room for the waveform; the alternative layout keeps the bar\n");
 		}
 	}
@@ -7998,13 +8034,12 @@ void player_init(gui_config_t *cfg) {
 	// off unless it was switched on.
 	cover_tint = config_get_bool("screen", "player_cover_tint", false);
 	aam_leftie = config_get_bool("screen", "player_aam_leftie", false);
-	int saved = (int)config_get_int("screen", "player_layout_alt", 0);
-	layout_choice = (saved == (int)PLAYER_LAYOUT_ALTERNATIVE)  ? PLAYER_LAYOUT_ALTERNATIVE
-						: (saved == (int)PLAYER_LAYOUT_STUDIO)	   ? PLAYER_LAYOUT_STUDIO
-						: (saved == (int)PLAYER_LAYOUT_IMMERSIVE) ? PLAYER_LAYOUT_IMMERSIVE
-						: (saved == (int)PLAYER_LAYOUT_POSTER)	   ? PLAYER_LAYOUT_POSTER
-						: (saved == (int)PLAYER_LAYOUT_ALBUM_ART_MAX) ? PLAYER_LAYOUT_ALBUM_ART_MAX
-																  : PLAYER_LAYOUT_STANDARD;
+	int saved = (int)config_get_int("screen", "player_layout_alt", PLAYER_LAYOUT_POSTER);
+	player_layout_t requested =
+		(saved >= PLAYER_LAYOUT_STANDARD && saved <= PLAYER_LAYOUT_ALBUM_ART_MAX)
+			? (player_layout_t)saved
+			: first_enabled_layout();
+	layout_choice = player_layout_enabled(requested) ? requested : first_enabled_layout();
 	// apply_layout() below puts the standard one up first: none of the others
 	// is in force until it says so.
 	layout_alt_now = false;
@@ -8016,5 +8051,3 @@ void player_init(gui_config_t *cfg) {
 
 	theme_register_refresh(player_refresh_theme);
 }
-
-

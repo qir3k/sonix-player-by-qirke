@@ -480,10 +480,12 @@ lv_obj_t *coversearch_contact_screen(void) { return contact_screen; }
 void coversearch_contact_row(lv_obj_t *parent) {
 	settingsrow_add(parent, "coverart_contact", &contact_value, switch_screen_cb, contact_screen);
 	if (contact_value) {
+		const lv_font_t *font = bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_20;
 		lv_obj_set_width(contact_value, lv_pct(42));
-		lv_obj_set_style_text_font(contact_value, bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_20, 0);
+		lv_obj_set_style_text_font(contact_value, font, 0);
 		lv_obj_set_style_text_align(contact_value, LV_TEXT_ALIGN_RIGHT, 0);
 		lv_label_set_long_mode(contact_value, LV_LABEL_LONG_DOT);
+		lv_obj_set_height(contact_value, lv_font_get_line_height(font));
 		lv_label_set_text(contact_value, config_get("coverart", "contact", ""));
 	}
 }

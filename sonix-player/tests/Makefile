@@ -136,12 +136,14 @@ $(BUILD)/test_kblayout: $(KB_SRC) $(ROOT)/src/system/input/kblayout.h \
 
 # The graphic EQ, PEQ and MSEB on stereo PCM -- the same eq_process() radio
 # stations go through. Plain C, no ALSA and no LVGL.
-EQ_SRC = test_eq.c $(ROOT)/src/system/audio/eq.c $(ROOT)/src/system/core/config.c
+EQ_SRC = test_eq.c $(ROOT)/src/system/audio/eq.c $(ROOT)/src/system/core/config.c \
+         $(ROOT)/src/system/addons/addons.c
 .PHONY: eq
 eq: $(BUILD)/test_eq
 	$(BUILD)/test_eq
 
-$(BUILD)/test_eq: $(EQ_SRC) $(ROOT)/src/system/audio/eq.h $(ROOT)/src/system/core/config.h
+$(BUILD)/test_eq: $(EQ_SRC) $(ROOT)/src/system/audio/eq.h $(ROOT)/src/system/core/config.h \
+                  $(ROOT)/src/system/addons/addons.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(EQ_SRC) $(LDFLAGS) $(LDLIBS)
 

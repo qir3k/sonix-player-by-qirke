@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include "src/system/audio/eq.h"
+#include "src/system/addons/addons.h"
 #include "src/system/core/config.h"
 
 static int failures;
@@ -341,7 +342,41 @@ int main(void) {
 	// A missing file is not an error: the path is still remembered and the
 	// defaults are used until the first save.
 	config_init(path);
+	CHECK(addons_enabled("soundfield"));
+	CHECK(addons_enabled("crossfeed"));
+	CHECK(addons_enabled("channel_balance"));
+	CHECK(addons_enabled("volume_limit"));
+	CHECK(addons_enabled("speex_resampler"));
 	eq_init();
+	CHECK(!soundfield_get_enabled());
+	CHECK(!crossfeed_get_enabled());
+	CHECK(!balance_get_enabled());
+	short balance_probe[] = {12000, 3000};
+	balance_process(balance_probe, 1, 2);
+	CHECK(balance_probe[0] == 12000 && balance_probe[1] == 3000);
+
+	config_set_bool("soundfield", "enabled", true);
+	config_set_bool("crossfeed", "enabled", true);
+	config_set_bool("balance", "enabled", true);
+	eq_init();
+	CHECK(soundfield_get_enabled());
+	CHECK(crossfeed_get_enabled());
+	CHECK(balance_get_enabled());
+
+	config_set_bool("addons", "soundfield", false);
+	config_set_bool("addons", "crossfeed", false);
+	config_set_bool("addons", "channel_balance", false);
+	eq_init();
+	CHECK(!soundfield_get_enabled());
+	CHECK(!crossfeed_get_enabled());
+	CHECK(!balance_get_enabled());
+	config_set_bool("addons", "soundfield", true);
+	config_set_bool("addons", "crossfeed", true);
+	config_set_bool("addons", "channel_balance", true);
+	eq_init();
+	CHECK(soundfield_get_enabled());
+	CHECK(crossfeed_get_enabled());
+	CHECK(balance_get_enabled());
 
 	test_off_is_a_no_op();
 	test_graphic_eq_changes_samples();

@@ -724,9 +724,11 @@ void btaudio_init(gui_config_t *cfg) {
 	// The sample rate row: Auto or forced (44.1, 48, 96 kHz).
 	rate_row = settingsrow_add(container, "btaudio_sample_rate", &rate_value, rate_row_cb, NULL);
 
-	settingsrow_toggle(container, "btaudio_speex_resampler", &speex_switch, speex_toggle_cb);
-	if (config_get_bool("bluetooth", "speex_resampler", true)) {
-		lv_obj_add_state(speex_switch, LV_STATE_CHECKED);
+	if (addons_enabled("speex_resampler")) {
+		settingsrow_toggle(container, "btaudio_speex_resampler", &speex_switch, speex_toggle_cb);
+		if (config_get_bool("bluetooth", "speex_resampler", true)) {
+			lv_obj_add_state(speex_switch, LV_STATE_CHECKED);
+		}
 	}
 
 	// One level or two, on by default. On, the keys here move the headphones

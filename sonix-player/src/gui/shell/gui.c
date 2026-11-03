@@ -668,6 +668,7 @@ void gui_init(gui_config_t *cfg) {
 	settings_screen = lv_obj_create(NULL);
 	devoptions_screen = lv_obj_create(NULL);
 	processespage_screen = lv_obj_create(NULL);
+	optimizepage_screen = lv_obj_create(NULL);
 	systempage_screen = lv_obj_create(NULL);
 	sysinfo_screen = lv_obj_create(NULL);
 	libraryscan_screen = lv_obj_create(NULL);
@@ -737,7 +738,9 @@ void gui_init(gui_config_t *cfg) {
 	menuarrange_init(cfg);
 
 	music_init(cfg);
-	coverflow_init(cfg);
+	if (addons_enabled("coverflow")) {
+		coverflow_init(cfg);
+	}
 
 	// wireless section: the two radio pages first, so the section's tiles
 	// have somewhere to point and the control centre's round buttons have a
@@ -907,7 +910,8 @@ void gui_init(gui_config_t *cfg) {
 	// menu.
 	lv_obj_t *const back_swipe_screens[] = {
 		main_menu_screen, music_screen,			browser_screen,	  settings_screen,
-		devoptions_screen, processespage_screen, musicsettings_screen, powersettings_screen, appearance_screen,
+		devoptions_screen, processespage_screen, optimizepage_screen, musicsettings_screen, powersettings_screen,
+		appearance_screen,
 		bootpicpage_screen, language_screen,
 		medialist_screen,  medialist_tracks_screen, medialist_albums_screen, audiobooks_screen, audiobooksettings_screen,
 		queue_screen,	  chapters_screen,		 details_screen,   audiobookcontrols_screen,

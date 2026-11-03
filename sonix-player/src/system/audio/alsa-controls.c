@@ -3,6 +3,7 @@
 #include "src/system/audio/audio.h"
 #include "src/system/bluetooth/bluetooth.h"
 #include "src/system/core/config.h"
+#include "src/system/addons/addons.h"
 #include "src/system/audio/swvolume.h"
 #include "src/system/audio/usbaudio.h"
 #include "src/system/core/utils.h"
@@ -903,6 +904,7 @@ static bool output_in_range(volume_output_t out) { return out >= 0 && out < VOLU
 // ---------------------------------------------------------------------------
 
 static bool limit_loaded;
+static bool limit_available;
 static bool limit_on;
 static int limit_level[VOLUME_OUTPUT_COUNT] = {100, 100, 100, 100};
 
@@ -923,6 +925,7 @@ static void limit_load(void) {
 		return;
 	}
 	limit_loaded = true;
+	limit_available = addons_enabled("volume_limit");
 	limit_on = config_get_int("audio", "volume_limit", 0) != 0;
 	for (int i = 0; i < VOLUME_OUTPUT_COUNT; i++) {
 		if (LIMIT_KEYS[i]) {
@@ -935,7 +938,7 @@ static void limit_load(void) {
 // outputs it does not cover.
 static int limit_ceiling(volume_output_t out) {
 	limit_load();
-	if (!limit_on || !output_in_range(out) || !LIMIT_KEYS[out]) {
+	if (!limit_available || !limit_on || !output_in_range(out) || !LIMIT_KEYS[out]) {
 		return 100;
 	}
 	return limit_level[out];
@@ -943,7 +946,7 @@ static int limit_ceiling(volume_output_t out) {
 
 bool volume_limit_enabled(void) {
 	limit_load();
-	return limit_on;
+	return limit_available && limit_on;
 }
 
 int volume_limit(volume_output_t out) {

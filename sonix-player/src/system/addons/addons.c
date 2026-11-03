@@ -28,10 +28,22 @@ static const addon_t ADDONS[] = {
 	// the Bluetooth page -- the memory a socket and a parser hold stays free.
 	{"airpods", "airpods", "addon_airpods_note", "plugins_section_earbuds"},
 	{"earfun", "earfun", "addon_earfun_note", "plugins_section_earbuds"},
+	{"speex_resampler", "btaudio_speex_resampler", "Speex sample-rate conversion for Bluetooth audio.",
+	 "Bluetooth audio"},
 	// The shelves are a place of their own: a book is not a music feature, and
 	// nobody would look for it under one.
 	{"audiobooks", "audiobooks", "addon_audiobooks_note", "plugins_section_library"},
 	{"ebook", "books", "addon_ebook_note", "plugins_section_library"},
+	// Player arrangements share the player page; their switches decide which
+	// choices and layout-specific resources are available. Poster is the user's
+	// preferred default; the other layouts and Cover Flow stay opt-in.
+	{"layout_standard", "Standard", "The classic now-playing screen.", "Player layouts"},
+	{"layout_waveform", "Waveform", "Waveform display for local tracks.", "Player layouts"},
+	{"layout_alternative", "Alternative", "Compact now-playing screen for any source.", "Player layouts"},
+	{"layout_immersive", "Immersive", "Full-screen album artwork with overlaid controls.", "Player layouts"},
+	{"layout_poster", "Poster", "Poster artwork with playback controls below.", "Player layouts"},
+	{"layout_aam", "Album Art Max", "Full-screen artwork-focused layout for TempoTec V1.", "Player layouts"},
+	{"coverflow", "Cover Flow", "Optional album carousel and cover cache.", "Player layouts"},
 	// What the player does WITH the music: words on screen, a curve for a pair
 	// of headphones, a line to two scrobblers. Four features, not four places,
 	// which is why the heading says so.
@@ -47,6 +59,10 @@ static const addon_t ADDONS[] = {
 	{"eq", "equaliser", "addon_eq_note", "plugins_section_features"},
 	{"peq", "peq", "addon_peq_note", "plugins_section_features"},
 	{"mseb", "mseb", "addon_mseb_note", "plugins_section_features"},
+	{"soundfield", "musicsettings_soundfield", "Stereo width processing.", "plugins_section_features"},
+	{"crossfeed", "musicsettings_crossfeed", "Headphone crossfeed processing.", "plugins_section_features"},
+	{"channel_balance", "musicsettings_channel_balance", "Left/right channel level correction.", "plugins_section_features"},
+	{"volume_limit", "musicsettings_volume_limit", "Per-output maximum volume safety limit.", "plugins_section_features"},
 	// The sleep timers belong to the music transport rather than to a service,
 	// so they are switched here like any other module: off, no timer is drawn
 	// anywhere and nothing counts down.
@@ -96,14 +112,21 @@ static bool addon_is_default_on(const char *id) {
 	if (!id) {
 		return false;
 	}
-	// Fresh install defaults:
-	// Only audiobooks, subsonic, graphic equaliser (eq), parametric equaliser (peq),
-	// and MSEB (mseb) are enabled by default. Everything else starts off.
+	// Fresh install defaults. These defaults keep Music settings available and
+	// preserve behavior for effects users could already enable in older builds.
 	if (strcmp(id, "audiobooks") == 0) return true;
 	if (strcmp(id, "subsonic") == 0) return true;
 	if (strcmp(id, "eq") == 0) return true;
 	if (strcmp(id, "peq") == 0) return true;
 	if (strcmp(id, "mseb") == 0) return true;
+	// These controls used to be available on every install. Keep them visible
+	// by default so existing settings and behavior remain unchanged on upgrade.
+	if (strcmp(id, "soundfield") == 0) return true;
+	if (strcmp(id, "crossfeed") == 0) return true;
+	if (strcmp(id, "channel_balance") == 0) return true;
+	if (strcmp(id, "volume_limit") == 0) return true;
+	if (strcmp(id, "speex_resampler") == 0) return true;
+	if (strcmp(id, "layout_poster") == 0) return true;
 	return false;
 }
 

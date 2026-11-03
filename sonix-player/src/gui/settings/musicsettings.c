@@ -1290,11 +1290,19 @@ static void refresh_active_chevrons(void) {
 	settingsrow_chevron_active(eq_row, eq_get_enabled());
 	settingsrow_chevron_active(peq_row, peq_get_enabled());
 	settingsrow_chevron_active(mseb_row, mseb_get_enabled());
-	settingsrow_chevron_active(soundfield_row, soundfield_get_enabled());
-	settingsrow_chevron_active(crossfeed_row, crossfeed_get_enabled());
+	if (soundfield_row) {
+		settingsrow_chevron_active(soundfield_row, soundfield_get_enabled());
+	}
+	if (crossfeed_row) {
+		settingsrow_chevron_active(crossfeed_row, crossfeed_get_enabled());
+	}
 	settingsrow_chevron_active(fade_row, musicsettings_fade_enabled());
-	settingsrow_chevron_active(balance_row, balance_get_enabled());
-	settingsrow_chevron_active(vlimit_row, volume_limit_enabled());
+	if (balance_row) {
+		settingsrow_chevron_active(balance_row, balance_get_enabled());
+	}
+	if (vlimit_row) {
+		settingsrow_chevron_active(vlimit_row, volume_limit_enabled());
+	}
 }
 
 static void screen_loaded_cb(lv_event_t *e) {
@@ -1686,10 +1694,10 @@ static void coverflow_cb(lv_event_t *e) {
 }
 
 // ---------------------------------------------------------------------------
-// Which of the four arrangements the now-playing page uses
+// Which of the available arrangements the now-playing page uses
 //
 // Here and not under Appearance, where everything applies to the whole
-// interface: this is about the music and nothing else. Which of the four a
+// interface: this is about the music and nothing else. Which of the
 // given source can use is the page's question and not this one's -- Waveform is
 // built out of a file on the card and a station keeps Standard whatever is
 // chosen, while Studio and Immersive take all of them (see the note under the
@@ -1723,15 +1731,12 @@ static void aam_leftie_show(void) {
 }
 
 static void layout_refresh(void) {
-	if (!layout_standard_pill) {
-		return;
-	}
 	player_layout_t chosen = player_layout_get();
-	settingsrow_pill_active(layout_standard_pill, chosen == PLAYER_LAYOUT_STANDARD);
-	settingsrow_pill_active(layout_alternative_pill, chosen == PLAYER_LAYOUT_ALTERNATIVE);
-	settingsrow_pill_active(layout_studio_pill, chosen == PLAYER_LAYOUT_STUDIO);
-	settingsrow_pill_active(layout_immersive_pill, chosen == PLAYER_LAYOUT_IMMERSIVE);
-	settingsrow_pill_active(layout_poster_pill, chosen == PLAYER_LAYOUT_POSTER);
+	if (layout_standard_pill) settingsrow_pill_active(layout_standard_pill, chosen == PLAYER_LAYOUT_STANDARD);
+	if (layout_alternative_pill) settingsrow_pill_active(layout_alternative_pill, chosen == PLAYER_LAYOUT_ALTERNATIVE);
+	if (layout_studio_pill) settingsrow_pill_active(layout_studio_pill, chosen == PLAYER_LAYOUT_STUDIO);
+	if (layout_immersive_pill) settingsrow_pill_active(layout_immersive_pill, chosen == PLAYER_LAYOUT_IMMERSIVE);
+	if (layout_poster_pill) settingsrow_pill_active(layout_poster_pill, chosen == PLAYER_LAYOUT_POSTER);
 	if (layout_aam_pill) {
 		settingsrow_pill_active(layout_aam_pill, chosen == PLAYER_LAYOUT_ALBUM_ART_MAX);
 	}
@@ -2489,30 +2494,42 @@ static void build_display_page(gui_config_t *cfg) {
 	// not a replacement for the list, and the covers it draws are decoded at a
 	// size the lists never ask for -- so switching it on fills the thumbnail
 	// database with rather bigger pictures the first time it is flicked through.
-	settingsrow_toggle(container, "cover_flow", &coverflow_switch, coverflow_cb);
-	option_note(container, "cover_flow_note");
-	if (coverflow_enabled()) {
-		lv_obj_add_state(coverflow_switch, LV_STATE_CHECKED);
+	if (addons_enabled("coverflow")) {
+		settingsrow_toggle(container, "cover_flow", &coverflow_switch, coverflow_cb);
+		option_note(container, "cover_flow_note");
+		if (coverflow_enabled()) {
+			lv_obj_add_state(coverflow_switch, LV_STATE_CHECKED);
+		}
 	}
 
 	// How the now-playing page is arranged.
 	lv_obj_t *layout_pills = NULL;
 	settingsrow_pills(container, "musicsettings_player_layout", &layout_pills);
-	layout_standard_pill =
-		settingsrow_pill(layout_pills, "musicsettings_layout_standard", PLAYER_LAYOUT_STANDARD, layout_pick_cb);
-	layout_alternative_pill =
-		settingsrow_pill(layout_pills, "musicsettings_layout_alternative", PLAYER_LAYOUT_ALTERNATIVE, layout_pick_cb);
-	layout_studio_pill =
-		settingsrow_pill(layout_pills, "musicsettings_layout_studio", PLAYER_LAYOUT_STUDIO, layout_pick_cb);
-	layout_immersive_pill =
-		settingsrow_pill(layout_pills, "musicsettings_layout_immersive", PLAYER_LAYOUT_IMMERSIVE, layout_pick_cb);
-	layout_poster_pill =
-		settingsrow_pill(layout_pills, "musicsettings_layout_poster", PLAYER_LAYOUT_POSTER, layout_pick_cb);
+	if (player_layout_enabled(PLAYER_LAYOUT_STANDARD)) {
+		layout_standard_pill =
+			settingsrow_pill(layout_pills, "musicsettings_layout_standard", PLAYER_LAYOUT_STANDARD, layout_pick_cb);
+	}
+	if (player_layout_enabled(PLAYER_LAYOUT_ALTERNATIVE)) {
+		layout_alternative_pill =
+			settingsrow_pill(layout_pills, "musicsettings_layout_alternative", PLAYER_LAYOUT_ALTERNATIVE, layout_pick_cb);
+	}
+	if (player_layout_enabled(PLAYER_LAYOUT_STUDIO)) {
+		layout_studio_pill =
+			settingsrow_pill(layout_pills, "musicsettings_layout_studio", PLAYER_LAYOUT_STUDIO, layout_pick_cb);
+	}
+	if (player_layout_enabled(PLAYER_LAYOUT_IMMERSIVE)) {
+		layout_immersive_pill =
+			settingsrow_pill(layout_pills, "musicsettings_layout_immersive", PLAYER_LAYOUT_IMMERSIVE, layout_pick_cb);
+	}
+	if (player_layout_enabled(PLAYER_LAYOUT_POSTER)) {
+		layout_poster_pill =
+			settingsrow_pill(layout_pills, "musicsettings_layout_poster", PLAYER_LAYOUT_POSTER, layout_pick_cb);
+	}
 	// Album Art Max is offered where it was measured: the 240x320 V1 panel.
 	// On the wide boards the pill is not built at all, rather than built and
 	// quietly ignored -- a layout that does nothing when chosen reads as a
 	// broken page, not as a limitation.
-	if (bp_is_tempotec_v1()) {
+	if (player_layout_enabled(PLAYER_LAYOUT_ALBUM_ART_MAX)) {
 		layout_aam_pill = settingsrow_pill(layout_pills, "musicsettings_layout_aam",
 										   PLAYER_LAYOUT_ALBUM_ART_MAX, layout_pick_cb);
 	}
@@ -2525,7 +2542,7 @@ static void build_display_page(gui_config_t *cfg) {
 	// shown only while that arrangement is the one chosen -- the pills above
 	// already say so, and an arrangement's own switch standing under five
 	// others it does not apply to reads as a sixth layout.
-	if (bp_is_tempotec_v1()) {
+	if (player_layout_enabled(PLAYER_LAYOUT_ALBUM_ART_MAX)) {
 		aam_leftie_row = settingsrow_toggle(container, "musicsettings_aam_leftie", &aam_leftie_switch, aam_leftie_cb);
 		aam_leftie_note = option_note(container, "musicsettings_aam_leftie_note");
 		lv_obj_set_state(aam_leftie_switch, LV_STATE_CHECKED, player_aam_leftie_get());
@@ -2786,20 +2803,31 @@ void musicsettings_init(gui_config_t *cfg) {
 		mseb_row = settingsrow_add(container, "mseb", NULL, switch_screen_cb, mseb_screen);
 	}
 
-	build_soundfield_page(cfg);
-	soundfield_row = settingsrow_add(container, "musicsettings_soundfield", NULL, switch_screen_cb, soundfield_screen);
+	if (addons_enabled("soundfield")) {
+		build_soundfield_page(cfg);
+		soundfield_row = settingsrow_add(container, "musicsettings_soundfield", NULL, switch_screen_cb,
+										 soundfield_screen);
+	}
 
 	// Crossfeed sits next to soundfield because they are relatives: one widens
 	// the stereo image, the other pulls it back inside the head. Anyone looking
 	// for one wants to see the other.
-	build_crossfeed_page(cfg);
-	crossfeed_row = settingsrow_add(container, "musicsettings_crossfeed", NULL, switch_screen_cb, crossfeed_screen);
+	if (addons_enabled("crossfeed")) {
+		build_crossfeed_page(cfg);
+		crossfeed_row =
+			settingsrow_add(container, "musicsettings_crossfeed", NULL, switch_screen_cb, crossfeed_screen);
+	}
 
-	build_balance_page(cfg);
-	balance_row = settingsrow_add(container, "musicsettings_channel_balance", NULL, switch_screen_cb, balance_screen);
+	if (addons_enabled("channel_balance")) {
+		build_balance_page(cfg);
+		balance_row =
+			settingsrow_add(container, "musicsettings_channel_balance", NULL, switch_screen_cb, balance_screen);
+	}
 
-	build_volume_limit_page(cfg);
-	vlimit_row = settingsrow_add(container, "musicsettings_volume_limit", NULL, switch_screen_cb, vlimit_screen);
+	if (addons_enabled("volume_limit")) {
+		build_volume_limit_page(cfg);
+		vlimit_row = settingsrow_add(container, "musicsettings_volume_limit", NULL, switch_screen_cb, vlimit_screen);
+	}
 
 	// The gain step: off = low gain (the stock default), on = +6 dB.
 	settingsrow_toggle(container, "musicsettings_high_gain", &gain_switch, gain_toggle_cb);
