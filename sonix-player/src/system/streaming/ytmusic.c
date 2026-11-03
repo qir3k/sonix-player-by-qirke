@@ -15,6 +15,7 @@ static bool ensure_cache_dir(void);
 #include "src/system/net/http.h"
 #include "src/system/streaming/streamkeys.h"
 #include "src/system/streaming/ytlikes.h"
+#include "src/system/streaming/ytpodcastplayed.h"
 #include "src/system/device/cpupower.h"
 
 #include <ctype.h>
@@ -167,6 +168,7 @@ void ytmusic_init(void) {
 	// other YouTube Music state beside device_config.ini is read, and because a
 	// heart has to answer at once -- it cannot wait for a page.
 	ytlikes_init();
+	ytpodcastplayed_init();
 }
 
 bool ytmusic_configured(void) {
@@ -1454,6 +1456,11 @@ static bool read_item(const json_doc_t *doc, int renderer, ytmusic_item_t *item)
 		"flexColumns.1.musicResponsiveListItemFlexColumnRenderer.text.runs.0.text",
 		"flexColumns.2.musicResponsiveListItemFlexColumnRenderer.text.runs.0.text",
 		"subtitle.runs.0.text",
+		"longBylineText.runs.0.text",
+		"shortBylineText.runs.0.text",
+		"ownerText.runs.0.text",
+		"strapline.runs.0.text",
+		"episodePublisherText.runs.0.text",
 	};
 	for (size_t i = 0; i < sizeof(subtitle_paths) / sizeof(subtitle_paths[0]); i++) {
 		char text[YTMUSIC_NAME_MAX] = "";
@@ -1625,6 +1632,11 @@ static int collect_items_compact(const char *response, ytmusic_item_t *items, in
 				if (!track_renderer_is_ad(&item_doc, root)) {
 					ytmusic_item_t candidate;
 					if (read_item(&item_doc, root, &candidate)) {
+						static const char PODCAST_RENDERER[] = "musicMultiRowListItemRenderer";
+						if (is_item_key && (size_t)(key_end - p - 2) == sizeof(PODCAST_RENDERER) - 1 &&
+							memcmp(p + 1, PODCAST_RENDERER, sizeof(PODCAST_RENDERER) - 1) == 0) {
+							candidate.podcast_episode = true;
+						}
 						bool duplicate = false;
 						for (int i = 0; i < count; i++) {
 							const char *mine = items[i].kind == YTMUSIC_ITEM_TRACK ? items[i].id : items[i].browse_id;
@@ -1824,6 +1836,43 @@ int ytmusic_browse_items(const char *browse_id, ytmusic_item_t *items, int limit
 	if (count < 0) {
 		set_error(error, error_size, "ytmusic_unreadable_reply");
 		return count;
+	}
+	if (strcmp(browse_id, "VLLM") == 0 && session_cookie_attached()) {
+		ytlike_t local[YTMUSIC_ITEMS_MAX];
+		ytmusic_item_t merged[YTMUSIC_ITEMS_MAX];
+		int local_count = ytlikes_snapshot(local, limit);
+		if (local_count > YTMUSIC_ITEMS_MAX) local_count = YTMUSIC_ITEMS_MAX;
+		int merged_count = 0;
+		for (int i = 0; i < local_count && merged_count < limit; i++) {
+			ytmusic_item_t *item = &merged[merged_count++];
+			memset(item, 0, sizeof(*item));
+			item->kind = YTMUSIC_ITEM_TRACK;
+			snprintf(item->id, sizeof(item->id), "%.*s", (int)sizeof(item->id) - 1, local[i].id);
+			snprintf(item->title, sizeof(item->title), "%.*s", (int)sizeof(item->title) - 1,
+					 local[i].title[0] ? local[i].title : local[i].id);
+			snprintf(item->subtitle, sizeof(item->subtitle), "%.*s",
+					 (int)sizeof(item->subtitle) - 1, local[i].artist);
+			snprintf(item->album, sizeof(item->album), "%.*s", (int)sizeof(item->album) - 1,
+					 local[i].album);
+			snprintf(item->thumbnail, sizeof(item->thumbnail),
+					 "https://i.ytimg.com/vi/%.*s/hqdefault.jpg", YTLIKES_ID_MAX - 1, local[i].id);
+			item->duration = local[i].duration;
+		}
+		for (int i = 0; i < count && merged_count < limit; i++) {
+			const char *id = items[i].kind == YTMUSIC_ITEM_TRACK ? items[i].id : items[i].browse_id;
+			bool duplicate = false;
+			for (int j = 0; j < merged_count; j++) {
+				const char *existing = merged[j].kind == YTMUSIC_ITEM_TRACK
+					? merged[j].id : merged[j].browse_id;
+				if (id[0] && strcmp(id, existing) == 0) {
+					duplicate = true;
+					break;
+				}
+			}
+			if (!duplicate) merged[merged_count++] = items[i];
+		}
+		memcpy(items, merged, sizeof(items[0]) * (size_t)merged_count);
+		count = merged_count;
 	}
 	return count;
 }
@@ -2146,7 +2195,8 @@ static bool write_playback_tags(const char *path, const ytmusic_track_t *track) 
 	clean_tag_value(album);
 	FILE *f = fopen(tmp, "w");
 	if (!f) return false;
-	bool wrote = fprintf(f, "title=%s\nartist=%s\nalbum=%s\n", title, artist, album) > 0;
+	bool wrote = fprintf(f, "title=%s\nartist=%s\nalbum=%s\npodcast_episode=%d\n",
+						 title, artist, album, track->podcast_episode ? 1 : 0) > 0;
 	bool closed = fclose(f) == 0;
 	bool ok = wrote && closed;
 	if (!ok || rename(tmp, tags) != 0) {
@@ -2202,6 +2252,27 @@ bool ytmusic_cache_whole(const char *path) {
 		return false;
 	}
 	return !growfile_is_growing(name) && access(name, R_OK) == 0 && access(done, R_OK) == 0;
+}
+
+bool ytmusic_cache_is_podcast_episode(const char *path) {
+	char id[YTMUSIC_ID_MAX], audio_path[512], tag_path[544];
+	if (!ytmusic_cache_track_id(path, id, sizeof(id)) ||
+		!ytmusic_cache_path_for(id, audio_path, sizeof(audio_path)) ||
+		snprintf(tag_path, sizeof(tag_path), "%s.tags", audio_path) >= (int)sizeof(tag_path)) {
+		return false;
+	}
+	FILE *file = fopen(tag_path, "r");
+	if (!file) return false;
+	bool is_podcast = false;
+	char line[128];
+	while (fgets(line, sizeof(line), file)) {
+		if (strcmp(line, "podcast_episode=1\n") == 0 || strcmp(line, "podcast_episode=1") == 0) {
+			is_podcast = true;
+			break;
+		}
+	}
+	fclose(file);
+	return is_podcast;
 }
 
 // The title, artist and album of a queued song, written beside the file before

@@ -343,6 +343,13 @@ int main(void) {
 	// defaults are used until the first save.
 	config_init(path);
 	CHECK(addons_enabled("soundfield"));
+	CHECK(addons_set("soundfield", false));
+	CHECK(!addons_enabled("soundfield"));
+	CHECK(config_init(path));
+	CHECK(!addons_enabled("soundfield"));
+	CHECK(addons_set("soundfield", true));
+	CHECK(config_init(path));
+	CHECK(addons_enabled("soundfield"));
 	CHECK(addons_enabled("crossfeed"));
 	CHECK(addons_enabled("channel_balance"));
 	CHECK(addons_enabled("volume_limit"));

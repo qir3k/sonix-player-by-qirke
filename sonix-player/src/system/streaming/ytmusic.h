@@ -28,6 +28,7 @@ typedef struct {
 	char album[YTMUSIC_TITLE_MAX];
 	char thumbnail[YTMUSIC_URL_MAX];
 	int duration;
+	bool podcast_episode;
 } ytmusic_track_t;
 
 // One row of a list: either something that plays (a song, a podcast episode),
@@ -56,6 +57,8 @@ typedef struct {
 	// none: the row then keeps the glyph it was built with.
 	char thumbnail[YTMUSIC_ART_URL_MAX];
 	int duration;
+	bool podcast_episode;
+	bool played;
 } ytmusic_item_t;
 
 // A titled row of the Explore page -- "New albums &amp; singles", "Trending" --
@@ -106,8 +109,8 @@ bool ytmusic_logout(void);
 int ytmusic_search_items(const char *query, ytmusic_filter_t filter,
 						 ytmusic_item_t *items, int limit, char *error, size_t error_size);
 // A playlist ("VL..."), an album ("MPRE..."), a podcast show ("MPSP..."), the
-// charts ("FEmusic_charts"), the liked songs ("VLLM"), or anything else whose
-// page carries rows.
+// charts ("FEmusic_charts"), or the liked songs ("VLLM", including on-player
+// likes when a session is attached).
 int ytmusic_browse_items(const char *browse_id, ytmusic_item_t *items, int limit,
 						 char *error, size_t error_size);
 // Explore: the carousels of the store's front page, each with a few cards.
@@ -207,6 +210,8 @@ bool ytmusic_cache_path_for(const char *id, char *out, size_t out_size);
 // Whether that cache file is whole -- downloaded to its end, with the marker
 // that says so. A file still arriving is playable and answers false here.
 bool ytmusic_cache_whole(const char *path);
+// True only for an episode opened from the YouTube Music Podcasts tab.
+bool ytmusic_cache_is_podcast_episode(const char *path);
 
 // Writes the track's title, artist and album beside its cache file before any
 // of it is downloaded, so a queued song that has not arrived yet still has a

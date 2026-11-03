@@ -42,7 +42,9 @@
 #include "src/system/decode/growfile.h"
 #include "src/system/net/http.h"
 #include "src/system/streaming/streamkeys.h"
+#include "src/system/streaming/ytlikes.h"
 #include "src/system/streaming/ytmusic.h"
+#include "src/system/streaming/ytpodcastplayed.h"
 
 // The shared region list asks lang.c for a row's label. That file is the whole
 // translation tree -- it relabels every widget in the interface -- so it is not
@@ -843,15 +845,34 @@ static void test_library_says_what_is_missing(void) {
 	CHECK(count == -1);
 	CHECK(strcmp(error, "ytmusic_library_needs_session") == 0);
 
-	// The imported session: the same empty page is then an honest empty list,
-	// with nothing said about the account.
+	// With an imported session, the account list also includes local hearts.
 	write_session_file("cookie=SID=x; SAPISID=abcdefghijklmnop; HSID=y\n");
+	ytlike_t song_like = {0};
+	snprintf(song_like.id, sizeof(song_like.id), "%s", "abcdefghijk");
+	snprintf(song_like.title, sizeof(song_like.title), "%s", "Locally hearted song");
+	snprintf(song_like.artist, sizeof(song_like.artist), "%s", "Test artist");
+	ytlikes_remove(song_like.id);
+	CHECK(ytlikes_add(&song_like));
+	ytlike_t episode_like = {0};
+	snprintf(episode_like.id, sizeof(episode_like.id), "%s", "podcast1234");
+	snprintf(episode_like.title, sizeof(episode_like.title), "%s", "Locally hearted episode");
+	snprintf(episode_like.artist, sizeof(episode_like.artist), "%s", "Test podcast");
+	ytlikes_remove(episode_like.id);
+	CHECK(ytlikes_add(&episode_like));
 	fake_reset();
 	fake_reply("youtubei/v1/browse", 200, vllm);
 	error[0] = '\0';
 	count = ytmusic_browse_items("VLLM", items, YTMUSIC_ITEMS_MAX, error, sizeof(error));
-	CHECK(count == 0);
+	CHECK(count == 2);
 	CHECK(error[0] == '\0');
+	if (count == 2) {
+		CHECK(strcmp(items[0].id, episode_like.id) == 0);
+		CHECK(strcmp(items[0].title, episode_like.title) == 0);
+		CHECK(strcmp(items[1].id, song_like.id) == 0);
+		CHECK(items[0].kind == YTMUSIC_ITEM_TRACK && items[1].kind == YTMUSIC_ITEM_TRACK);
+	}
+	CHECK(ytlikes_remove(song_like.id));
+	CHECK(ytlikes_remove(episode_like.id));
 
 	ytmusic_logout();
 	CHECK(!ytmusic_session_cookie_attached());
@@ -934,6 +955,37 @@ static void test_cache_owns_its_own_downloads(void) {
 	CHECK(!ytmusic_cache_owns(NULL));
 }
 
+static void test_podcast_episode_marker_is_cached(void) {
+	char path[512];
+	CHECK(ytmusic_cache_path_for(VID, path, sizeof(path)));
+	ytmusic_track_t track = {0};
+	snprintf(track.id, sizeof(track.id), "%s", VID);
+	snprintf(track.title, sizeof(track.title), "Episode");
+	track.podcast_episode = true;
+	CHECK(ytmusic_cache_write_sidecars(&track, path));
+	CHECK(ytmusic_cache_is_podcast_episode(path));
+
+	track.podcast_episode = false;
+	CHECK(ytmusic_cache_write_sidecars(&track, path));
+	CHECK(!ytmusic_cache_is_podcast_episode(path));
+	char tags[544];
+	snprintf(tags, sizeof(tags), "%s.tags", path);
+	remove(tags);
+}
+
+static void test_podcast_played_state_persists(void) {
+	static const char EPISODE_ID[] = "abcdefghijk";
+	CHECK(ytpodcastplayed_set(EPISODE_ID, false));
+	CHECK(!ytpodcastplayed_get(EPISODE_ID));
+	CHECK(ytpodcastplayed_set(EPISODE_ID, true));
+	CHECK(ytpodcastplayed_get(EPISODE_ID));
+	ytpodcastplayed_init();
+	CHECK(ytpodcastplayed_get(EPISODE_ID));
+	CHECK(ytpodcastplayed_set(EPISODE_ID, false));
+	CHECK(!ytpodcastplayed_get(EPISODE_ID));
+	CHECK(!ytpodcastplayed_set("not-an-id", true));
+}
+
 static void test_sidecars_create_a_fresh_cache_directory(void) {
 	char path[512], tags[520];
 	snprintf(path, sizeof(path), "%s/%s.m4a", YTM_CACHE_FRESH, VID);
@@ -986,6 +1038,17 @@ static const char SEARCH_SONG_ROW[] =
 	"{\"url\":\"https://lh3.test/x=w60\",\"width\":60}]}}}"
 	"}}]}}]}}]}}]}}";
 
+static const char SEARCH_PODCAST_EPISODE[] =
+	"{\"contents\":{\"musicMultiRowListItemRenderer\":{"
+	"\"playlistItemData\":{\"videoId\":\"abcdefghijk\"},"
+	"\"flexColumns\":["
+	"{\"musicResponsiveListItemFlexColumnRenderer\":{\"text\":{\"runs\":[{\"text\":\"Episode title\"}]}}}"
+	"],"
+	"\"longBylineText\":{\"runs\":[{\"text\":\"Podcast creator\"}]},"
+	"\"thumbnail\":{\"musicThumbnailRenderer\":{\"thumbnail\":{\"thumbnails\":["
+	"{\"url\":\"https://lh3.test/episode=w60\",\"width\":60}]}}}"
+	"}}}";
+
 static void test_song_row_names_its_album(void) {
 	fake_reset();
 	fake_reply("youtubei/v1/browse", 200, SEARCH_SONG_ROW);
@@ -1000,6 +1063,24 @@ static void test_song_row_names_its_album(void) {
 	CHECK(items[0].kind == YTMUSIC_ITEM_TRACK);
 	CHECK(strcmp(items[0].subtitle, "Daft Punk") == 0);
 	CHECK(strcmp(items[0].album, "Random Access Memories") == 0);
+}
+
+static void test_podcast_episode_row_keeps_creator_and_type(void) {
+	fake_reset();
+	fake_reply("youtubei/v1/search", 200, SEARCH_PODCAST_EPISODE);
+	ytmusic_item_t items[YTMUSIC_ITEMS_MAX];
+	char error[192] = "";
+	int count = ytmusic_search_items("episode", YTMUSIC_FILTER_PODCASTS, items, 4,
+									 error, sizeof(error));
+	CHECK(count == 1);
+	if (count != 1) {
+		fprintf(stderr, "  podcast episode row was not read: %s\n", error);
+		return;
+	}
+	CHECK(items[0].kind == YTMUSIC_ITEM_TRACK);
+	CHECK(items[0].podcast_episode);
+	CHECK(strcmp(items[0].title, "Episode title") == 0);
+	CHECK(strcmp(items[0].subtitle, "Podcast creator") == 0);
 }
 
 // The loading card's numbers come from the downloader, and must not be left
@@ -1219,8 +1300,11 @@ int main(void) {
 	test_quality_choice_picks_the_stream();
 	test_region_choice();
 	test_cache_owns_its_own_downloads();
+	test_podcast_episode_marker_is_cached();
+	test_podcast_played_state_persists();
 	test_sidecars_create_a_fresh_cache_directory();
 	test_song_row_names_its_album();
+	test_podcast_episode_row_keeps_creator_and_type();
 	test_netscape_cookie_file_is_imported();
 	test_progress_is_cleared_when_the_download_ends();
 

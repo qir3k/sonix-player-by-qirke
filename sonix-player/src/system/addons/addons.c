@@ -137,12 +137,18 @@ bool addons_enabled(const char *id) {
 	return config_get_bool("addons", id, addon_is_default_on(id));
 }
 
-void addons_set(const char *id, bool on) {
+bool addons_set(const char *id, bool on) {
 	if (!id || !addons_find(id)) {
-		return;
+		return false;
 	}
+	bool previous = addons_enabled(id);
 	config_set_bool("addons", id, on);
-	config_save();
+	if (addons_enabled(id) != on || !config_save()) {
+		config_set_bool("addons", id, previous);
+		config_save();
+		return false;
+	}
+	return true;
 }
 
 void addons_apply_defaults(bool (*is_default)(const char *id)) {

@@ -53,7 +53,15 @@ static void addon_switch_cb(lv_event_t *e) {
 			return;
 		}
 	}
-	addons_set(id, on);
+	if (!addons_set(id, on)) {
+		if (on) {
+			lv_obj_remove_state(sw, LV_STATE_CHECKED);
+		} else {
+			lv_obj_add_state(sw, LV_STATE_CHECKED);
+		}
+		toast_error("addon_save_failed");
+		return;
+	}
 	toast_success("addon_restart_needed");
 }
 

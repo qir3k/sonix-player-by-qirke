@@ -41,6 +41,7 @@
 #include "src/system/streaming/streamkeep.h"
 #include "src/system/streaming/ytmusic.h"
 #include "src/system/streaming/ytlikes.h"
+#include "src/system/streaming/ytpodcastplayed.h"
 
 #define YTMUSIC_PAGE_RESULTS YTMUSIC_ITEMS_MAX
 #define YTMUSIC_QUERY_MAX 192
@@ -66,6 +67,7 @@ static lv_obj_t *results_title;
 static lv_obj_t *tracks_screen;
 static lv_obj_t *tracks_list;
 static lv_obj_t *tracks_title;
+static lv_obj_t *podcast_order_button;
 static lv_obj_t *explore_screen;
 static lv_obj_t *explore_list;
 static lv_obj_t *settings_screen;
@@ -104,6 +106,47 @@ static char list_album[YTMUSIC_TITLE_MAX];
 // when one of its rows is unliked; everywhere else a heart changes nothing that
 // is on screen.
 static bool tracks_are_likes;
+static void podcast_rows_refresh(void);
+static void fill_item_list(lv_obj_t *list, ytmusic_item_t *items, int count, lv_event_cb_t cb);
+static void item_clicked_cb(lv_event_t *e);
+
+static bool podcast_newest_first(void) {
+	return config_get_bool("ytmusic", "podcast_newest_first", true);
+}
+
+static bool items_are_podcast_episodes(const ytmusic_item_t *items, int count) {
+	if (!items || count <= 0) return false;
+	for (int i = 0; i < count; i++) {
+		if (!items[i].podcast_episode) return false;
+	}
+	return true;
+}
+
+static void podcast_order_paint(void) {
+	if (!podcast_order_button) return;
+	lv_obj_t *icon = lv_obj_get_child(podcast_order_button, 0);
+	if (icon) lv_image_set_src(icon, podcast_newest_first() ? &icon_sort_date_new : &icon_sort_date_old);
+}
+
+static void podcast_order_cb(lv_event_t *e) {
+	(void)e;
+	if (switcher_back_drag_active() || player_sheet_drag_active() ||
+		!items_are_podcast_episodes(track_items, track_count)) return;
+	bool newest = podcast_newest_first();
+	config_set_bool("ytmusic", "podcast_newest_first", !newest);
+	if (!config_save()) {
+		config_set_bool("ytmusic", "podcast_newest_first", newest);
+		toast_error("podcast_save_failed");
+		return;
+	}
+	for (int i = 0, j = track_count - 1; i < j; i++, j--) {
+		ytmusic_item_t tmp = track_items[i];
+		track_items[i] = track_items[j];
+		track_items[j] = tmp;
+	}
+	podcast_order_paint();
+	fill_item_list(tracks_list, track_items, track_count, item_clicked_cb);
+}
 
 // The rows of the home page: which of them are there, and in what order. Both
 // are the page's own setting, kept in the config as the numbers below -- the
@@ -930,6 +973,11 @@ static void results_loaded_cb(lv_event_t *e) {
 
 static void tracks_loaded_cb(lv_event_t *e) {
 	(void)e;
+	podcast_rows_refresh();
+	if (podcast_order_button) {
+		lv_obj_set_hidden(podcast_order_button, !items_are_podcast_episodes(track_items, track_count));
+		podcast_order_paint();
+	}
 	art_activate(&art_tracks, tracks_list, track_items, track_count);
 }
 
@@ -954,6 +1002,8 @@ static int sel_total;
 static lv_obj_t *row_objs[YTMUSIC_PAGE_RESULTS];
 static lv_obj_t *row_checks[YTMUSIC_PAGE_RESULTS];
 static lv_obj_t *row_menus[YTMUSIC_PAGE_RESULTS];
+static lv_obj_t *tracks_labels[YTMUSIC_PAGE_RESULTS];
+static lv_obj_t *results_labels[YTMUSIC_PAGE_RESULTS];
 
 static void selection_stop(void);
 
@@ -982,6 +1032,30 @@ static void row_tick_put(int index, bool on) {
 		row_checks[index] = check;
 	}
 	lv_obj_set_hidden(check, !on);
+}
+
+static void item_row_label(const ytmusic_item_t *item, char *out, size_t size) {
+	if (!item || !out || size == 0) return;
+	if (item->podcast_episode && item->played) {
+		snprintf(out, size, "✓ %s%s%s", item->title,
+				 item->subtitle[0] ? "  ·  " : "", item->subtitle);
+	} else if (item->subtitle[0]) {
+		snprintf(out, size, "%s  ·  %s", item->title, item->subtitle);
+	} else {
+		snprintf(out, size, "%s", item->title);
+	}
+}
+
+static void podcast_rows_refresh(void) {
+	for (int i = 0; i < track_count && i < YTMUSIC_PAGE_RESULTS; i++) {
+		if (!track_items[i].podcast_episode) continue;
+		track_items[i].played = ytpodcastplayed_get(track_items[i].id);
+		if (tracks_labels[i]) {
+			char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
+			item_row_label(&track_items[i], label, sizeof(label));
+			lv_label_set_text(tracks_labels[i], label);
+		}
+	}
 }
 
 static void selection_stop(void) {
@@ -1235,8 +1309,9 @@ static void selection_cancel_cb(lv_event_t *e) {
 	selection_stop();
 }
 
-static void fill_item_list(lv_obj_t *list, const ytmusic_item_t *items, int count, lv_event_cb_t cb) {
+static void fill_item_list(lv_obj_t *list, ytmusic_item_t *items, int count, lv_event_cb_t cb) {
 	yt_art_list_t *art = art_state_for(list);
+	lv_obj_t **labels = list == tracks_list ? tracks_labels : results_labels;
 	// The flags describe rows that are about to go: entry 3 of this list is not
 	// entry 3 of the next. Ended before the widgets are cleaned, so the ticks it
 	// hides are still real objects.
@@ -1257,6 +1332,7 @@ static void fill_item_list(lv_obj_t *list, const ytmusic_item_t *items, int coun
 		row_objs[i] = NULL;
 		row_checks[i] = NULL;
 		row_menus[i] = NULL;
+		labels[i] = NULL;
 	}
 	art_forget_rows(art);
 	lv_obj_clean(list);
@@ -1266,11 +1342,10 @@ static void fill_item_list(lv_obj_t *list, const ytmusic_item_t *items, int coun
 	}
 	for (int i = 0; i < count; i++) {
 		char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
-		if (items[i].subtitle[0]) {
-			snprintf(label, sizeof(label), "%s  ·  %s", items[i].title, items[i].subtitle);
-		} else {
-			snprintf(label, sizeof(label), "%s", items[i].title);
+		if (items[i].podcast_episode) {
+			items[i].played = ytpodcastplayed_get(items[i].id);
 		}
+		item_row_label(&items[i], label, sizeof(label));
 		// A row that plays, not one that opens something: no chevron. The
 		// chevron means "this goes somewhere", and a song's tap starts it here
 		// instead -- the same as a track on the Tidal page. The cover slot, the
@@ -1280,6 +1355,7 @@ static void fill_item_list(lv_obj_t *list, const ytmusic_item_t *items, int coun
 							: settingsrow_add(list, label, NULL, cb, (void *)(intptr_t)i);
 		if (i < YTMUSIC_PAGE_RESULTS) {
 			row_objs[i] = row;
+			labels[i] = settingsrow_name_label(row);
 		}
 		// A song also gets the menu a Tidal track has: the row's tap plays it,
 		// the dots offer what a tap cannot -- playing it now, or downloading it
@@ -1599,6 +1675,7 @@ static void track_from_item(const ytmusic_item_t *item, ytmusic_track_t *track) 
 	// audio, which is where the player looks for a file's artwork.
 	snprintf(track->thumbnail, sizeof(track->thumbnail), "%s", item->thumbnail);
 	track->duration = item->duration;
+	track->podcast_episode = item->podcast_episode;
 }
 
 // Downloading without playing. The same cache file is made, and then handed to
@@ -1676,6 +1753,33 @@ static void row_menu_play(void *user) {
 	play_item((const ytmusic_item_t *)user);
 }
 
+static void row_menu_mark_played(void *user) {
+	ytmusic_item_t *item = user;
+	if (!item || !item->podcast_episode || !item->id[0]) return;
+	bool played = !ytpodcastplayed_get(item->id);
+	if (!ytpodcastplayed_set(item->id, played)) {
+		toast_error("podcast_save_failed");
+		return;
+	}
+	item->played = played;
+	for (int i = 0; i < track_count && i < YTMUSIC_PAGE_RESULTS; i++) {
+		if (&track_items[i] == item && tracks_labels[i]) {
+			char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
+			item_row_label(item, label, sizeof(label));
+			lv_label_set_text(tracks_labels[i], label);
+			return;
+		}
+	}
+	for (int i = 0; i < result_count && i < YTMUSIC_PAGE_RESULTS; i++) {
+		if (&result_items[i] == item && results_labels[i]) {
+		char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
+		item_row_label(item, label, sizeof(label));
+			lv_label_set_text(results_labels[i], label);
+			return;
+		}
+	}
+}
+
 // One row's heart, from the row itself rather than from the player: a song can
 // be liked without being played, which is what a list is for. The like is the
 // player's own record -- id, title, artist -- so it survives the cache being
@@ -1704,8 +1808,13 @@ static void row_menu_like(void *user) {
 static void row_menu_cb(lv_event_t *e) {
 	const ytmusic_item_t *item = lv_event_get_user_data(e);
 	if (!item) return;
-	popover_item_t items[3];
+	popover_item_t items[4];
 	int count = 0;
+	if (item->podcast_episode) {
+		items[count++] = (popover_item_t){
+			item->played ? "podcast_mark_not_listened" : "podcast_mark_listened",
+			row_menu_mark_played, (void *)item, false};
+	}
 	items[count++] = (popover_item_t){"ytmusic_play", row_menu_play, (void *)item, false};
 	items[count++] = (popover_item_t){"trackmenu_keep_on_card", row_menu_save, (void *)item, false};
 	if (item->kind == YTMUSIC_ITEM_TRACK && item->id[0]) {
@@ -1821,8 +1930,19 @@ static void list_done(void *data) {
 		tracks_are_likes = false;
 		track_count = count;
 		memcpy(track_items, result->items, sizeof(track_items[0]) * (size_t)count);
+		if (!podcast_newest_first() && items_are_podcast_episodes(track_items, track_count)) {
+			for (int i = 0, j = track_count - 1; i < j; i++, j--) {
+				ytmusic_item_t tmp = track_items[i];
+				track_items[i] = track_items[j];
+				track_items[j] = tmp;
+			}
+		}
 		lv_label_set_text(tracks_title, tr(result->title[0] ? result->title : "ytmusic_browse"));
 		fill_item_list(tracks_list, track_items, track_count, item_clicked_cb);
+		if (podcast_order_button) {
+			lv_obj_set_hidden(podcast_order_button, !items_are_podcast_episodes(track_items, track_count));
+			podcast_order_paint();
+		}
 		switch_screen(tracks_screen);
 	} else {
 		result_count = count;
@@ -2489,9 +2609,13 @@ static void build_search_page(void) {
 	lv_obj_add_style(tracks_screen, &theme_style_screen, 0);
 	tracks_list = settingsrow_page(tracks_screen, page_cfg, "YouTube Music");
 	tracks_title = settingsrow_page_title(tracks_screen);
-	settingsrow_title_corner_slots(tracks_title, page_cfg, 2);
+	settingsrow_title_corner_slots(tracks_title, page_cfg, 3);
 	tracks_sel_close = page_corner_button(tracks_screen, page_cfg, 0, &icon_close, selection_cancel_cb);
 	tracks_sel_action = page_corner_button(tracks_screen, page_cfg, 1, &icon_check, selection_sheet_cb);
+	podcast_order_button = page_corner_button(tracks_screen, page_cfg, 2,
+											 podcast_newest_first() ? &icon_sort_date_new : &icon_sort_date_old,
+											 podcast_order_cb);
+	lv_obj_set_hidden(podcast_order_button, true);
 	lv_obj_set_hidden(tracks_sel_action, true);
 	lv_obj_set_hidden(tracks_sel_close, true);
 	player_sheet_attach_drag(tracks_list, true);

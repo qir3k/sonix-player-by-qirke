@@ -156,6 +156,17 @@ const ytlike_t *ytlikes_at(int index) {
 	return &likes[index];
 }
 
+int ytlikes_snapshot(ytlike_t *out, int limit) {
+	ensure_loaded();
+	if (!out || limit <= 0) return 0;
+	if (limit > YTLIKES_MAX) limit = YTLIKES_MAX;
+	pthread_mutex_lock(&likes_lock);
+	int count = like_count < limit ? like_count : limit;
+	memcpy(out, likes, sizeof(likes[0]) * (size_t)count);
+	pthread_mutex_unlock(&likes_lock);
+	return count;
+}
+
 static int like_index(const char *id) {
 	if (!id || !id[0]) return -1;
 	for (int i = 0; i < like_count; i++) {
@@ -177,6 +188,7 @@ bool ytlikes_add(const ytlike_t *like) {
 	// Taken by value first: the caller may be handing over an entry of this very
 	// list, which the shift below would move under it.
 	ytlike_t entry = *like;
+	pthread_mutex_lock(&likes_lock);
 	// One record per song: hearting it again refreshes the names the row will
 	// show and moves it to the front instead of listing it twice.
 	int at = like_index(entry.id);
@@ -194,26 +206,32 @@ bool ytlikes_add(const ytlike_t *like) {
 	copy_field(likes[0].album, sizeof(likes[0].album), entry.album);
 	likes[0].duration = entry.duration > 0 ? entry.duration : 0;
 	likes[0].liked_at = entry.liked_at > 0 ? entry.liked_at : (long)time(NULL);
-	pthread_mutex_lock(&likes_lock);
+	char liked_id[YTLIKES_ID_MAX];
+	copy_field(liked_id, sizeof(liked_id), likes[0].id);
+	int count = like_count;
 	bool saved = save_locked();
 	pthread_mutex_unlock(&likes_lock);
 	if (!saved) return false;
-	fprintf(stderr, "ytlikes: liked %s (%d on the player)\n", likes[0].id, like_count);
+	fprintf(stderr, "ytlikes: liked %s (%d on the player)\n", liked_id, count);
 	return true;
 }
 
 bool ytlikes_remove(const char *id) {
 	ensure_loaded();
+	pthread_mutex_lock(&likes_lock);
 	int at = like_index(id);
-	if (at < 0) return false;
+	if (at < 0) {
+		pthread_mutex_unlock(&likes_lock);
+		return false;
+	}
 	memmove(&likes[at], &likes[at + 1], sizeof(likes[0]) * (size_t)(like_count - at - 1));
 	like_count--;
 	memset(&likes[like_count], 0, sizeof(likes[0]));
-	pthread_mutex_lock(&likes_lock);
+	int count = like_count;
 	bool saved = save_locked();
 	pthread_mutex_unlock(&likes_lock);
 	if (!saved) return false;
-	fprintf(stderr, "ytlikes: unliked %s (%d on the player)\n", id, like_count);
+	fprintf(stderr, "ytlikes: unliked %s (%d on the player)\n", id, count);
 	return true;
 }
 

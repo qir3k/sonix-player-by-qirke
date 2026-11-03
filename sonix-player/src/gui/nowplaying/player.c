@@ -62,6 +62,7 @@
 #include "src/system/streaming/tidalsync.h"
 #include "src/system/streaming/ytmusic.h"
 #include "src/system/streaming/ytlikes.h"
+#include "src/system/streaming/ytpodcastplayed.h"
 #include "src/system/decode/growfile.h"
 #include "src/system/core/utils.h"
 #include "src/system/audio/waveform.h"
@@ -739,6 +740,7 @@ static void apply_audiobook_mode(bool book, bool podcast) {
 	audiobook_skip_shown_back = back;
 	audiobook_skip_shown_forward = forward;
 	audiobook_mode_valid = true;
+	audio_set_speed(book ? audiobook_speed() : podcast ? podcast_speed() : 1.0);
 
 	// The audiobook glyphs include a 50 px artwork canvas, wider than the
 	// compact player's 42 px skip buttons. Scale only those alternate glyphs
@@ -5185,7 +5187,8 @@ static void refresh_now_playing(void) {
 	// and the first one forgotten leaves the player dressed as a podcast over
 	// a song.
 	apply_audiobook_mode(!state.live && audiobook_is_playing(),
-						 !state.live && podcastcache_is_episode(state.current_file));
+						 !state.live && (podcastcache_is_episode(state.current_file) ||
+										 ytmusic_cache_is_podcast_episode(state.current_file)));
 	if (state.live) {
 		// The station on top, what it says is on air underneath -- the same
 		// two lines as a track, carrying the two things a radio knows.
@@ -5870,7 +5873,17 @@ static void handle_track_finished(void) {
 		podcastsaved_episode_heard(episode);
 	}
 
-	if (podcast_stop_at_episode_end() && podcastcache_is_episode(path)) {
+	bool ytmusic_podcast = ytmusic_cache_is_podcast_episode(path);
+	if (ytmusic_podcast) {
+		char video_id[YTMUSIC_ID_MAX] = "";
+		if (ytmusic_cache_track_id(path, video_id, sizeof(video_id)) &&
+			!ytpodcastplayed_set(video_id, true)) {
+			fprintf(stderr, "player: could not save YouTube Music podcast listened state for %.11s\n",
+					video_id);
+		}
+	}
+
+	if (podcast_stop_at_episode_end() && (podcastcache_is_episode(path) || ytmusic_podcast)) {
 		fprintf(stderr, "player: end of the episode; not starting the next\n");
 		refresh_now_playing();
 		return;
@@ -5979,7 +5992,8 @@ static void update_progress(void) {
 	// by which the track can change, and the first one forgotten leaves the
 	// player dressed as a podcast over a song.
 	apply_audiobook_mode(!state.live && audiobook_is_playing(),
-						 !state.live && podcastcache_is_episode(state.current_file));
+						 !state.live && (podcastcache_is_episode(state.current_file) ||
+										 ytmusic_cache_is_podcast_episode(state.current_file)));
 	update_format_label(&state); // the rate/bits settle shortly after the start
 
 	// The status LED follows playback promptly from here (the battery poll

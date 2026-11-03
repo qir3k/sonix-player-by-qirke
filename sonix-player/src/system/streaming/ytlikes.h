@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// Songs hearted on YouTube Music, kept on the player.
+// Songs and podcast episodes hearted on YouTube Music, kept on the player.
 //
 // The heart on a song used to write the cache file's path into the music
 // database, which was the wrong list twice over: the path points into the
@@ -14,15 +14,15 @@
 // endpoints -- so a player signed in with nothing but a Google token could
 // never keep a favourite at all.
 //
-// So a like is a record of the song, not of a file: the video id, the names the
+// So a like is a record of the item, not of a file: the video id, the names the
 // row carried, and when it was hearted. It lives in a sidecar beside
 // device_config.ini, the way the session and the OAuth tokens do, and the
-// Favourites row lists it when no account session is imported. Nothing here
+// Favourites row includes it with or without an account session. Nothing here
 // touches the network.
 //
-// The list is capped, newest first, because it is read whole on every heart
-// repaint: a hundred songs is a few tens of kilobytes, and a card that has
-// collected thousands would be a second of work per track change.
+// The list is capped, newest first: a hundred items is a few tens of kilobytes,
+// and a card that has collected thousands would be a second of work per track
+// change.
 
 #define YTLIKES_MAX 100
 #define YTLIKES_ID_MAX 16
@@ -47,6 +47,9 @@ int ytlikes_count(void);
 // The entry at `index`, newest first, or NULL past the end. The pointer stays
 // valid until the next add or remove.
 const ytlike_t *ytlikes_at(int index);
+// Copies up to `limit` entries, newest first. Safe to use from a worker while
+// the GUI may add or remove a like.
+int ytlikes_snapshot(ytlike_t *out, int limit);
 const ytlike_t *ytlikes_find(const char *id);
 bool ytlikes_contains(const char *id);
 

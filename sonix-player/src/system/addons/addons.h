@@ -36,7 +36,8 @@ bool addons_enabled(const char *id);
 
 // Switches one on or off and stores it. The caller says it needs a restart --
 // a page that has already been built cannot give its memory back.
-void addons_set(const char *id, bool on);
+// False if the setting could not be stored, or the id is not a module.
+bool addons_set(const char *id, bool on);
 
 // Defaults, in order, for a build that wants to start from a smaller set.
 void addons_apply_defaults(bool (*is_default)(const char *id));

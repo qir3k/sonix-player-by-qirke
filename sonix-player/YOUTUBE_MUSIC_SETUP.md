@@ -109,7 +109,8 @@ reloads it at boot. The value must contain `SAPISID`, `__Secure-3PAPISID` or
 `__Secure-1PAPISID`; anything else is rejected rather than stored.
 
 A cookie expires when the browser session ends or when Google rotates it. If
-Favourites suddenly comes back empty, import a fresh one.
+the account's liked songs stop appearing in Favourites, import a fresh one;
+locally hearted songs remain available either way.
 
 ## What the page does
 
@@ -118,17 +119,20 @@ Favourites suddenly comes back empty, import a fresh one.
   singles", "Trending", …). Tapping a carousel lists its cards without another
   request.
 - **Top songs** — the charts page.
-- **Favourites** — two answers, and it picks without being told. With a session
-  imported it is your account's liked songs, the list only that
-  credential can reach. Without one it is the player's own list of songs you
-  hearted here, with no account, no sign-in and no network involved: the heart
-  on now-playing and the row menu's *Add to favourites* both write it, and it
-  lives in `/usr/data/ytmusic_likes.tsv` beside `device_config.ini` — on the
-  internal storage, so it survives reboots and updates. A like is a record of
-  the song (video id, title, artist, album), not of a cache file, which is why
-  it no longer disappears when the playback cache is swept. The list holds up to
-  a hundred songs, newest first.
-- **Podcasts** — a podcast search. A show opens its episode list.
+- **Favourites** — with a session imported, the list combines your account's
+  liked songs with songs and podcast episodes hearted on the player. Without a
+  session, it shows only the player's own likes. The now-playing heart and the
+  row menu's *Add to favourites* write a local like; they do not change the
+  Google account. Local likes live in `/usr/data/ytmusic_likes.tsv` beside
+  `device_config.ini` — on internal storage, so they survive reboots and
+  updates. A like is a record of the video id, title, artist and album, not of
+  a cache file, which is why it no longer disappears when the playback cache is
+  swept. The list holds up to a hundred local likes, newest first.
+- **Podcasts** — a podcast search. A show opens its episode list. Episode rows
+  show the creator, can be sorted newest/oldest, and offer podcast-only skip
+  and playback-speed controls. An episode is marked listened when it finishes;
+  its row menu can also mark it listened or unlistened. These controls do not
+  change ordinary YouTube Music tracks.
 - **Artwork** — every row draws the sleeve its entry came with, the same shared
   cover loader the Tidal, Qobuz and Podcasts tabs use. The images are kept on
   the card under `.local/qobuz-art`, so a second look at a list downloads
