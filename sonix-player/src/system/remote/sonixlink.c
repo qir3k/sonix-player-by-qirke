@@ -2332,6 +2332,7 @@ static void route_stream_list(client_t *c, const char *query) {
 		buf_json_field(&j, "subtitle", row->subtitle, true);
 		buf_json_field(&j, "album", row->album, true);
 		buf_json_field(&j, "art", row->art, true);
+		buf_json_field(&j, "url", row->url, true);
 		buf_json_field(&j, "mime", row->mime, true);
 		buf_fmt(&j, "\"duration\":%d,\"track_number\":%d,\"playable\":%s", row->duration, row->track_number,
 				row->playable ? "true" : "false");

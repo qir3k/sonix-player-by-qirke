@@ -368,7 +368,10 @@ static radio_browse_t radio_kind_of(const char *kind) {
 }
 
 static void radio_station_row(const radio_station_t *s, sonixlink_stream_row_t *row) {
+	// After row_set(), which clears the whole row: a station's URL is what the
+	// phone plays when the guard advances the queue.
 	row_set(row, "station", s->uuid, s->name, s->country);
+	snprintf(row->url, sizeof(row->url), "%s", s->url);
 	snprintf(row->art, sizeof(row->art), "%s", s->favicon);
 	snprintf(row->mime, sizeof(row->mime), "%s", s->codec);
 	row->track_number = s->bitrate;
@@ -452,6 +455,8 @@ static void list_radio(const char *kind, const char *id, const char *q, sonixlin
 // one list
 // ---------------------------------------------------------------------------
 
+#include "sonixlink_stream_menu.inc"
+
 bool sonixlink_stream_list(const char *service, const char *kind, const char *id, const char *q, int offset,
 						   sonixlink_stream_list_t *out) {
 	if (!service || !service[0] || !out) {
@@ -459,16 +464,20 @@ bool sonixlink_stream_list(const char *service, const char *kind, const char *id
 	}
 	memset(out, 0, sizeof(*out));
 
+	if (kind && strcmp(kind, "menu") == 0) {
+		return sonixlink_stream_menu(service, out);
+	}
+
 	if (strcmp(service, "youtube") == 0) {
-		list_youtube(kind, id, q, out);
+		list_youtube_full(kind, id, q, out);
 	} else if (strcmp(service, "tidal") == 0) {
-		list_tidal(kind, id, q, offset, out);
+		list_tidal_full(kind, id, q, offset, out);
 	} else if (strcmp(service, "qobuz") == 0) {
-		list_qobuz(kind, id, q, offset, out);
+		list_qobuz_full(kind, id, q, offset, out);
 	} else if (strcmp(service, "podcasts") == 0) {
 		list_podcasts(kind, id, q, out);
 	} else if (strcmp(service, "radio") == 0) {
-		list_radio(kind, id, q, out);
+		list_radio_full(kind, id, q, out);
 	} else {
 		snprintf(out->error, sizeof(out->error), "unknown_service");
 		return false;
@@ -531,6 +540,7 @@ static void radio_start(void *user) {
 		radio_station_t *s = &stations[count];
 		memset(s, 0, sizeof(*s));
 		snprintf(s->uuid, sizeof(s->uuid), "%s", row->id);
+		snprintf(s->url, sizeof(s->url), "%s", row->url);
 		snprintf(s->name, sizeof(s->name), "%s", row->title);
 		snprintf(s->country, sizeof(s->country), "%s", row->subtitle);
 		snprintf(s->favicon, sizeof(s->favicon), "%s", row->art);
@@ -564,13 +574,21 @@ static bool prepare_queue(play_job_t *job) {
 		}
 		char path[512] = "";
 		if (strcmp(job->service, "tidal") == 0) {
-			tidalcache_path(id_number(row->id), tidal_expected_mime(), path, sizeof(path));
+			long track_id = id_number(row->id);
+			if (!tidalcache_find(track_id, path, sizeof(path))) {
+				tidalcache_path(track_id, tidal_expected_mime(), path, sizeof(path));
+			}
 			if (!path[0]) continue;
 			tidalcache_write_sidecars_at(path, row->title, row->subtitle, row->album, "", row->track_number,
 										 row->duration, row->art);
 		} else if (strcmp(job->service, "qobuz") == 0) {
 			long id = id_number(row->id);
-			qobuzcache_path(id, qobuz_expected_mime(), path, sizeof(path));
+			// A cached track keeps the extension it was downloaded with, and
+			// that need not be the one this build expects. The guessed name is
+			// only for a track that is not there yet.
+			if (!qobuzcache_find(id, path, sizeof(path))) {
+				qobuzcache_path(id, qobuz_expected_mime(), path, sizeof(path));
+			}
 			if (!path[0]) continue;
 			qobuzcache_write_sidecars(id, qobuz_expected_mime(), row->title, row->subtitle, row->album, "",
 									  row->track_number, row->art);
@@ -587,7 +605,10 @@ static bool prepare_queue(play_job_t *job) {
 			ytmusic_cache_write_sidecars(&track, path);
 		} else if (strcmp(job->service, "podcasts") == 0) {
 			const char *mime = row->mime[0] ? row->mime : "audio/mpeg";
-			podcastcache_path((long long)atoll(row->id), mime, path, sizeof(path));
+			long long episode = (long long)atoll(row->id);
+			if (!podcastcache_find(episode, path, sizeof(path))) {
+				podcastcache_path(episode, mime, path, sizeof(path));
+			}
 			if (!path[0]) continue;
 			podcastcache_write_sidecars((long long)atoll(row->id), mime, row->title, row->subtitle, 0, "", "",
 										row->art, false);
@@ -619,7 +640,13 @@ static void *play_worker(void *arg) {
 		tidal_stream_t *stream = calloc(1, sizeof(*stream));
 		if (stream && tidal_track_stream(id, stream)) {
 			char path[512];
-			tidalcache_start(id, stream, start->duration, true, path, sizeof(path));
+			if (tidalcache_start(id, stream, start->duration, true, path, sizeof(path)) && path[0]) {
+				if (job->start_slot >= 0) {
+					snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
+				}
+				tidalcache_write_sidecars_at(path, start->title, start->subtitle, start->album, "",
+											 start->track_number, start->duration, start->art);
+			}
 		}
 		free(stream);
 	} else if (strcmp(job->service, "qobuz") == 0) {
@@ -628,14 +655,30 @@ static void *play_worker(void *arg) {
 		char mime[64];
 		if (qobuz_track_url(id, url, sizeof(url), mime, sizeof(mime), NULL)) {
 			char path[512];
-			qobuzcache_start(id, url, mime, start->duration, path, sizeof(path));
+			if (qobuzcache_start(id, url, mime, start->duration, path, sizeof(path)) && path[0]) {
+				if (job->start_slot >= 0) {
+					snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
+				}
+				qobuzcache_write_sidecars(id, mime, start->title, start->subtitle, start->album, "",
+										  start->track_number, start->art);
+			}
 		}
 	} else if (strcmp(job->service, "podcasts") == 0) {
 		podcast_episode_t episode;
 		if (podcast_episode((long long)atoll(start->id), &episode)) {
 			char path[512];
-			podcastcache_start(episode.id, episode.enclosure, episode.mime, episode.duration_secs, path,
-							   sizeof(path));
+			if (podcastcache_start(episode.id, episode.enclosure, episode.mime, episode.duration_secs, path,
+								   sizeof(path)) &&
+				path[0]) {
+				if (job->start_slot >= 0) {
+					snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
+				}
+				// The tags go beside the file that actually arrived: an episode
+				// served as mp3 when the feed said m4a would otherwise have them
+				// in a sidecar nothing reads, and the row would show a file name.
+				podcastcache_write_sidecars(episode.id, episode.mime, start->title, start->subtitle, 0, "", "",
+											start->art, false);
+			}
 		}
 	} else if (strcmp(job->service, "youtube") == 0) {
 		ytmusic_track_t track;
@@ -651,7 +694,15 @@ static void *play_worker(void *arg) {
 		// queue entry this bridge can resume on its own.
 		char path[512];
 		char error[192];
-		ytmusic_download_for_playback(&track, path, sizeof(path), error, sizeof(error));
+		if (ytmusic_download_for_playback(&track, path, sizeof(path), error, sizeof(error)) && path[0]) {
+			if (job->start_slot >= 0) {
+				snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
+			}
+			// Again here, and not only in prepare_queue(): that runs before the
+			// cache directory is known to exist, so on a fresh cache the sidecar
+			// write failed and the player showed the video id.
+			ytmusic_cache_write_sidecars(&track, path);
+		}
 	}
 
 	gui_post(queue_start, job);

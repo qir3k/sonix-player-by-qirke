@@ -36,6 +36,7 @@ typedef struct {
 	char album[SONIXLINK_STREAM_TITLE];
 	char art[SONIXLINK_STREAM_ART];
 	char mime[SONIXLINK_STREAM_MIME];
+	char url[512];
 	int duration;
 	int track_number;
 	bool playable;
@@ -70,5 +71,9 @@ bool sonixlink_stream_list(const char *service, const char *kind, const char *id
 // rest of that list's playable rows with it. Returns false with `error` filled
 // when the service cannot start it.
 bool sonixlink_stream_play(const char *service, int index, char *error, size_t error_size);
+
+// The local menu of one service: its visible rows, in the player's saved
+// order, read from the same configuration the service pages use.
+bool sonixlink_stream_menu(const char *service, sonixlink_stream_list_t *out);
 
 #endif /* SONIXLINK_STREAM_H */
