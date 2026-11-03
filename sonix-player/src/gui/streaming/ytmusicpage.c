@@ -674,12 +674,6 @@ static const lv_image_dsc_t *item_icon(const ytmusic_item_t *item) {
 	return &icon_music2;
 }
 
-static theme_semantic_t item_tone(const ytmusic_item_t *item) {
-	if (item->kind == YTMUSIC_ITEM_TRACK) return THEME_SEMANTIC_RED;
-	if (strncmp(item->browse_id, "MPSP", 4) == 0) return THEME_SEMANTIC_CYAN;
-	return THEME_SEMANTIC_PURPLE;
-}
-
 // ---------------------------------------------------------------------------
 // row artwork
 // ---------------------------------------------------------------------------
@@ -699,6 +693,9 @@ static theme_semantic_t item_tone(const ytmusic_item_t *item) {
 // requests back, and returning asks for them again (the card's cache answers
 // at once).
 #define YTMUSIC_ROW_THUMB bp_pick(38, 60)
+#define YTMUSIC_ROW_HEIGHT bp_pick(52, 88)
+#define YTMUSIC_ROW_TITLE_FONT (bp_is_tempotec_v1() ? &font_ui_18 : &font_ui_22)
+#define YTMUSIC_ROW_DETAIL_FONT (bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_18)
 
 typedef struct {
 	lv_obj_t *list;        // the container the rows live in
@@ -1009,6 +1006,8 @@ static lv_obj_t *tracks_labels[YTMUSIC_PAGE_RESULTS];
 static lv_obj_t *results_labels[YTMUSIC_PAGE_RESULTS];
 
 static void selection_stop(void);
+static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int index,
+								 lv_event_cb_t cb, yt_art_list_t *art);
 
 static void yt_corners_refresh(void) {
 	if (sel_action_btn) lv_obj_set_hidden(sel_action_btn, !selecting);
@@ -1041,13 +1040,10 @@ static void row_tick_put(int index, bool on) {
 	lv_obj_set_hidden(check, !on);
 }
 
-static void item_row_label(const ytmusic_item_t *item, char *out, size_t size) {
+static void item_row_title(const ytmusic_item_t *item, char *out, size_t size) {
 	if (!item || !out || size == 0) return;
 	if (item->podcast_episode && item->played) {
-		snprintf(out, size, "✓ %s%s%s", item->title,
-				 item->subtitle[0] ? "  ·  " : "", item->subtitle);
-	} else if (item->subtitle[0]) {
-		snprintf(out, size, "%s  ·  %s", item->title, item->subtitle);
+		snprintf(out, size, "✓ %s", item->title);
 	} else {
 		snprintf(out, size, "%s", item->title);
 	}
@@ -1058,9 +1054,9 @@ static void podcast_rows_refresh(void) {
 		if (!track_items[i].podcast_episode) continue;
 		track_items[i].played = ytpodcastplayed_get(track_items[i].id);
 		if (tracks_labels[i]) {
-			char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
-			item_row_label(&track_items[i], label, sizeof(label));
-			lv_label_set_text(tracks_labels[i], label);
+			char title[YTMUSIC_TITLE_MAX + 8];
+			item_row_title(&track_items[i], title, sizeof(title));
+			lv_label_set_text(tracks_labels[i], title);
 		}
 	}
 }
@@ -1348,47 +1344,15 @@ static void fill_item_list(lv_obj_t *list, ytmusic_item_t *items, int count, lv_
 		return;
 	}
 	for (int i = 0; i < count; i++) {
-		char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
 		if (items[i].podcast_episode) {
 			items[i].played = ytpodcastplayed_get(items[i].id);
 		}
-		item_row_label(&items[i], label, sizeof(label));
-		// A row that plays, not one that opens something: no chevron. The
-		// chevron means "this goes somewhere", and a song's tap starts it here
-		// instead -- the same as a track on the Tidal page. The cover slot, the
-		// glyph and the wrapping below are the same either way.
-		lv_obj_t *row = items[i].kind == YTMUSIC_ITEM_TRACK
-							? settingsrow_action(list, label, cb, (void *)(intptr_t)i)
-							: settingsrow_add(list, label, NULL, cb, (void *)(intptr_t)i);
+		lv_obj_t *row = item_row_create(list, &items[i], i, cb, art);
 		if (i < YTMUSIC_PAGE_RESULTS) {
 			row_objs[i] = row;
-			labels[i] = settingsrow_name_label(row);
+			lv_obj_t *texts = lv_obj_get_child(row, 1);
+			labels[i] = texts ? lv_obj_get_child(texts, 0) : NULL;
 		}
-		// A song also gets the menu a Tidal track has: the row's tap plays it,
-		// the dots offer what a tap cannot -- playing it now, or downloading it
-		// to the card whether or not it is the song in the player. A long press
-		// starts choosing several of them.
-		if (items[i].kind == YTMUSIC_ITEM_TRACK) {
-			if (i < YTMUSIC_PAGE_RESULTS) {
-				row_menus[i] = row_kebab_add(row, &items[i]);
-			}
-			lv_obj_add_event_cb(row, row_long_cb, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
-		}
-		// An entry with artwork gets the shared cover slot; one without keeps
-		// the glyph it would have had anyway.
-		if (art && items[i].thumbnail[0]) {
-			// The row's own glyph stands in until its sleeve lands, and comes
-			// back whenever the picture is given up: a song keeps its note, a
-			// show its podcast glyph, and no row changes shape on the way.
-			art->placeholders[i] = item_icon(&items[i]);
-			art->thumbs[i] = settingsrow_add_art(row, art->placeholders[i], YTMUSIC_ROW_THUMB);
-		} else {
-			settingsrow_add_icon(row, item_icon(&items[i]), item_tone(&items[i]));
-		}
-		// After the cover, not before: the name's room is worked out from what
-		// sits beside it, and asked first it started at the cover's own left
-		// edge -- the text and the sleeve drawn on top of each other.
-		settingsrow_name_lines(row, 2);
 	}
 	// A list that is already on screen -- a second search, a card opened from a
 	// card -- asks for its covers here; the screen-loaded callback covers the
@@ -1771,17 +1735,17 @@ static void row_menu_mark_played(void *user) {
 	item->played = played;
 	for (int i = 0; i < track_count && i < YTMUSIC_PAGE_RESULTS; i++) {
 		if (&track_items[i] == item && tracks_labels[i]) {
-			char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
-			item_row_label(item, label, sizeof(label));
-			lv_label_set_text(tracks_labels[i], label);
+			char title[YTMUSIC_TITLE_MAX + 8];
+			item_row_title(item, title, sizeof(title));
+			lv_label_set_text(tracks_labels[i], title);
 			return;
 		}
 	}
 	for (int i = 0; i < result_count && i < YTMUSIC_PAGE_RESULTS; i++) {
 		if (&result_items[i] == item && results_labels[i]) {
-		char label[YTMUSIC_TITLE_MAX + YTMUSIC_NAME_MAX + 8];
-		item_row_label(item, label, sizeof(label));
-			lv_label_set_text(results_labels[i], label);
+			char title[YTMUSIC_TITLE_MAX + 8];
+			item_row_title(item, title, sizeof(title));
+			lv_label_set_text(results_labels[i], title);
 			return;
 		}
 	}
@@ -1839,10 +1803,6 @@ static lv_obj_t *row_kebab_add(lv_obj_t *row, const ytmusic_item_t *item) {
 	lv_obj_set_style_border_width(button, 0, 0);
 	lv_obj_set_style_shadow_width(button, 0, 0);
 	lv_obj_set_style_pad_all(button, 0, 0);
-	// The row places its children itself -- the cover at the left edge, the
-	// chevron at the right -- so a button created here starts at 0,0 and drew
-	// itself on top of the album art. It belongs where the chevron would be.
-	lv_obj_align(button, LV_ALIGN_RIGHT_MID, 0, 0);
 	// A target two dots wide is a narrow one: a tap that lands just outside it
 	// used to be a tap on the row, which started the song instead of the menu.
 	lv_obj_set_ext_click_area(button, bp_pick(7, 10));
@@ -1855,6 +1815,95 @@ static lv_obj_t *row_kebab_add(lv_obj_t *row, const ytmusic_item_t *item) {
 	lv_image_set_scale(icon, (uint32_t)(LV_SCALE_NONE * 22 / 36));
 	lv_obj_center(icon);
 	return button;
+}
+
+static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int index,
+								 lv_event_cb_t cb, yt_art_list_t *art) {
+	lv_obj_t *row = lv_btn_create(list);
+	lv_obj_set_width(row, lv_pct(100));
+	lv_obj_set_height(row, YTMUSIC_ROW_HEIGHT);
+	lv_obj_add_style(row, &theme_style_card, 0);
+	lv_obj_add_style(row, &theme_style_card_pressed, LV_STATE_PRESSED);
+	lv_obj_set_style_radius(row, bp_pick(10, 12), 0);
+	lv_obj_set_style_border_width(row, 0, 0);
+	lv_obj_set_style_shadow_width(row, 0, 0);
+	lv_obj_set_style_pad_hor(row, bp_pick(5, 16), 0);
+	lv_obj_set_style_pad_ver(row, 0, 0);
+	lv_obj_set_style_pad_column(row, bp_pick(6, 8), 0);
+	lv_obj_set_scrollable(row, false);
+	lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_event_bubble(row, true);
+	lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, (void *)(intptr_t)index);
+
+	const lv_image_dsc_t *placeholder = item_icon(item);
+	lv_obj_t *thumb = lv_image_create(row);
+	lv_obj_set_size(thumb, YTMUSIC_ROW_THUMB, YTMUSIC_ROW_THUMB);
+	lv_image_set_inner_align(thumb, LV_IMAGE_ALIGN_CENTER);
+	lv_image_set_src(thumb, placeholder);
+	lv_obj_add_style(thumb, &theme_style_icon, 0);
+	lv_obj_set_style_image_recolor_opa(thumb, LV_OPA_COVER, 0);
+	lv_obj_set_style_radius(thumb, 0, 0);
+	lv_obj_set_style_clip_corner(thumb, false, 0);
+	lv_obj_set_clickable(thumb, false);
+	lv_obj_set_scrollable(thumb, false);
+	lv_obj_set_event_bubble(thumb, true);
+	int max_side = LV_MAX(placeholder->header.w, placeholder->header.h);
+	if (max_side > YTMUSIC_ROW_THUMB) {
+		lv_image_set_scale(thumb, (uint32_t)(LV_SCALE_NONE * YTMUSIC_ROW_THUMB / max_side));
+	}
+
+	lv_obj_t *texts = lv_obj_create(row);
+	lv_obj_set_flex_grow(texts, 1);
+	lv_obj_set_height(texts, LV_SIZE_CONTENT);
+	lv_obj_set_style_bg_opa(texts, 0, 0);
+	lv_obj_set_style_border_width(texts, 0, 0);
+	lv_obj_set_style_pad_all(texts, 0, 0);
+	lv_obj_set_style_pad_row(texts, bp_pick(2, 6), 0);
+	lv_obj_set_scrollable(texts, false);
+	lv_obj_set_event_bubble(texts, true);
+	lv_obj_set_flex_flow(texts, LV_FLEX_FLOW_COLUMN);
+	lv_obj_set_flex_align(texts, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+
+	lv_obj_t *title = lv_label_create(texts);
+	char title_text[YTMUSIC_TITLE_MAX + 8];
+	item_row_title(item, title_text, sizeof(title_text));
+	lv_label_set_text(title, title_text);
+	lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+	lv_obj_set_width(title, lv_pct(100));
+	lv_obj_set_height(title, lv_font_get_line_height(YTMUSIC_ROW_TITLE_FONT));
+	lv_obj_add_style(title, &theme_style_text, 0);
+	lv_obj_set_style_text_font(title, YTMUSIC_ROW_TITLE_FONT, 0);
+
+	if (item->subtitle[0]) {
+		lv_obj_t *detail = lv_label_create(texts);
+		lv_label_set_text(detail, item->subtitle);
+		lv_label_set_long_mode(detail, LV_LABEL_LONG_DOT);
+		lv_obj_set_width(detail, lv_pct(100));
+		lv_obj_set_height(detail, lv_font_get_line_height(YTMUSIC_ROW_DETAIL_FONT));
+		lv_obj_add_style(detail, &theme_style_text_dim, 0);
+		lv_obj_set_style_text_font(detail, YTMUSIC_ROW_DETAIL_FONT, 0);
+	}
+
+	if (item->kind == YTMUSIC_ITEM_TRACK) {
+		if (index < YTMUSIC_PAGE_RESULTS) {
+			row_menus[index] = row_kebab_add(row, item);
+		}
+		lv_obj_add_event_cb(row, row_long_cb, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)index);
+	} else {
+		lv_obj_t *chevron = lv_image_create(row);
+		lv_image_set_src(chevron, &icon_chevron_right);
+		lv_obj_add_style(chevron, &theme_style_icon, 0);
+		lv_obj_set_style_image_opa(chevron, LV_OPA_60, 0);
+		lv_image_set_scale(chevron, (uint32_t)(LV_SCALE_NONE * 22 / 36));
+		lv_obj_set_event_bubble(chevron, true);
+	}
+
+	if (art && index < YTMUSIC_PAGE_RESULTS) {
+		art->placeholders[index] = placeholder;
+		art->thumbs[index] = thumb;
+	}
+	return row;
 }
 
 static bool start_list_request(list_kind_t kind, bool to_tracks, ytmusic_filter_t filter,
@@ -1968,6 +2017,9 @@ static void list_done(void *data) {
 // A tap in either list: a song plays, a card opens its own page in the tracks
 // list. Both lists keep their rows in an array the handler indexes.
 static void item_clicked_cb(lv_event_t *e) {
+	if (player_sheet_drag_active() || switcher_back_drag_active()) {
+		return;
+	}
 	int index = (int)(intptr_t)lv_event_get_user_data(e);
 	const ytmusic_item_t *item = NULL;
 	// The list a row was drawn in, kept so that playing it can queue the rest
