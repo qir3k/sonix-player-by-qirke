@@ -84,7 +84,7 @@ static const char FAKE_WPA_CLI[] =
 	"    if [ -f \"$FAKE_WPA_SAVED\" ]; then printf '0\\tSavedHidden\\tany\\t[CURRENT]\\n'\n"
 	"    else printf 'network id\\tssid\\tbssid\\tflags\\n'; fi;;\n"
 	"  add_network) printf '0\\n';;\n"
-	"  status) printf 'wpa_state=COMPLETED\\nssid=Whatever\\nip_address=192.168.1.50\\naddress=aa:bb:cc:dd:ee:ff\\n';;\n"
+	"  status) printf 'wpa_state=COMPLETED\\nssid=Whatever\\nfreq=2437\\nip_address=192.168.1.50\\naddress=aa:bb:cc:dd:ee:ff\\n';;\n"
 	"  signal_poll) printf 'RSSI=-52\\n';;\n"
 	"  scan_results)\n"
 	"    printf 'bssid / frequency / signal / flags / ssid\\n'\n"
@@ -288,6 +288,28 @@ int main(void) {
 	nanosleep(&settle, NULL);
 	log = slurp(log_path);
 	assert(log_find(log, "add_network") < 0 && log_find(log, "set_network") < 0 && log_find(log, "select_network") < 0);
+
+	/* Keep the associated-link signal query out of an active Bluetooth stream. */
+	wifi_set_bluetooth_streaming(false);
+	clear_log();
+	wifi_connect("VisibleNet", NULL);
+	assert(wait_op(ssid, sizeof(ssid)) == WIFI_OP_OK);
+	nanosleep(&settle, NULL);
+	log = slurp(log_path);
+	assert(log_find(log, "status|") >= 0 && log_find(log, "signal_poll") >= 0);
+
+	wifi_set_bluetooth_streaming(true);
+	clear_log();
+	wifi_connect("VisibleNet", NULL);
+	assert(wait_op(ssid, sizeof(ssid)) == WIFI_OP_OK);
+	nanosleep(&settle, NULL);
+	log = slurp(log_path);
+	assert(log_find(log, "status|") >= 0);
+	assert(log_find(log, "signal_poll") < 0);
+	wifi_status_t status;
+	wifi_get_status(&status);
+	assert(status.freq_mhz == 2437);
+	wifi_set_bluetooth_streaming(false);
 
 	printf("PASS wifi join (scan_ssid for hidden networks only; a saved network the scan "
 		   "reports as open gets key_mgmt=NONE, a secured or out-of-range one keeps its entry)\n");

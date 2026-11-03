@@ -39,6 +39,7 @@
 #include "src/system/net/wifi.h"
 #include "src/system/device/system.h"
 #include "src/gui/shell/gui.h"
+#include "src/gui/settings/settings.h"
 
 // ---------------------------------------------------------------------------
 // The numbers
@@ -959,9 +960,7 @@ static int volume_step_setting(void) {
 // step is applied where the player's own Settings slider applies it.
 static void apply_volume_step_cb(void *user) {
 	int step = (int)(intptr_t)user;
-	config_set_int("other", "volume_step", step);
-	config_save();
-	input_set_volume_step(step);
+	settings_set_volume_step(step);
 }
 
 static void route_state(client_t *c) {
@@ -1285,7 +1284,10 @@ static void route_command(client_t *c, const char *query) {
 			reply_status(c, "400 Bad Request", "volume step must be 1 to 5");
 			return;
 		}
-		gui_post(apply_volume_step_cb, (void *)(intptr_t)number);
+		if (!gui_post(apply_volume_step_cb, (void *)(intptr_t)number)) {
+			reply_status(c, "503 Service Unavailable", "GUI command queue is full");
+			return;
+		}
 	} else if (strcmp(what, "scan") == 0) {
 		push_command(SONIXLINK_CMD_SCAN, 0);
 	} else {

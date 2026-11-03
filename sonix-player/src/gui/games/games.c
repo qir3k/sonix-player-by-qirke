@@ -322,7 +322,11 @@ void game_frame_show_overlay(game_frame_t *g, const char *title, const char *bod
 	lv_obj_set_hidden(g->overlay, false);
 	lv_obj_move_foreground(g->overlay);
 	overlay_layout(g);
-	game_frame_set_period(g, 0); // nothing moves under the card
+	// Pause without changing wanted_period_ms: hiding the card must resume the
+	// game's clock at the rate it was using before the overlay appeared.
+	if (g->timer) {
+		lv_timer_pause(g->timer);
+	}
 }
 
 void game_frame_hide_overlay(game_frame_t *g) {

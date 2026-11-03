@@ -75,8 +75,27 @@
 // the transfer is not getting. The status bar's signal bars lag by a few
 // seconds while a transfer runs, and that is the whole cost.
 static bool g_poll_slow;
+static bool g_bt_streaming;
 
-void wifi_set_status_poll_slow(bool slow) { g_poll_slow = slow; }
+void wifi_set_status_poll_slow(bool slow) {
+	pthread_mutex_lock(&lock);
+	bool changed = g_poll_slow != slow;
+	g_poll_slow = slow;
+	if (changed) {
+		pthread_cond_signal(&wake);
+	}
+	pthread_mutex_unlock(&lock);
+}
+
+void wifi_set_bluetooth_streaming(bool streaming) {
+	pthread_mutex_lock(&lock);
+	bool changed = g_bt_streaming != streaming;
+	g_bt_streaming = streaming;
+	if (changed) {
+		pthread_cond_signal(&wake);
+	}
+	pthread_mutex_unlock(&lock);
+}
 
 // A DHCP attempt is not retried more often than this, so an access point that
 // hands out no lease does not turn into a fork loop.
@@ -1331,13 +1350,26 @@ static void poll_status(void) {
 	ssid_unescape(status.ssid); // wpa_supplicant escapes this one too
 	status_field(buf, "ip_address", status.ip, sizeof(status.ip));
 	status_field(buf, "address", status.mac, sizeof(status.mac));
+	if (status.state == WIFI_STATE_CONNECTED) {
+		char frequency[16];
+		if (status_field(buf, "freq", frequency, sizeof(frequency))) {
+			status.freq_mhz = atoi(frequency);
+		}
+	}
 
 	if (status.state == WIFI_STATE_CONNECTED) {
+		static int last_signal;
 		char signal_buf[512];
 		char rssi[16];
-		if (wpa1("signal_poll", signal_buf, sizeof(signal_buf)) == 0 &&
-			status_field(signal_buf, "RSSI", rssi, sizeof(rssi))) {
+		pthread_mutex_lock(&lock);
+		bool bt_streaming = g_bt_streaming;
+		pthread_mutex_unlock(&lock);
+		if (bt_streaming) {
+			status.signal = last_signal;
+		} else if (wpa1("signal_poll", signal_buf, sizeof(signal_buf)) == 0 &&
+				   status_field(signal_buf, "RSSI", rssi, sizeof(rssi))) {
 			status.signal = atoi(rssi);
+			last_signal = status.signal;
 		}
 		status.bars = status.signal ? bars_for(status.signal) : 3;
 
@@ -1397,6 +1429,13 @@ static void post_job(const job_t *job) {
 	pthread_mutex_unlock(&lock);
 }
 
+static uint32_t status_poll_period_ms(void) {
+	pthread_mutex_lock(&lock);
+	bool slow = g_poll_slow || g_bt_streaming;
+	pthread_mutex_unlock(&lock);
+	return (power_screen_is_on() && !slow) ? STATUS_POLL_MS : STATUS_POLL_STANDBY_MS;
+}
+
 static void *wifi_worker(void *arg) {
 	(void)arg;
 	thread_be_background("wifi");
@@ -1415,8 +1454,12 @@ static void *wifi_worker(void *arg) {
 			// tv_sec: a two-second poll is 2,000,000,000 ns, and adding that
 			// straight to tv_nsec overflows a 32-bit long.
 			struct timespec deadline;
-			deadline_in_ms(&deadline, !g_enabled ? IDLE_WAIT_MS
-												 : (power_screen_is_on() ? STATUS_POLL_MS : STATUS_POLL_STANDBY_MS));
+			uint32_t wait_ms = !g_enabled
+								   ? IDLE_WAIT_MS
+								   : ((power_screen_is_on() && !g_poll_slow && !g_bt_streaming)
+										  ? STATUS_POLL_MS
+										  : STATUS_POLL_STANDBY_MS);
+			deadline_in_ms(&deadline, wait_ms);
 			pthread_cond_timedwait(&wake, &lock, &deadline);
 			have_job = take_job(&job);
 		}
@@ -1471,8 +1514,7 @@ static void *wifi_worker(void *arg) {
 			continue;
 		}
 
-		uint32_t poll_period =
-			(power_screen_is_on() && !g_poll_slow) ? STATUS_POLL_MS : STATUS_POLL_STANDBY_MS;
+		uint32_t poll_period = status_poll_period_ms();
 		if (enabled && (uint32_t)(now_ms() - last_poll) >= poll_period) {
 			last_poll = now_ms();
 			poll_status();

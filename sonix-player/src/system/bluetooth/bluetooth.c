@@ -2416,6 +2416,41 @@ static bool reconnect_should_stop(const char *mac) {
 	return user_waiting;
 }
 
+// BlueZ can leave the controller powered off after startup. A reconnect against
+// an unpowered adapter is refused as NotReady, so verify and restore power before
+// waiting for the headphones and again before each explicit connection attempt.
+static bool ensure_adapter_powered(void) {
+	bool powered = false;
+	if (!btstack_get_powered(&powered)) {
+		fprintf(stderr, "bluetooth: cannot read adapter power before reconnecting\n");
+		return false;
+	}
+	if (powered) {
+		return true;
+	}
+
+	fprintf(stderr, "bluetooth: the adapter is not powered; powering it back on\n");
+	bool requested = btstack_set_powered(true);
+	if (!requested) {
+		// The D-Bus request may have timed out while BlueZ was still applying it;
+		// the property read below, not the method reply, decides whether it worked.
+		fprintf(stderr, "bluetooth: powering the adapter returned no confirmation\n");
+	}
+	for (int waited = 0; waited < 5000; waited += 250) {
+		sleep_ms(250);
+		if (!btstack_get_powered(&powered)) {
+			fprintf(stderr, "bluetooth: cannot confirm that the adapter powered on\n");
+			return false;
+		}
+		if (powered) {
+			fprintf(stderr, "bluetooth: the adapter is powered again after %d ms\n", waited + 250);
+			return true;
+		}
+	}
+	fprintf(stderr, "bluetooth: the adapter did not power on\n");
+	return false;
+}
+
 static void reconnect_last(void) {
 	char mac[BT_MAC_MAX];
 	snprintf(mac, sizeof(mac), "%s", config_get("wireless", BT_LAST_DEVICE_KEY, ""));
@@ -2458,6 +2493,12 @@ static void reconnect_last(void) {
 		return;
 	}
 
+	// Headphones cannot reconnect by themselves while the controller is off.
+	if (!ensure_adapter_powered()) {
+		fprintf(stderr, "bluetooth: not going back to %s with the adapter off\n", mac);
+		return;
+	}
+
 	// First, a moment to come back by themselves -- which is what headphones do
 	// the instant the adapter is powered. Waiting costs nothing when they do not
 	// come back, and when they do it is the difference between a working link
@@ -2488,6 +2529,12 @@ static void reconnect_last(void) {
 		// connect_device() took seconds, and this is the last moment before a
 		// command goes out that could tear down somebody else's link.
 		if (reconnect_should_stop(mac)) {
+			return;
+		}
+		// A controller reset during the grace period or a previous attempt must
+		// not turn every remaining connection attempt into another NotReady.
+		if (!ensure_adapter_powered()) {
+			fprintf(stderr, "bluetooth: stopping reconnect to %s because the adapter is off\n", mac);
 			return;
 		}
 		fprintf(stderr, "bluetooth: going back to %s (attempt %d)\n", mac, attempt);

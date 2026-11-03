@@ -157,6 +157,17 @@ $(BUILD)/test_wifi: $(WIFI_SRC) $(ROOT)/src/system/net/wifi.h \
 	@mkdir -p $(BUILD)
 	$(CC) $(CPPFLAGS) -Istubs $(CFLAGS) -o $@ test_wifi.c $(ROOT)/src/system/net/wifi.c $(LDFLAGS) $(LDLIBS)
 
+# The Wi-Fi-to-Bluetooth AFH map, independent of hardware and HCI.
+.PHONY: btafh
+btafh: $(BUILD)/test_btafh
+	$(BUILD)/test_btafh
+
+$(BUILD)/test_btafh: test_btafh.c $(ROOT)/src/system/bluetooth/btafh.c \
+                     $(ROOT)/src/system/bluetooth/btafh.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DHOST_BUILD=1 -o $@ test_btafh.c \
+		$(ROOT)/src/system/bluetooth/btafh.c $(LDFLAGS) $(LDLIBS)
+
 # The Calculator page's arithmetic and the notes folder's rules: the two new
 # pages' plain-C halves, with no LVGL and no screen. The calculator model and
 # the notes store (with the shared text layer under it) are linked as they are
@@ -436,10 +447,19 @@ UI_SRC = $(ROOT)/tests/ui/test_main_menu.c $(ROOT)/src/gui/shell/main_menu.c \
          $(ROOT)/src/system/core/config.c $(ROOT)/src/system/core/lang.c \
          $(ROOT)/src/system/addons/addons.c
 UI_LVGL_SRC = $(shell find $(ROOT)/lvgl/src -name '*.c' 2>/dev/null)
+UI_LVGL_OBJ = $(patsubst $(ROOT)/%.c,$(BUILD)/ui/%.o,$(UI_LVGL_SRC))
 UI_OBJ = $(patsubst $(ROOT)/%.c,$(BUILD)/ui/%.o,$(UI_SRC)) \
          $(patsubst $(ROOT)/%.c,$(BUILD)/ui/%.o,$(UI_LVGL_SRC))
 UI_CPPFLAGS = $(CPPFLAGS) -I$(ROOT)/lvgl -DLV_CONF_PATH='"$(abspath ui/lv_conf.h)"'
 UI_CFLAGS = $(CFLAGS) -MMD -MP
+
+.PHONY: edge-lock
+edge-lock: $(BUILD)/test_edge_lock
+	$(BUILD)/test_edge_lock
+
+$(BUILD)/test_edge_lock: test_edge_lock.c $(ROOT)/src/gui/shell/edge_lock.h $(UI_LVGL_OBJ)
+	@mkdir -p $(BUILD)
+	$(CC) $(UI_CPPFLAGS) $(UI_CFLAGS) -o $@ test_edge_lock.c $(UI_LVGL_OBJ) $(LDFLAGS) $(LDLIBS)
 
 # The screensaver's Framed style on the same renderer; shares the objects above.
 # The Wi-Fi page and its manual-entry page for hidden networks, on the same

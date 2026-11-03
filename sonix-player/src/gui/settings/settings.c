@@ -523,13 +523,27 @@ static int volume_step_setting(void) {
 static void volume_step_changed_cb(lv_event_t *e) {
 	(void)e;
 	int step = VOLUME_STEP_MIN + (int)lv_slider_get_value(volume_step_slider);
-	if (step == volume_step_setting()) {
+	settings_set_volume_step(step);
+}
+
+void settings_set_volume_step(int step) {
+	if (step < VOLUME_STEP_MIN || step > VOLUME_STEP_MAX) {
+		fprintf(stderr, "settings: volume step out of range: %d\n", step);
 		return;
 	}
-	config_set_int("other", "volume_step", step);
-	config_save();
-	input_set_volume_step(step);
-	lv_label_set_text_fmt(volume_step_value, "%d", step);
+	if (step == volume_step_setting()) {
+		input_set_volume_step(step);
+	} else {
+		config_set_int("other", "volume_step", step);
+		config_save();
+		input_set_volume_step(step);
+	}
+	if (volume_step_slider) {
+		lv_slider_set_value(volume_step_slider, step - VOLUME_STEP_MIN, LV_ANIM_OFF);
+	}
+	if (volume_step_value) {
+		lv_label_set_text_fmt(volume_step_value, "%d", step);
+	}
 }
 
 static void screenshot_toggled_cb(lv_event_t *e) {

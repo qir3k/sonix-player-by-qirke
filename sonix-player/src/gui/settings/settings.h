@@ -9,6 +9,10 @@ extern lv_obj_t *settings_screen;
 
 void settings_init(gui_config_t *cfg);
 
+// Applies the volume-key step and refreshes the More-page slider if it is open.
+// Call on the GUI thread.
+void settings_set_volume_step(int step);
+
 // Hands power.c the screen timeout as it was last left ([power]
 // screen_off_seconds). Call once at startup, after power_init(); the Screen
 // page calls it again whenever the slider moves.

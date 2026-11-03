@@ -128,8 +128,10 @@ static void place_mines(int safe_idx) {
 
 static void flood_reveal(int start_idx) {
 	int queue[TOTAL_CELLS];
+	bool queued[TOTAL_CELLS] = {false};
 	int head = 0, tail = 0;
 	queue[tail++] = start_idx;
+	queued[start_idx] = true;
 
 	while (head < tail) {
 		int curr = queue[head++];
@@ -147,8 +149,9 @@ static void flood_reveal(int start_idx) {
 					int nr = r + dr, nc = c + dc;
 					if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
 						int nidx = nr * COLS + nc;
-						if (state[nidx] == CELL_HIDDEN && !has_mine[nidx]) {
+						if (state[nidx] == CELL_HIDDEN && !has_mine[nidx] && !queued[nidx]) {
 							queue[tail++] = nidx;
+							queued[nidx] = true;
 						}
 					}
 				}
@@ -270,6 +273,11 @@ static void tap_cb(const lv_point_t *p) {
 						}
 					}
 				}
+			}
+			if (revealed_count >= TOTAL_CELLS - MINES_COUNT) {
+				game_over = true;
+				game_frame_add_score(&frame, 500);
+				game_frame_show_overlay(&frame, "Victory!", "All safe cells cleared!", "Play Again", NULL);
 			}
 		}
 		return;

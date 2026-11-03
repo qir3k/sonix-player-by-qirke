@@ -31,27 +31,43 @@ static unsigned last_serial = (unsigned)-1;
 static lv_color_t status_normal_color;
 static lv_obj_t *eq_pill;
 static lv_obj_t *peq_pill;
+static lv_obj_t *peq_profile_pill;
 static lv_obj_t *mseb_pill;
 
-// The pills follow the equalisers, not the finger: they are the same three
-// settings the control centre and the DAC page switch, so any of them may have
-// changed since this page was last looked at.
+// The pills follow the equalisers, not the finger: they mirror the control
+// centre and the DAC page, including the selected PEQ profile.
 static void paint_equaliser_pills(void) {
 	settingsrow_pill_active(eq_pill, eq_get_enabled());
-	settingsrow_pill_active(peq_pill, peq_get_enabled());
+	bool peq_enabled = peq_get_enabled();
+	settingsrow_pill_active(peq_pill, peq_enabled);
 	settingsrow_pill_active(mseb_pill, mseb_get_enabled());
+	if (peq_profile_pill) {
+		char profile[64];
+		snprintf(profile, sizeof(profile), tr("peq_profile_name"), peq_get_profile());
+		lv_obj_t *label = lv_obj_get_child(peq_profile_pill, 0);
+		if (strcmp(lv_label_get_text(label), profile) != 0) {
+			lv_label_set_text(label, profile);
+		}
+		settingsrow_pill_active(peq_profile_pill, peq_enabled);
+		if (peq_enabled) {
+			lv_obj_remove_state(peq_profile_pill, LV_STATE_DISABLED);
+		} else {
+			lv_obj_add_state(peq_profile_pill, LV_STATE_DISABLED);
+		}
+		lv_obj_set_style_opa(peq_profile_pill, peq_enabled ? LV_OPA_COVER : LV_OPA_50, 0);
+	}
 }
 
 // The control centre cannot be pulled down while receiver mode holds the
 // screen, so the three equalisers are out of reach exactly when a phone is
 // feeding the DAC -- a curve set before the phone connected is heard, and the
-// listener cannot compare it without leaving the mode. The same card of three
-// pills the DAC page carries, through the same calls, so either place shows
-// what the other did.
+// listener cannot compare it without leaving the mode. The same card of pills
+// the DAC page carries, through the same calls, so either place shows what the
+// other did.
 //
 // A card and not three switch rows for the reason dacpage.c spells out: the
 // V1's 248 px under the heading cannot hold four 56 px switch rows and the
-// codec line this page exists to show. Three pills wrap to two lines at worst.
+// codec line this page exists to show. The controls wrap within the card.
 //
 // The equalisers do reach this audio: btreceiver.c runs the incoming block
 // through eq_process() just before it is written, so a curve chosen here is
@@ -66,6 +82,14 @@ static void peq_cb(lv_event_t *e) {
 	(void)e;
 	peq_set_enabled(!peq_get_enabled());
 	paint_equaliser_pills();
+}
+
+static void peq_profile_cb(lv_event_t *e) {
+	(void)e;
+	if (peq_get_enabled()) {
+		peq_next_profile();
+		paint_equaliser_pills();
+	}
 }
 
 static void mseb_cb(lv_event_t *e) {
@@ -368,6 +392,7 @@ void btreceiverpage_init(gui_config_t *cfg) {
 	settingsrow_pills(container, "dac_equalisers", &equaliser_pills);
 	eq_pill = settingsrow_pill(equaliser_pills, "eq_short", 0, eq_cb);
 	peq_pill = settingsrow_pill(equaliser_pills, "peq", 1, peq_cb);
+	peq_profile_pill = settingsrow_pill_text(equaliser_pills, "", 0, peq_profile_cb);
 	mseb_pill = settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb);
 	paint_equaliser_pills();
 

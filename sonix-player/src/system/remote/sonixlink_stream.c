@@ -518,6 +518,29 @@ static void job_free(play_job_t *job) {
 	free(job);
 }
 
+static void playback_failed(void *user) {
+	gui_notify_popup(user);
+	free(user);
+}
+
+static void notify_playback_failed(const char *service) {
+	const char *key = "download_failed";
+	if (strcmp(service, "youtube") == 0) {
+		key = "ytmusic_playback_failed";
+	} else if (strcmp(service, "podcasts") == 0) {
+		key = "podcast_download_failed";
+	}
+	char *message = strdup(key);
+	if (!message) {
+		fprintf(stderr, "sonixlink: cannot allocate a %s playback error notice\n", service);
+		return;
+	}
+	if (!gui_post(playback_failed, message)) {
+		fprintf(stderr, "sonixlink: cannot show the %s playback error notice\n", service);
+		free(message);
+	}
+}
+
 static void queue_start(void *user) {
 	play_job_t *job = user;
 	// This runs on the GUI thread long after the request: the download may have
@@ -641,21 +664,28 @@ static bool prepare_queue(play_job_t *job) {
 static void *play_worker(void *arg) {
 	play_job_t *job = arg;
 	if (strcmp(job->service, "radio") == 0) {
-		gui_post(radio_start, job);
+		if (!gui_post(radio_start, job)) {
+			fprintf(stderr, "sonixlink: cannot start radio playback: GUI queue is full\n");
+			job_free(job);
+		}
 		return NULL;
 	}
 	if (!prepare_queue(job)) {
+		fprintf(stderr, "sonixlink: cannot prepare %s playback queue\n", job->service);
+		notify_playback_failed(job->service);
 		job_free(job);
 		return NULL;
 	}
 
 	sonixlink_stream_row_t *start = &job->rows[job->start_row];
+	bool downloaded = false;
 	if (strcmp(job->service, "tidal") == 0) {
 		long id = id_number(start->id);
 		tidal_stream_t *stream = calloc(1, sizeof(*stream));
 		if (stream && tidal_track_stream(id, stream)) {
-			char path[512];
+			char path[512] = "";
 			if (tidalcache_start(id, stream, start->duration, true, path, sizeof(path)) && path[0]) {
+				downloaded = true;
 				if (job->start_slot >= 0) {
 					snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
 				}
@@ -669,8 +699,9 @@ static void *play_worker(void *arg) {
 		char url[QOBUZ_URL_MAX];
 		char mime[64];
 		if (qobuz_track_url(id, url, sizeof(url), mime, sizeof(mime), NULL)) {
-			char path[512];
+			char path[512] = "";
 			if (qobuzcache_start(id, url, mime, start->duration, path, sizeof(path)) && path[0]) {
+				downloaded = true;
 				if (job->start_slot >= 0) {
 					snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
 				}
@@ -681,10 +712,11 @@ static void *play_worker(void *arg) {
 	} else if (strcmp(job->service, "podcasts") == 0) {
 		podcast_episode_t episode;
 		if (podcast_episode((long long)atoll(start->id), &episode)) {
-			char path[512];
+			char path[512] = "";
 			if (podcastcache_start(episode.id, episode.enclosure, episode.mime, episode.duration_secs, path,
 								   sizeof(path)) &&
 				path[0]) {
+				downloaded = true;
 				if (job->start_slot >= 0) {
 					snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
 				}
@@ -707,9 +739,10 @@ static void *play_worker(void *arg) {
 		// Whole, before the queue starts: the prepare hook the page uses is not
 		// running for a list the page did not build, and a half file is not a
 		// queue entry this bridge can resume on its own.
-		char path[512];
-		char error[192];
+		char path[512] = "";
+		char error[192] = "";
 		if (ytmusic_download_for_playback(&track, path, sizeof(path), error, sizeof(error)) && path[0]) {
+			downloaded = true;
 			if (job->start_slot >= 0) {
 				snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
 			}
@@ -717,10 +750,22 @@ static void *play_worker(void *arg) {
 			// cache directory is known to exist, so on a fresh cache the sidecar
 			// write failed and the player showed the video id.
 			ytmusic_cache_write_sidecars(&track, path);
+		} else {
+			fprintf(stderr, "sonixlink: YouTube Music playback download failed: %s\n",
+					error[0] ? error : "request_failed");
 		}
 	}
 
-	gui_post(queue_start, job);
+	if (!downloaded) {
+		fprintf(stderr, "sonixlink: %s playback could not prepare the selected track\n", job->service);
+		notify_playback_failed(job->service);
+		job_free(job);
+		return NULL;
+	}
+	if (!gui_post(queue_start, job)) {
+		fprintf(stderr, "sonixlink: cannot queue %s playback: GUI queue is full\n", job->service);
+		job_free(job);
+	}
 	return NULL;
 }
 

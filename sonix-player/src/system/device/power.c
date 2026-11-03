@@ -40,6 +40,7 @@
 #include "src/system/lastfm/lastfm.h"
 #include "src/system/listenbrainz/listenbrainz.h"
 #include "src/system/bluetooth/bluetooth.h"
+#include "src/system/bluetooth/btafh.h"
 #include "src/system/bluetooth/btreceiver.h"
 #include "src/system/core/config.h"
 #include "src/system/core/logging.h"
@@ -903,6 +904,41 @@ static bool wifi_wanted(void) {
 // so that a pause somebody is about to undo does not cost a reassociation.
 static uint32_t g_wifi_idle_since;
 static uint32_t g_bt_idle_since;
+
+#define AFH_RESEND_MS 15000
+#define AFH_RETRY_MS 1000
+
+static void bt_afh_follow_wifi(uint32_t now, bool audio_active) {
+	static int sent_frequency;
+	static uint32_t last_try;
+	int wanted_frequency = 0;
+
+	if (audio_active) {
+		wifi_status_t status;
+		wifi_get_status(&status);
+		if (status.state == WIFI_STATE_CONNECTED) {
+			wanted_frequency = status.freq_mhz;
+		}
+	}
+
+	if (wanted_frequency == 0 && sent_frequency == 0) {
+		return;
+	}
+	uint32_t waited = since(last_try, now);
+	if (wanted_frequency == sent_frequency && waited < AFH_RESEND_MS) {
+		return;
+	}
+	if (waited < AFH_RETRY_MS) {
+		return;
+	}
+
+	last_try = now;
+	if (btafh_apply_for_wifi(wanted_frequency) || wanted_frequency == 0) {
+		// A restarted adapter forgets the map; without a link there may be no
+		// controller to clear it on, so remember the unrestricted state locally.
+		sent_frequency = wanted_frequency;
+	}
+}
 
 static void park_radios_if_idle(uint32_t now) {
 	// Held at now for as long as there is a reason to keep them, so `since`
@@ -2398,6 +2434,12 @@ static void power_timer_cb(lv_timer_t *timer) {
 	cpupower_screen_state(g_screen_on, playing);
 	// 4a-bis-1. the radios a wake owed back, once the wake has settled
 	restore_radios_if_due();
+
+	// Keep Wi-Fi's status and signal-strength queries out of an active
+	// Bluetooth stream; the radios share the board's antenna.
+	bool bt_streaming = bluetooth_audio_active();
+	wifi_set_bluetooth_streaming(bt_streaming);
+	bt_afh_follow_wifi(now, bt_streaming);
 
 	// 4a-bis-2. the radios, a minute after the screen goes dark
 	park_radios_if_idle(now);

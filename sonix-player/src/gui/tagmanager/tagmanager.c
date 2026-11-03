@@ -325,7 +325,7 @@ static void browse_launch(const char *target_dir, bool open_screen) {
 		snprintf(job->dir, sizeof(job->dir), "%s", job->root);
 	}
 
-	toast_busy("loading");
+	toast_busy_transparent("loading");
 
 	pthread_t thread;
 	if (pthread_create(&thread, NULL, browse_worker, job) != 0) {

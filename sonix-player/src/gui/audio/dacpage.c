@@ -24,6 +24,7 @@ static lv_obj_t *charge_btn;
 static lv_obj_t *charge_glyph;
 static lv_obj_t *eq_pill;
 static lv_obj_t *peq_pill;
+static lv_obj_t *peq_profile_pill;
 static lv_obj_t *mseb_pill;
 static lv_timer_t *poll_timer;
 static unsigned last_serial = (unsigned)-1;
@@ -33,14 +34,33 @@ static bool hide_empty_format;
 static lv_color_t status_normal_color; // the theme's colour, captured at build time
 static gui_config_t *dac_cfg;
 
-// The pills follow the equalisers, not the finger: they are the same three
-// settings the control centre switches, and either place may have changed them
-// since this page was last looked at.
+// The pills follow the equalisers, not the finger: they mirror the control
+// centre, including the selected PEQ profile, and either place may have changed
+// them since this page was last looked at.
 static void paint_equaliser_pills(void) {
 	settingsrow_pill_active(eq_pill, eq_get_enabled());
-	settingsrow_pill_active(peq_pill, peq_get_enabled());
+	bool peq_enabled = peq_get_enabled();
+	settingsrow_pill_active(peq_pill, peq_enabled);
 	settingsrow_pill_active(mseb_pill, mseb_get_enabled());
-	settingsrow_pill_active(gain_pill, musicsettings_high_gain());
+	if (peq_profile_pill) {
+		char profile[64];
+		snprintf(profile, sizeof(profile), tr("peq_profile_name"), peq_get_profile());
+		lv_obj_t *label = lv_obj_get_child(peq_profile_pill, 0);
+		if (strcmp(lv_label_get_text(label), profile) != 0) {
+			lv_label_set_text(label, profile);
+		}
+		settingsrow_pill_active(peq_profile_pill, peq_enabled);
+		if (peq_enabled) {
+			lv_obj_remove_state(peq_profile_pill, LV_STATE_DISABLED);
+		} else {
+			lv_obj_add_state(peq_profile_pill, LV_STATE_DISABLED);
+		}
+		lv_obj_set_style_opa(peq_profile_pill, peq_enabled ? LV_OPA_COVER : LV_OPA_50, 0);
+	}
+	bool high_gain = musicsettings_high_gain();
+	settingsrow_pill_active(gain_pill, high_gain);
+	lv_label_set_text(lv_obj_get_child(gain_pill, 0),
+					  tr(high_gain ? "musicsettings_high_gain" : "musicsettings_low_gain"));
 }
 
 // ---------------------------------------------------------------------------
@@ -51,16 +71,16 @@ static void paint_equaliser_pills(void) {
 // when they matter -- a curve set before the cable went in is heard, and a
 // listener who wants to compare it should not have to unplug.
 //
-// Pills rather than three switches, and that is the V1 talking: its panel is
-// 240x320, so the page has 248 px under the heading, and four switch rows at
-// the V1's 56 px row height plus the gaps between them are 236 of it. The mode
-// switch, the equalisers and the host's sample rate -- the one number this page
-// exists to show -- would not then fit together. A titled card of three pills
-// is about 76, and on the V1 the decorative mark below it goes too: that leaves
+// Pills rather than switches, and that is the V1 talking: its panel is
+// 240x320, so the page has 248 px under the heading. A separate row for each
+// equaliser, the PEQ profile and gain would push the host's sample rate -- the
+// one number this page exists to show -- off the screen. A titled card of
+// wrapped pills keeps those controls compact; on the V1 the decorative mark
+// below it goes too: that leaves
 // the rate and the status on the same screen as the switches.
 //
-// The same three settings, through the same calls the circles make, so the
-// settings pages and the control centre stay in step with a tap here.
+// The same equaliser and profile calls the circles make, so the settings pages
+// and the control centre stay in step with a tap here.
 // ---------------------------------------------------------------------------
 
 static void eq_cb(lv_event_t *e) {
@@ -73,6 +93,14 @@ static void peq_cb(lv_event_t *e) {
 	(void)e;
 	peq_set_enabled(!peq_get_enabled());
 	paint_equaliser_pills();
+}
+
+static void peq_profile_cb(lv_event_t *e) {
+	(void)e;
+	if (peq_get_enabled()) {
+		peq_next_profile();
+		paint_equaliser_pills();
+	}
 }
 
 static void mseb_cb(lv_event_t *e) {
@@ -359,6 +387,7 @@ void dacpage_init(gui_config_t *cfg) {
 	settingsrow_pills(container, "dac_equalisers", &equaliser_pills);
 	eq_pill = settingsrow_pill(equaliser_pills, "eq_short", 0, eq_cb);
 	peq_pill = settingsrow_pill(equaliser_pills, "peq", 1, peq_cb);
+	peq_profile_pill = settingsrow_pill_text(equaliser_pills, "", 0, peq_profile_cb);
 	mseb_pill = settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb);
 	gain_pill = settingsrow_pill(equaliser_pills, "gain_short", 3, gain_cb);
 	paint_equaliser_pills();

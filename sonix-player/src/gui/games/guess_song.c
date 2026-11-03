@@ -208,6 +208,10 @@ static void ensure_tracks_loaded(void) {
 	if (pool_count < CHOICES) {
 		load_library_tracks();
 	}
+	if (lib_ix) {
+		library_index_close(lib_ix);
+		lib_ix = NULL;
+	}
 }
 
 static void start_round(void);
@@ -373,6 +377,10 @@ static void choice_clicked_cb(lv_event_t *e) {
 }
 
 static void new_game(void) {
+	if (next_timer) {
+		lv_timer_delete(next_timer);
+		next_timer = NULL;
+	}
 	lives = 3;
 	rounds_won = 0;
 	game_frame_set_score(&frame, 0);

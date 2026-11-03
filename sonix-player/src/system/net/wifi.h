@@ -48,6 +48,7 @@ typedef struct {
 	char mac[24];
 	int signal; // dBm of the live link, 0 when unknown
 	int bars;	// 0..3
+	int freq_mhz; // live link frequency, 0 when unknown
 } wifi_status_t;
 
 // What the last operation the user asked for is doing. The pages show a
@@ -107,6 +108,10 @@ bool wifi_interface_address(char *out, size_t size);
 // Each poll is a fork of the whole player; on one core they come out of the
 // transfer's throughput. Costs a few seconds of lag on the signal bars.
 void wifi_set_status_poll_slow(bool slow);
+
+// Keeps the Wi-Fi status poll at its standby interval and skips signal_poll
+// while Bluetooth audio is active, reducing radio and CPU contention.
+void wifi_set_bluetooth_streaming(bool streaming);
 
 // Kicks a scan. Results land in the list a few seconds later; the page watches
 // wifi_networks_serial() to know when to redraw.

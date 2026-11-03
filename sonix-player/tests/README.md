@@ -16,6 +16,8 @@ make -C sonix-player/tests swvolume        # the USB DAC's whole volume law
 make -C sonix-player/tests kblayout        # the on-screen keyboard's layouts and accents
 make -C sonix-player/tests eq              # EQ, PEQ and MSEB on PCM, radio and USB DAC
 make -C sonix-player/tests wifi            # hidden networks and the wpa_cli command
+make -C sonix-player/tests btafh           # Bluetooth AFH map for a joined Wi-Fi channel
+make -C sonix-player/tests edge-lock       # stock edge gesture does not scroll the page beneath it
 make -C sonix-player/tests calculator       # the arithmetic
 make -C sonix-player/tests notes           # the notes folder's rules
 make -C sonix-player/tests listenbrainz    # the scrobbler and its queue
@@ -42,7 +44,7 @@ Or all of them, in that order:
 make -C sonix-player/tests all -j"$(nproc)"
 ```
 
-These require only a C compiler, Make and Python 3 (plus standard pthread/dl/math libraries, and `libopusfile-dev`/`libwavpack-dev` for the codec suites). They **do not require ALSA, a MIPS toolchain, a music server, a real account, or downloaded audio**, and the `ui` suite needs only the LVGL checkout the host build already uses.
+These require only a C compiler, Make and Python 3 (plus standard pthread/dl/math libraries, and `libopusfile-dev`/`libwavpack-dev` for the codec suites). They **do not require ALSA, a MIPS toolchain, a music server, a real account, or downloaded audio**, and the `ui` and `edge-lock` suites need only the LVGL checkout the host build already uses.
 
 `run_subsonic_tests.py` starts a temporary threaded localhost HTTP server plus three HTTPS servers carrying the certificates in `tls_fixtures.py`, runs the C binary with a private temporary config directory, verifies its requests, then shuts down. All account values are synthetic. Build products live in ignored `.build/`; response/PCM fixtures are generated in memory rather than added to Git, and the three test certificates are pasted into that Python file rather than downloaded.
 

@@ -36,6 +36,8 @@ void toast_glyph(const lv_image_dsc_t *glyph, const char *text);
 // stays, and a tap does not take it away, until toast_busy_end() or the next
 // toast replaces it.
 void toast_busy(const char *text);
+// The same spinner and text without dimming the screen or painting a card.
+void toast_busy_transparent(const char *text);
 void toast_busy_end(void);
 
 // The same card for work that goes on in the background whether or not

@@ -170,7 +170,7 @@ static void paint_object(lv_obj_t *obj, int exponent) {
 	lv_obj_set_style_bg_color(obj, tile_colour(exponent, &ink), 0);
 
 	char text[16];
-	snprintf(text, sizeof(text), "%d", 1 << exponent);
+	snprintf(text, sizeof(text), "%u", 1u << exponent);
 	lv_obj_t *label = lv_obj_get_child(obj, 0);
 	lv_label_set_text(label, text);
 	lv_obj_set_style_text_color(label, ink, 0);
@@ -508,9 +508,6 @@ static void start_slide(void) {
 // picture: a player faster than the animation never waits for it and never sees
 // a frame of a move they have already left behind.
 static void settle(void) {
-	if (!sliding) {
-		return;
-	}
 	lv_anim_delete(&frame, slide_exec);
 	lv_anim_delete(&frame, pop_exec);
 	sliding = false;
@@ -660,36 +657,42 @@ static void card_secondary(void) {
 // what is kept between sessions
 // ---------------------------------------------------------------------------
 //
-// Sixteen cells of four bits apiece is sixteen characters of hex, which is a
-// board that fits on one line of the config, reads back with nothing to allocate
-// and refuses to parse when it is not a board at all. A file edited by hand, or
-// left by a build that numbered the cells differently, is then simply no board,
-// and the game starts afresh instead of showing a row of tiles that cannot exist.
+// Two hex characters per cell preserve tiles above 8192. The loader also accepts
+// the original one-character-per-cell format.
 
-#define BOARD_CHARS CELLS
+#define LEGACY_BOARD_CHARS CELLS
+#define BOARD_CHARS (CELLS * 2)
 
 static bool load_board(void) {
 	const char *text = config_get(SECTION, "board", NULL);
-	if (!text || strlen(text) != BOARD_CHARS) {
+	if (!text) {
+		return false;
+	}
+	size_t text_len = strlen(text);
+	bool legacy = text_len == LEGACY_BOARD_CHARS;
+	if (!legacy && text_len != BOARD_CHARS) {
 		return false;
 	}
 	int seen = 0;
 	uint8_t read[CELLS];
 	for (int i = 0; i < CELLS; i++) {
-		char c = text[i];
-		int v;
-		if (c >= '0' && c <= '9') {
-			v = c - '0';
-		} else if (c >= 'a' && c <= 'f') {
-			v = c - 'a' + 10;
-		} else if (c >= 'A' && c <= 'F') {
-			v = c - 'A' + 10;
-		} else {
-			return false;
+		int digits = legacy ? 1 : 2;
+		int v = 0;
+		for (int d = 0; d < digits; d++) {
+			char c = text[i * digits + d];
+			int nibble;
+			if (c >= '0' && c <= '9') {
+				nibble = c - '0';
+			} else if (c >= 'a' && c <= 'f') {
+				nibble = c - 'a' + 10;
+			} else if (c >= 'A' && c <= 'F') {
+				nibble = c - 'A' + 10;
+			} else {
+				return false;
+			}
+			v = (v << 4) | nibble;
 		}
-		// An exponent past 13 is a tile of 8192 and over: no board this
-		// game ever had got that far.
-		if (v > 13) {
+		if (v > 30) {
 			return false;
 		}
 		read[i] = (uint8_t)v;
@@ -713,7 +716,8 @@ static void save_board(void) {
 	static const char HEX[] = "0123456789abcdef";
 	char text[BOARD_CHARS + 1];
 	for (int i = 0; i < CELLS; i++) {
-		text[i] = HEX[board_exp[i] & 15];
+		text[i * 2] = HEX[board_exp[i] >> 4];
+		text[i * 2 + 1] = HEX[board_exp[i] & 15];
 	}
 	text[BOARD_CHARS] = '\0';
 	config_set(SECTION, "board", text);

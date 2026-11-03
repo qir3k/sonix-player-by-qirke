@@ -13,6 +13,7 @@
 #include "src/gui/library/medialist.h"
 #include "src/gui/library/playlistpage.h"
 #include "src/gui/settings/musicsettings.h"
+#include "src/gui/settings/settings.h"
 #include "src/gui/shell/toast.h"
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/settingsrow.h"
