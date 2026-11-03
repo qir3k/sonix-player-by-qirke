@@ -2747,6 +2747,9 @@ static void build_playback_page(gui_config_t *cfg) {
 static void musicsettings_loaded_cb(lv_event_t *e) {
 	(void)e;
 	rg_refresh();
+	if (soundfield_row) {
+		lv_obj_set_hidden(soundfield_row, !addons_enabled("soundfield"));
+	}
 }
 
 void musicsettings_init(gui_config_t *cfg) {
