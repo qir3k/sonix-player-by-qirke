@@ -17,6 +17,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -36,6 +37,8 @@
 #include "src/system/device/sysinfo.h"
 #include "src/system/core/utils.h"
 #include "src/system/net/wifi.h"
+#include "src/system/device/system.h"
+#include "src/gui/shell/gui.h"
 
 // ---------------------------------------------------------------------------
 // The numbers
@@ -941,6 +944,26 @@ static void route_info(client_t *c) {
 	reply_json(c, &j);
 }
 
+// The step the player's volume moves in, in percent: the same setting its own
+// Settings page keeps, read here so the phone can show it and offer to change
+// it. Out-of-range values in the config are clamped, as the settings page does.
+static int volume_step_setting(void) {
+	int step = (int)config_get_int("other", "volume_step", VOLUME_STEP_MIN);
+	if (step < VOLUME_STEP_MIN) {
+		return VOLUME_STEP_MIN;
+	}
+	return step > VOLUME_STEP_MAX ? VOLUME_STEP_MAX : step;
+}
+
+// Applied on the GUI thread: the config is not shared between threads, and the
+// step is applied where the player's own Settings slider applies it.
+static void apply_volume_step_cb(void *user) {
+	int step = (int)(intptr_t)user;
+	config_set_int("other", "volume_step", step);
+	config_save();
+	input_set_volume_step(step);
+}
+
 static void route_state(client_t *c) {
 	sonixlink_state_t s;
 	state_copy(&s);
@@ -951,6 +974,7 @@ static void route_state(client_t *c) {
 	buf_fmt(&j, "\"state\":%d,", s.play_state);
 	buf_json_field(&j, "mode", mode_name(s.play_mode), true);
 	buf_fmt(&j, "\"volume\":%d,", s.volume);
+	buf_fmt(&j, "\"volume_step\":%d,", volume_step_setting());
 	buf_fmt(&j, "\"position\":%u,\"duration\":%u,", s.progress_secs, s.duration_secs);
 	buf_json_field(&j, "title", s.title, true);
 	buf_json_field(&j, "artist", s.artist, true);
@@ -1256,6 +1280,12 @@ static void route_command(client_t *c, const char *query) {
 										: strcmp(what, "playlist_add") == 0	  ? SONIXLINK_CMD_PLAYLIST_ADD
 																				  : SONIXLINK_CMD_PLAYLIST_REMOVE;
 		push_command_paths(kind, 0, paths, count, value);
+	} else if (strcmp(what, "volume_step") == 0) {
+		if (number < VOLUME_STEP_MIN || number > VOLUME_STEP_MAX) {
+			reply_status(c, "400 Bad Request", "volume step must be 1 to 5");
+			return;
+		}
+		gui_post(apply_volume_step_cb, (void *)(intptr_t)number);
 	} else if (strcmp(what, "scan") == 0) {
 		push_command(SONIXLINK_CMD_SCAN, 0);
 	} else {
@@ -2264,7 +2294,7 @@ static void route_root(client_t *c) {
 				"<a href=\"/api/db\">/api/db</a></p>");
 	buf_str(&b, "<p>Commands: <code>/api/command?do=play</code>, <code>?do=pause</code>, "
 				"<code>?do=next</code>, <code>?do=prev</code>, <code>?do=volume&amp;value=50</code>, "
-				"<code>?do=mode&amp;value=shuffle</code>.</p>");
+				"<code>?do=mode&amp;value=shuffle</code>, <code>?do=volume_step&amp;value=3</code>.</p>");
 	reply_raw(c, "200 OK", "text/html; charset=utf-8", b.data ? b.data : "", b.len);
 	buf_free(&b);
 }
