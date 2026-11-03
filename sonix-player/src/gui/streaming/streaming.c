@@ -17,6 +17,8 @@
 #include "src/gui/streaming/subsonicpage.h"
 #include "src/gui/streaming/ytmusicpage.h"
 #include "src/system/addons/addons.h"
+#include "src/system/device/system.h"
+#include "src/system/playback/device_state.h"
 #include "src/system/streaming/ytmusic.h"
 
 lv_obj_t *streaming_screen;
@@ -118,6 +120,8 @@ static void streaming_refresh_theme(void) {
 void streaming_init(gui_config_t *cfg) {
 	streaming_cfg = cfg;
 	ytmusic_init();
+	ytmusic_set_cache_root(storage_sd_root());
+	device_state_add_prepare_cb(ytmusicpage_prepare_track);
 	// Only the services that are switched on are built: these pages hold the
 	// lists, the rows and the artwork of a whole catalogue, and an unused one is
 	// the largest thing in the heap. The system init above (cookies, keys) stays

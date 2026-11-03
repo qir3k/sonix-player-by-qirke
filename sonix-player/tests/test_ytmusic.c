@@ -256,7 +256,11 @@ char *http_url_encode(const char *in, char *out, size_t out_size) {
 // answering EACCES), so the suite points SONIX_YTMUSIC_CACHE at a folder it owns
 // and checks the downloads there instead of skipping them.
 #define YTM_CACHE ".build/ytmusic-cache"
+#define YTM_CACHE_FRESH ".build/ytmusic-cache-fresh"
 #define YTM_CACHE_PROBE YTM_CACHE "/probe.txt"
+
+static char cache_env[] = "SONIX_YTMUSIC_CACHE=" YTM_CACHE;
+static char fresh_cache_env[] = "SONIX_YTMUSIC_CACHE=" YTM_CACHE_FRESH;
 
 static const char RELAY_GOOD[] =
 	"{\"title\":\"Never Gonna Give You Up\",\"uploader\":\"Rick Astley\",\"duration\":213,"
@@ -930,6 +934,36 @@ static void test_cache_owns_its_own_downloads(void) {
 	CHECK(!ytmusic_cache_owns(NULL));
 }
 
+static void test_sidecars_create_a_fresh_cache_directory(void) {
+	char path[512], tags[520];
+	snprintf(path, sizeof(path), "%s/%s.m4a", YTM_CACHE_FRESH, VID);
+	snprintf(tags, sizeof(tags), "%s.tags", path);
+	remove(tags);
+	rmdir(YTM_CACHE_FRESH);
+	CHECK(putenv(fresh_cache_env) == 0);
+
+	ytmusic_track_t track = {0};
+	snprintf(track.id, sizeof(track.id), "%s", VID);
+	snprintf(track.title, sizeof(track.title), "Fresh cache title");
+	snprintf(track.artist, sizeof(track.artist), "Fresh cache artist");
+	CHECK(ytmusic_cache_write_sidecars(&track, path));
+
+	FILE *f = fopen(tags, "r");
+	CHECK(f != NULL);
+	if (f) {
+		char contents[256] = "";
+		size_t n = fread(contents, 1, sizeof(contents) - 1, f);
+		contents[n] = '\0';
+		CHECK(strstr(contents, "title=Fresh cache title\n") != NULL);
+		CHECK(strstr(contents, "artist=Fresh cache artist\n") != NULL);
+		fclose(f);
+	}
+
+	CHECK(putenv(cache_env) == 0);
+	remove(tags);
+	rmdir(YTM_CACHE_FRESH);
+}
+
 // A song row as the store sends it: the second column is "artist • album •
 // duration", one run per piece, and the artist itself is three runs when a track
 // lists more than one. The album is the only thing here that is not the artist
@@ -1145,7 +1179,6 @@ int main(void) {
 	config_init(".build/test_ytmusic_config.ini");
 	// The cache the download checks write into: this suite's own folder, so a
 	// host that refuses 	mp still runs them.
-	static char cache_env[] = "SONIX_YTMUSIC_CACHE=" YTM_CACHE;
 	putenv(cache_env);
 	// .build is the build tree's own name and normally already there; the
 	// cache folder inside it is this suite's, and a fresh checkout has neither.
@@ -1186,6 +1219,7 @@ int main(void) {
 	test_quality_choice_picks_the_stream();
 	test_region_choice();
 	test_cache_owns_its_own_downloads();
+	test_sidecars_create_a_fresh_cache_directory();
 	test_song_row_names_its_album();
 	test_netscape_cookie_file_is_imported();
 	test_progress_is_cleared_when_the_download_ends();

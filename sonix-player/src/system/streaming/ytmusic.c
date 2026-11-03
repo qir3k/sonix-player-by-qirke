@@ -11,6 +11,7 @@
 // Declared here because the tag writer near the top of the file also needs to
 // know where a file it is describing sits; defined beside the downloader.
 static const char *playback_cache_dir(void);
+static bool ensure_cache_dir(void);
 #include "src/system/net/http.h"
 #include "src/system/streaming/streamkeys.h"
 #include "src/system/streaming/ytlikes.h"
@@ -2212,7 +2213,7 @@ bool ytmusic_cache_write_sidecars(const ytmusic_track_t *track, const char *path
 	if (!track || !path || !path[0]) {
 		return false;
 	}
-	return write_playback_tags(path, track);
+	return ensure_cache_dir() && write_playback_tags(path, track);
 }
 
 static void mark_complete(const char *path, bool done) {

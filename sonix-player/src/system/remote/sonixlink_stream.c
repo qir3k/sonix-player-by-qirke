@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "src/gui/shell/gui.h"
+#include "src/gui/streaming/ytmusicpage.h"
 #include "src/system/playback/device_state.h"
 #include "src/system/streaming/podcast.h"
 #include "src/system/streaming/podcastcache.h"
@@ -509,8 +510,14 @@ typedef struct {
 	char then_playing[512];
 	char (*paths)[512];
 	const char **pointers;
+	ytmusic_track_t yt_tracks[YTMUSIC_QUEUE_MAX];
 	sonixlink_stream_row_t rows[SONIXLINK_STREAM_ROWS];
 } play_job_t;
+
+typedef struct {
+	play_job_t *job;
+	bool queued;
+} youtube_playback_handoff_t;
 
 static void job_free(play_job_t *job) {
 	free(job->paths);
@@ -556,6 +563,13 @@ static void queue_start(void *user) {
 		return;
 	}
 	if (job->built > 0 && job->start_slot >= 0) {
+		if (strcmp(job->service, "youtube") == 0 &&
+			!ytmusicpage_set_external_queue(job->yt_tracks, job->pointers, job->built, job->start_slot)) {
+			fprintf(stderr, "sonixlink: cannot register YouTube Music queue\n");
+			notify_playback_failed(job->service);
+			job_free(job);
+			return;
+		}
 		if (strcmp(job->service, "podcasts") == 0) {
 			device_state_play_list_ordered(job->pointers, job->built, job->start_slot);
 		} else {
@@ -563,6 +577,15 @@ static void queue_start(void *user) {
 		}
 	}
 	job_free(job);
+}
+
+static void youtube_playback_ready(const char *path, void *user) {
+	youtube_playback_handoff_t *handoff = user;
+	play_job_t *job = handoff->job;
+	if (job->start_slot >= 0) {
+		snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
+	}
+	handoff->queued = gui_post(queue_start, job);
 }
 
 static void radio_start(void *user) {
@@ -632,15 +655,18 @@ static bool prepare_queue(play_job_t *job) {
 									  row->track_number, row->art);
 		} else if (strcmp(job->service, "youtube") == 0) {
 			if (!ytmusic_cache_path_for(row->id, path, sizeof(path))) continue;
-			ytmusic_track_t track;
-			memset(&track, 0, sizeof(track));
-			snprintf(track.id, sizeof(track.id), "%s", row->id);
-			snprintf(track.title, sizeof(track.title), "%s", row->title);
-			snprintf(track.artist, sizeof(track.artist), "%s", row->subtitle);
-			snprintf(track.album, sizeof(track.album), "%s", row->album);
-			snprintf(track.thumbnail, sizeof(track.thumbnail), "%s", row->art);
-			track.duration = row->duration;
-			ytmusic_cache_write_sidecars(&track, path);
+			ytmusic_track_t *track = &job->yt_tracks[job->built];
+			memset(track, 0, sizeof(*track));
+			snprintf(track->id, sizeof(track->id), "%s", row->id);
+			snprintf(track->title, sizeof(track->title), "%s", row->title);
+			snprintf(track->artist, sizeof(track->artist), "%s", row->subtitle);
+			snprintf(track->album, sizeof(track->album), "%s", row->album);
+			snprintf(track->thumbnail, sizeof(track->thumbnail), "%s", row->art);
+			track->duration = row->duration;
+			if (!ytmusic_cache_write_sidecars(track, path)) {
+				fprintf(stderr, "sonixlink: cannot write YouTube Music queue metadata for %s\n", row->id);
+				return false;
+			}
 		} else if (strcmp(job->service, "podcasts") == 0) {
 			const char *mime = row->mime[0] ? row->mime : "audio/mpeg";
 			long long episode = (long long)atoll(row->id);
@@ -678,6 +704,8 @@ static void *play_worker(void *arg) {
 	}
 
 	sonixlink_stream_row_t *start = &job->rows[job->start_row];
+	char service[sizeof(job->service)];
+	snprintf(service, sizeof(service), "%s", job->service);
 	bool downloaded = false;
 	if (strcmp(job->service, "tidal") == 0) {
 		long id = id_number(start->id);
@@ -728,28 +756,24 @@ static void *play_worker(void *arg) {
 			}
 		}
 	} else if (strcmp(job->service, "youtube") == 0) {
-		ytmusic_track_t track;
-		memset(&track, 0, sizeof(track));
-		snprintf(track.id, sizeof(track.id), "%s", start->id);
-		snprintf(track.title, sizeof(track.title), "%s", start->title);
-		snprintf(track.artist, sizeof(track.artist), "%s", start->subtitle);
-		snprintf(track.album, sizeof(track.album), "%s", start->album);
-		snprintf(track.thumbnail, sizeof(track.thumbnail), "%s", start->art);
-		track.duration = start->duration;
-		// Whole, before the queue starts: the prepare hook the page uses is not
-		// running for a list the page did not build, and a half file is not a
-		// queue entry this bridge can resume on its own.
+		ytmusic_track_t track = job->yt_tracks[job->start_slot];
+		youtube_playback_handoff_t handoff = {.job = job, .queued = false};
 		char path[512] = "";
 		char error[192] = "";
-		if (ytmusic_download_for_playback(&track, path, sizeof(path), error, sizeof(error)) && path[0]) {
-			downloaded = true;
+		downloaded = ytmusic_stream_for_playback(&track, path, sizeof(path), youtube_playback_ready, &handoff,
+												 error, sizeof(error));
+		if (handoff.queued) {
+			if (!downloaded) {
+				fprintf(stderr, "sonixlink: YouTube Music stream failed after playback began: %s\n",
+						error[0] ? error : "request_failed");
+				notify_playback_failed(service);
+			}
+			return NULL;
+		}
+		if (downloaded && path[0]) {
 			if (job->start_slot >= 0) {
 				snprintf(job->paths[job->start_slot], sizeof(job->paths[0]), "%s", path);
 			}
-			// Again here, and not only in prepare_queue(): that runs before the
-			// cache directory is known to exist, so on a fresh cache the sidecar
-			// write failed and the player showed the video id.
-			ytmusic_cache_write_sidecars(&track, path);
 		} else {
 			fprintf(stderr, "sonixlink: YouTube Music playback download failed: %s\n",
 					error[0] ? error : "request_failed");
@@ -758,7 +782,7 @@ static void *play_worker(void *arg) {
 
 	if (!downloaded) {
 		fprintf(stderr, "sonixlink: %s playback could not prepare the selected track\n", job->service);
-		notify_playback_failed(job->service);
+		notify_playback_failed(service);
 		job_free(job);
 		return NULL;
 	}

@@ -1341,7 +1341,7 @@ static void fill_item_list(lv_obj_t *list, const ytmusic_item_t *items, int coun
 // has not arrived yet is still a name and an artist on the player and in the
 // queue page rather than eleven characters of video id.
 
-#define YT_QUEUE_MAX YTMUSIC_PAGE_RESULTS
+#define YT_QUEUE_MAX YTMUSIC_QUEUE_MAX
 
 static char yt_queue_paths[YT_QUEUE_MAX][512];
 static const char *yt_queue_ptrs[YT_QUEUE_MAX];
@@ -1374,6 +1374,30 @@ static int build_queue(const ytmusic_item_t *items, int count, int index) {
 		yt_queue_count++;
 	}
 	return yt_queue_slot;
+}
+
+bool ytmusicpage_set_external_queue(const ytmusic_track_t *tracks, const char *const *paths, int count,
+								   int start_slot) {
+	if (!tracks || !paths || count <= 0 || count > YT_QUEUE_MAX || start_slot < 0 || start_slot >= count) {
+		return false;
+	}
+	for (int i = 0; i < count; i++) {
+		char id[sizeof(tracks[i].id)];
+		if (!paths[i] || !ytmusic_cache_track_id(paths[i], id, sizeof(id)) ||
+			strcmp(id, tracks[i].id) != 0) {
+			return false;
+		}
+	}
+
+	device_state_add_prepare_cb(ytmusicpage_prepare_track);
+	yt_queue_count = count;
+	yt_queue_slot = start_slot;
+	for (int i = 0; i < count; i++) {
+		yt_queue_tracks[i] = tracks[i];
+		snprintf(yt_queue_paths[i], sizeof(yt_queue_paths[i]), "%s", paths[i]);
+		yt_queue_ptrs[i] = yt_queue_paths[i];
+	}
+	return true;
 }
 
 // Hands the queue to the player at `slot`. device_state asks this page whether

@@ -9,6 +9,7 @@
 #define YTMUSIC_TITLE_MAX 200
 #define YTMUSIC_NAME_MAX 128
 #define YTMUSIC_URL_MAX 2048
+#define YTMUSIC_QUEUE_MAX 60
 #define YTMUSIC_BROWSE_ID_MAX 128
 #define YTMUSIC_ITEMS_MAX 24
 // A row's artwork URL: the largest size the page offers, which for the WEB_REMIX
