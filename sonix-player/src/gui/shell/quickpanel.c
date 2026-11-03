@@ -591,6 +591,11 @@ static void refresh_audio_buttons(void);
 // every step, on a CPU that is also feeding the DAC.
 static void anim_y_cb(void *obj, int32_t v) { lv_obj_set_y((lv_obj_t *)obj, v); }
 
+// True when the sheet raised the status bar itself and so has to put it away
+// again. That happens exactly when the control centre is opened from the
+// player, the one page that hides the bar.
+static bool raised_topbar;
+
 // Restores whatever the page underneath had. Called when the sheet has finished
 // sliding away, not when it starts: the bar has to stay up for the whole slide,
 // or it flickers out from under a sheet still on screen.
@@ -601,10 +606,12 @@ static void anim_y_cb(void *obj, int32_t v) { lv_obj_set_y((lv_obj_t *)obj, v); 
 // the bar would be hidden on that page a fifth of a second after it appeared,
 // taking the grabber under it with it.
 static void restore_topbar(void) {
+	if (!raised_topbar) {
+		return;
+	}
+	raised_topbar = false;
 	if (player_sheet_is_open()) {
 		topbar_set_hidden(true);
-	} else {
-		topbar_set_hidden(false);
 	}
 }
 
@@ -877,9 +884,17 @@ static void panel_prepare(void) {
 	lv_obj_set_hidden(veil, false);
 	lv_obj_move_foreground(veil);
 
-	// The control centre covers the screen; hide the status bar while it is up
-	// so the bar does not overlay the extended controls or buttons.
-	topbar_set_hidden(true);
+	// The player hides the status bar so artwork can run to the top edge. The
+	// control centre needs it back: the clock, battery and volume belong with
+	// these controls, and the sheet covers the artwork anyway while it is up.
+	if (topbar_is_hidden()) {
+		raised_topbar = true;
+		topbar_set_hidden(false);
+	}
+
+	// The bar is also restacked above the sheet, so clock, battery and volume
+	// stay readable with the control centre open.
+	topbar_bring_to_front();
 }
 
 // While the device is acting as a USB sound card, a Wi-Fi file server or a
@@ -2550,19 +2565,21 @@ void quickpanel_init(gui_config_t *cfg) {
 	card_h_rest = controls_h;
 	np_card_h_rest = now_playing_h;
 	card_h_base = controls_h;
-	lv_obj_set_flex_flow(controls_card, LV_FLEX_FLOW_COLUMN);
-	// The level row under the buttons: brightness, or the volume when that is
-	// what the user asked it to be (see level_sync). The buttons take the height
-	// above it and their rows are centred in it, so a single row of four sits
-	// midway between the top of the card and the slider. A fixed height and not
-	// a share of the card, so the slider stays where it is while the card
-	// stretches.
-	lv_obj_set_flex_align(controls_card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-	lv_obj_set_style_pad_gap(controls_card, card_row_gap, 0);
-	int row_h = controls_h - 2 * card_padding - level_row_h - card_row_gap;
+
+	int inner_h = controls_h - 2 * card_padding;
+	int grid_h = 2 * circle_button_size + circle_button_gap;
+	int page_dots_h = 6;
+	int available_above_level = inner_h - level_row_h;
+	int rem = available_above_level - grid_h - page_dots_h;
+	if (rem < 0) {
+		rem = 0;
+	}
+	int top_gap = rem / 3;
+	int mid_gap = (rem - top_gap) / 2;
 
 	buttons_viewport = lv_obj_create(controls_card);
-	lv_obj_set_size(buttons_viewport, lv_pct(100), row_h);
+	lv_obj_set_size(buttons_viewport, lv_pct(100), grid_h);
+	lv_obj_align(buttons_viewport, LV_ALIGN_TOP_MID, 0, top_gap);
 	lv_obj_set_style_bg_opa(buttons_viewport, 0, 0);
 	lv_obj_set_style_border_width(buttons_viewport, 0, 0);
 	lv_obj_set_style_pad_all(buttons_viewport, 0, 0);
@@ -2572,7 +2589,7 @@ void quickpanel_init(gui_config_t *cfg) {
 
 	lv_obj_t *row = lv_obj_create(buttons_viewport);
 	quick_row = row;
-	lv_obj_set_size(row, lv_pct(100), row_h);
+	lv_obj_set_size(row, lv_pct(100), grid_h);
 	lv_obj_set_pos(row, 0, 0);
 	lv_obj_set_style_bg_opa(row, 0, 0);
 	lv_obj_set_style_border_width(row, 0, 0);
@@ -2585,7 +2602,7 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
 	extra_row = lv_obj_create(buttons_viewport);
-	lv_obj_set_size(extra_row, lv_pct(100), row_h);
+	lv_obj_set_size(extra_row, lv_pct(100), grid_h);
 	lv_obj_set_pos(extra_row, 0, 0);
 	lv_obj_set_style_bg_opa(extra_row, 0, 0);
 	lv_obj_set_style_border_width(extra_row, 0, 0);
@@ -2678,6 +2695,7 @@ void quickpanel_init(gui_config_t *cfg) {
 
 	level_row = lv_obj_create(controls_card);
 	lv_obj_set_size(level_row, lv_pct(100), level_row_h);
+	lv_obj_align(level_row, LV_ALIGN_BOTTOM_MID, 0, 0);
 	lv_obj_set_style_bg_opa(level_row, 0, 0);
 	lv_obj_set_style_border_width(level_row, 0, 0);
 	lv_obj_set_style_pad_all(level_row, 0, 0);
@@ -2725,8 +2743,8 @@ void quickpanel_init(gui_config_t *cfg) {
 	// Subtle page dots for swiping between button pages
 	page_dots_row = lv_obj_create(controls_card);
 	lv_obj_remove_style_all(page_dots_row);
-	lv_obj_set_ignore_layout(page_dots_row, true);
-	lv_obj_set_size(page_dots_row, 36, 6);
+	lv_obj_set_size(page_dots_row, 36, page_dots_h);
+	lv_obj_align(page_dots_row, LV_ALIGN_TOP_MID, 0, top_gap + grid_h + mid_gap);
 	lv_obj_set_flex_flow(page_dots_row, LV_FLEX_FLOW_ROW);
 	lv_obj_set_flex_align(page_dots_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	lv_obj_set_style_pad_gap(page_dots_row, 6, 0);
@@ -2740,7 +2758,6 @@ void quickpanel_init(gui_config_t *cfg) {
 		lv_obj_set_style_bg_color(page_dot[i], theme()->text_primary, 0);
 		lv_obj_set_style_bg_opa(page_dot[i], i == 0 ? LV_OPA_COVER : LV_OPA_30, 0);
 	}
-	lv_obj_align_to(page_dots_row, buttons_viewport, LV_ALIGN_OUT_BOTTOM_MID, 0, (card_row_gap - 6) / 2);
 
 	// --- Second card: what is playing, and its transport. ---
 	np_card = make_card(panel, card_w, now_playing_h, card_top + controls_h + card_gap);

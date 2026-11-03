@@ -996,7 +996,7 @@ static void topbar_drag_cb(lv_event_t *e) {
 		// The bar drives the sheet directly through the drag calls, so the block
 		// and the "one sheet at a time" rule have to be asked here as well as
 		// inside the open(); the drag handler is the path a finger actually takes.
-		tracking = !quickpanel_is_open() && !quickpanel_blocked() && !coverflow_is_open();
+		tracking = !quickpanel_blocked() && !coverflow_is_open();
 		engaged = false;
 		return;
 	}
@@ -1007,6 +1007,34 @@ static void topbar_drag_cb(lv_event_t *e) {
 	lv_point_t p;
 	lv_indev_get_point(indev, &p);
 	int dy = p.y - start.y;
+
+	if (quickpanel_is_open()) {
+		int close_dir = gestures_stock() ? 1 : -1;
+		if (code == LV_EVENT_PRESSING) {
+			if (!engaged) {
+				if (dy * close_dir < 8) {
+					return;
+				}
+				quickpanel_drag_begin();
+				engaged = true;
+			}
+			quickpanel_drag_update(dy);
+			return;
+		}
+
+		if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+			tracking = false;
+			if (engaged) {
+				engaged = false;
+				quickpanel_drag_end();
+				return;
+			}
+			if (dy * close_dir >= FLICK_OPEN_PX) {
+				quickpanel_close();
+			}
+		}
+		return;
+	}
 
 	if (code == LV_EVENT_PRESSING) {
 		if (!engaged) {
