@@ -5156,6 +5156,15 @@ static void player_refresh_theme(void) {
 static void update_qobuz_badge(void);
 static bool podcast_current_feed(long long *id_out, podcast_feed_t *feed_out);
 
+static const char *shown_player_artist(const device_state_t *state) {
+	// The cached YouTube episode's sidecar has the creator; embedded album-artist
+	// tags must not take precedence over it.
+	if (ytmusic_cache_is_podcast_episode(state->current_file) && state->metadata.artist[0]) {
+		return state->metadata.artist;
+	}
+	return metadata_shown_artist(&state->metadata);
+}
+
 // Refreshes the now-playing info (title + artist) from the current
 // device state and resets the per-track length cache. Used both when the user
 // picks a file and when playback auto-advances to a new track.
@@ -5238,7 +5247,7 @@ static void refresh_now_playing(void) {
 			}
 		}
 	}
-	const char *artist = podcast_artist[0] ? podcast_artist : metadata_shown_artist(&state.metadata);
+	const char *artist = podcast_artist[0] ? podcast_artist : shown_player_artist(&state);
 	scrolltext_set(song_artist_label, artist);
 	lyrics_head_sync();
 	alt_pills_sync();
@@ -6631,7 +6640,7 @@ void player_refresh_artist(void) {
 	if (state.live || !state.current_file[0]) {
 		return;
 	}
-	scrolltext_set(song_artist_label, metadata_shown_artist(&state.metadata));
+	scrolltext_set(song_artist_label, shown_player_artist(&state));
 	lyrics_head_sync();
 	alt_pills_sync();
 }

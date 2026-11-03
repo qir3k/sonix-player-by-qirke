@@ -14,10 +14,11 @@
 // stick -- the switch moves, the value is never stored, and the getter keeps
 // returning its default. So the size is counted rather than guessed: 126 keys
 // written as literals in the source, plus band0..9 for the equaliser and v0..9
-// for MSEB, is about 146 fixed entries. The only thing that would grow on top
-// of that is the EPUB reader, which stores one entry per book opened and has a
-// file of its own (see below), so 384 leaves room to spare.
-#define CONFIG_MAX_ENTRIES 448
+// for MSEB, is about 146 fixed entries. Device-specific settings such as saved
+// wireless names and optional add-on switches can grow that number, so leave a
+// wider margin than the fixed keys alone require. The EPUB reader's per-book
+// state has a separate file below.
+#define CONFIG_MAX_ENTRIES 512
 
 // The reader's own file. Its entries are one per book ever opened, so it grows
 // with the shelf rather than with the player, which is the whole reason it is

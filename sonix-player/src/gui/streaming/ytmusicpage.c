@@ -125,7 +125,10 @@ static bool items_are_podcast_episodes(const ytmusic_item_t *items, int count) {
 static void podcast_order_paint(void) {
 	if (!podcast_order_button) return;
 	lv_obj_t *icon = lv_obj_get_child(podcast_order_button, 0);
-	if (icon) lv_image_set_src(icon, podcast_newest_first() ? &icon_sort_date_new : &icon_sort_date_old);
+	if (icon) {
+		lv_image_set_src(icon, podcast_newest_first() ? &icon_sort_date_new : &icon_sort_date_old);
+		settingsrow_scale_corner_icon(icon, page_cfg);
+	}
 }
 
 static void podcast_order_cb(lv_event_t *e) {
@@ -1010,6 +1013,10 @@ static void selection_stop(void);
 static void yt_corners_refresh(void) {
 	if (sel_action_btn) lv_obj_set_hidden(sel_action_btn, !selecting);
 	if (sel_close_btn) lv_obj_set_hidden(sel_close_btn, !selecting);
+	if (podcast_order_button) {
+		lv_obj_set_hidden(podcast_order_button,
+						  selecting || !items_are_podcast_episodes(track_items, track_count));
+	}
 }
 
 static void row_tick_put(int index, bool on) {
@@ -2610,11 +2617,11 @@ static void build_search_page(void) {
 	tracks_list = settingsrow_page(tracks_screen, page_cfg, "YouTube Music");
 	tracks_title = settingsrow_page_title(tracks_screen);
 	settingsrow_title_corner_slots(tracks_title, page_cfg, 3);
-	tracks_sel_close = page_corner_button(tracks_screen, page_cfg, 0, &icon_close, selection_cancel_cb);
-	tracks_sel_action = page_corner_button(tracks_screen, page_cfg, 1, &icon_check, selection_sheet_cb);
-	podcast_order_button = page_corner_button(tracks_screen, page_cfg, 2,
+	podcast_order_button = page_corner_button(tracks_screen, page_cfg, 0,
 											 podcast_newest_first() ? &icon_sort_date_new : &icon_sort_date_old,
 											 podcast_order_cb);
+	tracks_sel_close = page_corner_button(tracks_screen, page_cfg, 1, &icon_close, selection_cancel_cb);
+	tracks_sel_action = page_corner_button(tracks_screen, page_cfg, 2, &icon_check, selection_sheet_cb);
 	lv_obj_set_hidden(podcast_order_button, true);
 	lv_obj_set_hidden(tracks_sel_action, true);
 	lv_obj_set_hidden(tracks_sel_close, true);

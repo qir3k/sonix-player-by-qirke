@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "src/gui/shell/gui.h"
+#include "src/gui/nowplaying/player.h"
 #include "src/gui/streaming/ytmusicpage.h"
 #include "src/system/playback/device_state.h"
 #include "src/system/streaming/podcast.h"
@@ -575,6 +576,7 @@ static void queue_start(void *user) {
 		} else {
 			device_state_play_list(job->pointers, job->built, job->start_slot);
 		}
+		player_refresh_now_playing();
 	}
 	job_free(job);
 }
@@ -615,6 +617,7 @@ static void radio_start(void *user) {
 	if (start >= 0 && count > 0) {
 		radio_set_list(stations, count);
 		radio_play(&stations[start]);
+		player_refresh_now_playing();
 	}
 	job_free(job);
 }

@@ -394,6 +394,28 @@ int main(void) {
 	test_dac_path_shapes_like_the_card();
 	test_mono_station_widening();
 
+	// Older installs can accumulate enough settings to fill the former
+	// 448-entry table. A previously unseen add-on still needs a slot so its
+	// switch can be saved instead of reported as addon_save_failed.
+	char addons_path[256];
+	snprintf(addons_path, sizeof(addons_path), "%s/addons_config.ini", dir);
+	CHECK(!config_init(addons_path));
+	for (int i = 0; i < 448; i++) {
+		char key[32];
+		snprintf(key, sizeof(key), "capacity_%d", i);
+		config_set_bool("capacity_test", key, true);
+	}
+	for (int i = 0; i < addons_count(); i++) {
+		const addon_t *addon = addons_at(i);
+		CHECK(addon != NULL);
+		if (!addon) {
+			continue;
+		}
+		bool enabled = !addons_enabled(addon->id);
+		CHECK(addons_set(addon->id, enabled));
+		CHECK(addons_enabled(addon->id) == enabled);
+	}
+
 	if (failures) {
 		fprintf(stderr, "%d check(s) failed\n", failures);
 		return 1;
