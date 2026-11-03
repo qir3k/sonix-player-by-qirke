@@ -77,26 +77,6 @@
 static bool g_poll_slow;
 static bool g_bt_streaming;
 
-void wifi_set_status_poll_slow(bool slow) {
-	pthread_mutex_lock(&lock);
-	bool changed = g_poll_slow != slow;
-	g_poll_slow = slow;
-	if (changed) {
-		pthread_cond_signal(&wake);
-	}
-	pthread_mutex_unlock(&lock);
-}
-
-void wifi_set_bluetooth_streaming(bool streaming) {
-	pthread_mutex_lock(&lock);
-	bool changed = g_bt_streaming != streaming;
-	g_bt_streaming = streaming;
-	if (changed) {
-		pthread_cond_signal(&wake);
-	}
-	pthread_mutex_unlock(&lock);
-}
-
 // A DHCP attempt is not retried more often than this, so an access point that
 // hands out no lease does not turn into a fork loop.
 #define DHCP_RETRY_MS 20000
@@ -176,6 +156,26 @@ static wifi_opkind_t g_opkind = WIFI_OPKIND_CONNECT;
 // wpa_supplicant has selected" and stays set for a while after the association
 // is gone. While this is up, nothing is current, whatever the saved list says.
 static bool link_dropped;
+
+void wifi_set_status_poll_slow(bool slow) {
+	pthread_mutex_lock(&lock);
+	bool changed = g_poll_slow != slow;
+	g_poll_slow = slow;
+	if (changed) {
+		pthread_cond_signal(&wake);
+	}
+	pthread_mutex_unlock(&lock);
+}
+
+void wifi_set_bluetooth_streaming(bool streaming) {
+	pthread_mutex_lock(&lock);
+	bool changed = g_bt_streaming != streaming;
+	g_bt_streaming = streaming;
+	if (changed) {
+		pthread_cond_signal(&wake);
+	}
+	pthread_mutex_unlock(&lock);
+}
 
 // ---------------------------------------------------------------------------
 // running things
