@@ -18,13 +18,13 @@ Unlike earlier firmware where every single module was enabled by default, this f
   - `speex_resampler` (Bluetooth audio sample-rate conversion)
   - `layout_poster` (Poster now-playing layout)
 * **Default OFF:**
-  - All Games (`gearboy`, `flappy`, `game2048`, `minesweeper`, `sudoku`, `guess_song`, `stack_it`, `brick_breaker`)
+  - All Games (`gearboy` when built with the Game Boy core, `flappy`, `game2048`, `minesweeper`, `sudoku`, `guess_song`, `stack_it`, `brick_breaker`, `pebble_deluxe`)
   - All Tools (`calculator`, `notes`, `tagmanager`, `metronome`, `ebook`)
   - Earbuds Bluetooth protocols (`airpods`, `earfun`)
   - Streaming providers requiring separate keys (`tidal`, `qobuz`, `ytmusic`, `podcasts`, `radio`)
   - Other player layouts and Cover Flow (`layout_standard`, `layout_waveform`, `layout_alternative`, `layout_immersive`, `layout_aam`, `coverflow`)
 
-This ensures that upon first boot, the player launches with ~45–50 MB of free RAM. Existing user settings are never overwritten upon update. A friendly first-run welcome popup invites new users to open **Settings → Plugins** and toggle whichever features they desire.
+The exact free-memory figure depends on the device's current state and enabled features, so it is not fixed here. Existing user settings are preserved on update. A first-run welcome popup invites new users to open **Settings → Plugins** and choose which optional features to enable.
 
 ---
 

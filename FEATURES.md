@@ -40,14 +40,16 @@ Comprehensive guide to all features, capabilities, hardware controls, and design
   2. 4.4 mm Balanced output
   3. USB-C Host Audio out
   4. Bluetooth output
-- **Graphic Equaliser (EQ)** — 10 bands (31 Hz, 62 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 16 kHz), ±12 dB adjustment. Includes 10 tuned factory presets and unlimited custom user presets.
+- **Graphic Equaliser (EQ)** — 10 bands (31 Hz, 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 16 kHz), ±12 dB adjustment, factory presets, and custom user presets.
 - **Parametric Equaliser (PEQ)** — 10 fully parametric filters (20 Hz to 20 kHz, gain ±15 dB in 0.1 dB increments, Q from 0.10 to 10.00). Supports five filter shapes: Peak, Low Shelf, High Shelf, Low-Pass, and High-Pass, with global preamp from −15 dB to +6 dB. The screen renders the computed real-time frequency response curve. Supports direct loading of Equalizer APO text files and AutoEq profile exports from the `PEQ` folder on the microSD card.
 - **MSEB (MageSound 8-ball)** — HiBy's celebrated acoustic tuning engine: 10 characteristics driven by 13 internal biquad filters, with configurable slider travel sensitivity (20, 40, or 100).
 - **DSP on EVERYTHING** — Graphic EQ, PEQ, and MSEB run identically across **local music files, internet radio streams, streaming services, and external computer audio in USB DAC mode**! The full DSP chain operates directly on stereo PCM frames prior to the hardware DAC.
 - **Dedicated DAC Page DSP Controls** — Quick EQ, PEQ, and MSEB toggle pills on the USB DAC display so sound processing can be adjusted without disconnecting the computer host.
-- **Soundfield (Stereo Width)** — Mid/side stereo widening adjustable from mono (0.00) to double natural width (2.00), with 1.50 as the default engaging expansion.
-- **Channel Balance** — Fine balance adjustment across ±20 dB in half-decibel (0.5 dB) increments.
+- **Soundfield (Stereo Width)** — Stereo width adjustable from 0.00 to 2.00; the saved/default width is 1.50.
+- **Channel Balance** — Optional left/right level correction across ±20 dB in half-decibel (0.5 dB) increments.
 - **Crossfeed (Bauer Headphone Simulation)** — Simulates natural speaker listening on headphones with adjustable crossfeed level, cutoff frequency, and interaural delay.
+- **Volume Limit** — Optional independent maximum volume ceilings for 3.5 mm, 4.4 mm, and USB-C outputs. Disabling the plugin removes the ceiling.
+- **Bluetooth Speex resampler** — Optional Speex rate conversion for Bluetooth output; when disabled, ALSA uses its normal converter.
 - **ReplayGain** — Automatic loudness normalization supporting both Track and Album modes read from metadata tags.
 - **Gapless Playback** — Enabled by default. Keeps the ALSA PCM device open across tracks of matching sample rate and bit depth, eliminating mute delays and audio clicks.
 - **Line Out Mode** — Sets fixed maximum output voltage for external headphone amps and locks volume adjustments to prevent accidental level jumps.
@@ -78,13 +80,14 @@ Comprehensive guide to all features, capabilities, hardware controls, and design
 
 ## Now Playing & Visual Deck Layouts
 
-- **Six Distinct Visual Layouts** (selectable in `Settings → Music → Display options`):
+- **Six Distinct Now Playing Layouts** — Enable choices in `Settings → Plugins`; enabled layouts appear in `Settings → Music → Display options`. Poster is enabled by default and the other layouts start disabled:
   1. **Standard** — Balanced view with full artwork, progress bar, metadata, and quick transport.
   2. **Waveform** — Progress bar transforms into an animated dynamic audio waveform scrubber.
   3. **Alternative** — Compact deck emphasizing high-legibility track titles and format specs.
   4. **Immersive** — Artwork extends edge-to-edge across the entire display with frosted glass control overlays.
   5. **Poster** — Edge-to-edge album cover centered above an opaque control deck with color fades.
-  6. **Album Art Max** — Full-width album cover view with minimal scrub lines and gesture navigation (double-tap sides to skip tracks).
+  6. **Album Art Max** — Artwork-focused full-screen layout, available on the TempoTec V1.
+- **Cover Flow** — Separate optional album carousel, disabled by default; it is not one of the six Now Playing layouts.
 - **Service Branding Watermarks** — Clean circular branding watermarks in the top-right corner of Now Playing for YouTube Music, Qobuz, Tidal, Internet Radio, and Podcasts.
 - **Synced Lyrics & LRCLIB** — Swipe left on artwork to view synchronized `.lrc` or plain lyrics. If missing, look them up immediately on LRCLIB over Wi-Fi and save them beside the audio file.
 - **Aligned Metadata Badges** — Perfectly aligned artist name, stream bitrate (e.g. 320 kbps), and format badges across both Internet Radio and Podcasts.
@@ -129,13 +132,16 @@ Comprehensive guide to all features, capabilities, hardware controls, and design
 All games have been custom-tailored for the V1's 2.0" 240×320 capacitive touchscreen:
 
 - **Brick Breaker** — Classic arcade breakout game featuring fluid, continuous touchscreen paddle dragging (no jumpy teleportation).
+- **Pebble Deluxe** — Multi-level touchscreen arcade game.
 - **Minesweeper** — Fast, responsive minefield sweeper with calibrated touch offset (no clicking below your finger), quick tap to reveal, and long-press to flag.
 - **Sudoku** — Interactive grid number puzzle with calibrated cell detection and clean touch controls.
 - **Guess The Song** — Engaging music quiz that scans your library and plays real audio clips directly through your headphones or DAC for you to identify!
+- **Stack It** — Timing-based block stacking game.
 - **2048** — The classic sliding number puzzle with responsive swipe physics.
-- **Snake** — Retro arcade snake with intuitive directional touch gestures.
-- **Chrome Dino** — The beloved endless desert runner adapted for the pocket screen.
+- **Flappy Bird** — Touchscreen adaptation of the tap-to-fly game.
 - **Gearboy (Game Boy / Game Boy Color)** — High-performance emulator running at 240×216 with nearest-neighbour scaling. Physical Play/Pause button maps to Start, and Track Skip buttons map to Select for comfortable tactile gaming.
+
+Games are optional Plugins and are disabled by default.
 
 ---
 
@@ -151,8 +157,8 @@ All games have been custom-tailored for the V1's 2.0" 240×320 capacitive touchs
 
 ## System, Power, Cache & Memory Management
 
-- **RAM-First Architecture** — Non-essential modules (games, non-audio tools) default to OFF on fresh installations, booting the DAP with ~45–50 MB of free RAM.
-- **Modular Plugins Manager** — Every optional service, tool, and game can be toggled on/off in `Settings → Plugins`. Disabled modules are completely omitted from RAM allocations.
+- **Modular Plugins Manager** — Optional services, tools, games, music features, and player layouts can be toggled in `Settings → Plugins`. Fresh configurations enable Subsonic, Audiobooks, EQ, PEQ, MSEB, Soundfield, Crossfeed, Channel Balance, Volume Limit, Speex resampling, and Poster; other modules start disabled. Existing saved choices are preserved.
+- **Separate System pages** — `Settings → System → Processes` shows RAM and running processes; **Optimize** is a separate page with selectable memory, artwork, partial-download, and cache cleanup.
 - **First-Run Welcome Prompt** — Introduces new users to the player and directs them to `Settings → Plugins` to activate their desired features.
 - **Unified Cache Hygiene** — Eliminates legacy empty directories (`qobuz-art`, `radio-art`, `podcast-art`, `tidal-art`) in favor of a clean, self-sweeping unified cache.
 - **Intelligent Battery Management** — Visual warning card at 5%, graceful shutdown at 1%, and a dedicated charging HUD when plugged into power while turned off.

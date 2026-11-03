@@ -17,8 +17,8 @@ If you own a **TempoTec Variations V1**, this firmware turns your compact DAP in
 Upstream Sonix Player was designed as a minimalist offline player. This fork heavily expands it into a complete, modern audio workstation while keeping memory usage lean enough to run flawlessly within the hardware's 55.6 MB RAM limit:
 
 ### Key highlights & unique enhancements in this fork:
-* **🚀 RAM-First & Lightweight by Default** — Aggressive memory management inspired by Compas OS. On a fresh install, heavy non-essential modules (games, non-audio tools) start switched off so the player boots with a minimal footprint (~10–12 MB baseline), leaving the vast majority of the system's 55.6 MB RAM completely free for smooth audio buffers, large library indices, and fast caching.
-* **🧹 One-Tap "Optimize" System Cleaner** — In `Settings → Developer options → Processes`, a dedicated **Optimize** button sweeps system junk in one tap: drops Linux kernel page caches, trims the glibc heap (`malloc_trim`), purges thumbnail/artwork databases, cleans orphaned `.part` download files, and reports the exact RAM and microSD card space reclaimed.
+* **🧩 Modular Plugins** — Enable optional streaming services, tools, games, audio controls, Bluetooth Speex resampling, and player layouts in `Settings → Plugins`. Poster is the default layout; disabled features can be enabled when wanted, with existing saved settings retained.
+* **🧹 System Process & Optimize pages** — `Settings → System` separates the live process/RAM view from **Optimize**. Choose whether Optimize clears memory caches, artwork data, abandoned partial downloads, or other selected caches; it reports the cleanup result.
 * **🎵 YouTube Music without a Phone or PC** — Search, browse charts, Explore, albums, and playlists right on the player. Enjoy smooth on-the-fly streaming, offline downloads to microSD, and session import for your own personal library with Invidious/Piped fallback.
 * **🌊 Heavily Enhanced Tidal** — 240×320 tailored UI, persistent search history, playlist track reordering/removal, queued offline downloads with a 1 GiB free-space guard, and **"Keep on card"** (copies the currently streaming Tidal track with metadata and artwork straight into your local `Music/Tidal` collection).
 * **🎙️ Deep Podcast Index Integration** — Browse and search the vast Podcast Index directory, follow up to 100 shows, filter trending charts by region/language, track heard/unheard episodes, sort episodes (newest $\leftrightarrow$ oldest), and download episodes directly to your card for offline listening.
@@ -27,10 +27,10 @@ Upstream Sonix Player was designed as a minimalist offline player. This fork hea
 * **📜 Synced Lyrics Fetcher (LRCLIB)** — Swipe left on artwork to view synced lyrics. If a song lacks lyrics, the integrated LRCLIB client searches online over Wi-Fi, lets you preview synced or plain text, and saves it atomically as `<track>.lrc` beside your music.
 * **🎨 Cover Art Fetcher** — Automatically look up high-resolution album sleeves over Wi-Fi and write them into the track tags or local album folders.
 * **📊 Dual Scrobbler Suite (Last.fm & ListenBrainz)** — Native background scrobbling for both services with independent toggles, token-based setup, and offline queue caching when disconnected from Wi-Fi.
-* **🎛️ Audiophile DSP on EVERYTHING** — 10-band Graphic EQ, 10-band Parametric EQ (with live frequency curve rendering and direct import of AutoEq / Equalizer APO text files), and MSEB (MageSound 8-ball). Unlike other players, DSP processing works across **local tracks, streaming services, internet radio, and external USB DAC input**!
+* **🎛️ Audio controls and DSP** — 10-band Graphic EQ, 10-band Parametric EQ (with live frequency curve rendering and AutoEq / Equalizer APO import), MSEB, Soundfield stereo width, headphone Crossfeed, Channel Balance, ReplayGain, and per-output Volume Limit. These controls are available across the player's supported audio paths; optional audio features can be switched off in Plugins.
 * **👆 Modernized Control Center & Gestures** — Redesigned Control Center with fluid horizontal swipe gestures (swipe left/right) to navigate multiple tile pages seamlessly—no awkward sliders or handles.
 * **🖼️ Refined Now Playing & Visuals** — Brand watermarks on Now Playing (YouTube Music, Qobuz, Tidal, Radio, Podcasts), perfectly vertically aligned artist and bitrate badges across radio and podcasts, and clean layout geometry designed specifically for the 2.0" 240×320 screen.
-* **🎮 Touchscreen-Optimized Games Suite** — Includes Brick Breaker (with smooth paddle dragging), Minesweeper (tap to reveal, hold to flag, calibrated touch offset), Sudoku, Guess The Song (interactive music quiz playing real audio clips), Flappy Bird, 2048, Snake, Chrome Dino, and the Gearboy Game Boy emulator.
+* **🎮 Touchscreen Games** — Brick Breaker, Pebble Deluxe, Minesweeper, Sudoku, Guess The Song, Stack It, Flappy Bird, 2048, and the Gearboy Game Boy emulator. Games are optional Plugins and are off by default.
 * **🧹 Clean SD Card & Cache Hygiene** — Modernized unified cache structure. No abandoned, empty `*-art` folders polluting the root or `.local` on your microSD card.
 * **🔄 Over-The-Air (OTA) Updates** — Check for and download new releases directly over Wi-Fi from GitHub Releases with one click in `Settings → System → Firmware update`.
 
@@ -66,7 +66,7 @@ The **TempoTec Variations V1**:
 | **USB** | USB Type-C (bidirectional USB DAC & USB audio host out) |
 | **Firmware Package** | `v1.upt` with accompanying `v1_md5.txt` |
 
-The player UI is built with LVGL 9.6, strictly customized and compiled for the V1's 240×320 geometry. Unnecessary layouts and legacy HiBy targets have been completely removed.
+The player UI is built with LVGL 9.6 and customized for the V1's 240×320 geometry. The firmware is V1-specific; optional player layouts are managed from Plugins rather than removed from the source.
 
 ---
 
@@ -76,6 +76,8 @@ The player UI is built with LVGL 9.6, strictly customized and compiled for the V
 - **Local playback & library** — Tag-based library browsing, folder navigation, A-Z fast scroll strip, instant search, smart playlists, play counts, audiobook resume, and lyrics display.
 - **Streaming & network audio** — YouTube Music, Tidal, Qobuz, Subsonic / Navidrome / Gonic, Internet Radio directory, Podcast Index with episode downloads, Bluetooth receiver & transmitter, AirPlay, and DLNA.
 - **Bluetooth audio** — High-resolution LDAC with quality/bitrate diagnostics, AAC, aptX, aptX-HD, and SBC. Native protocol support for Apple AirPods / Beats battery & ANC control, as well as EarFun earbuds over GAIA.
+- **Modular player layouts** — Standard, Waveform, Alternative, Immersive, Poster, and Album Art Max layouts; Cover Flow is a separate optional album carousel. Enable layouts in `Settings → Plugins`; Music → Display offers the enabled layouts. Poster is enabled by default, and Album Art Max is V1-only.
+- **Optional audio and Bluetooth controls** — Soundfield, Crossfeed, Channel Balance, Volume Limit, and Speex Bluetooth resampling can each be enabled or disabled under Plugins. They are enabled by default to preserve the existing behavior; disabling Volume Limit also removes its volume safety ceiling.
 - **Smart Mix & Genius playlists** — Fully on-device music recommendations based on genre, artist, and year clustering. Generates standalone mixes directly on the player without external network requests.
 - **Tools & Extras** — Metronome, scientific Calculator, quick Notes editor, on-device ID3/FLAC Tag Manager & Cover Finder, and EPUB eBook reader.
 - **Power & Battery Guard** — Graceful auto-shutdown at 1%, red warning veil at 5%, and a dedicated battery charging status screen when connected to a charger while powered off.
@@ -175,13 +177,17 @@ api_secret =
 
 ## Plugins and Defaults
 
-To guarantee maximum speed and free memory, this fork implements a **minimalist, RAM-first default**:
-* **On by default**: Subsonic streaming, Audiobooks, Graphic Equaliser (EQ), Parametric Equaliser (PEQ), and MSEB.
-* **Off by default**: Games, non-music tools (calculator, notepad, metronome, tag manager), headphones serial services (AirPods, EarFun), and unconfigured streaming providers.
+On a fresh configuration, these are enabled: Subsonic, Audiobooks, EQ, PEQ,
+MSEB, Soundfield, Crossfeed, Channel Balance, Volume Limit, Bluetooth Speex
+resampling, and Poster. Other streaming providers, games, tools, layouts, and
+optional features start disabled. Settings already saved by an existing
+installation are preserved.
 
-You can turn any feature on in seconds under **Settings → Plugins** (changes take effect on next restart, freeing memory when disabled).
-
-For full details on the plugin system, see [ADDONS.md](sonix-player/docs/ADDONS.md).
+Open **Settings → Plugins** to change the selection. Most plugin changes need a
+restart; disabling a feature hides its related interface and, where applicable,
+stops its processing or avoids creating its optional resources. Volume Limit is
+optional, but disabling it removes the per-output safety ceiling. See the
+[plugin guide](sonix-player/docs/ADDONS.md) for the full registry and behavior.
 
 ---
 
@@ -214,8 +220,8 @@ cd sonix-packer
 
 ## Branching model & CI
 
-- **`dev`** — Active development branch. Every push automatically compiles the host player and runs all unit tests via GitHub Actions.
-- **`personal`** — Release branch. Merging `dev` into `personal` triggers the automated CI/CD workflow, which runs test suites, cross-compiles the MIPS target, packages `v1.upt`, and automatically creates a new GitHub Release with release notes!
+- **`dev`** — Development branch. Pushes that change paths watched by the Tests workflow build the host player and run the curated active test suites; matching pull requests run the same workflow.
+- **`personal`** — Firmware/release branch. Each push starts the firmware workflow, which cross-compiles and packages the V1 image, advances its version, and publishes a GitHub Release. The Tests workflow does not currently run on `personal`, so check the `dev` results before merging.
 
 ---
 

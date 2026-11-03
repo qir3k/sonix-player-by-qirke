@@ -1,48 +1,37 @@
-# Subsonic / stream-bridge integration tests
+# Sonix Player test suites
 
-Run from the repository root on a Linux host. Every target there is, in the order the workflow runs them:
+Run from the repository root on a Linux host. The `all` target used for the
+pre-merge test run is a curated subset; it does not run every standalone test
+target documented below. Its suites run in this order:
 
 ```sh
-make -C sonix-player/tests test            # Subsonic client, HTTP/TLS, the RAM rings
-make -C sonix-player/tests sanitize        # the same under ASan + UBSan
-make -C sonix-player/tests codecs          # real MP3/FLAC/Opus decoding
-make -C sonix-player/tests sanitize-codecs
-make -C sonix-player/tests radioflac       # native, mid-stream join, chained Ogg FLAC
-make -C sonix-player/tests sanitize-radioflac
-make -C sonix-player/tests batteryguard    # warning at five, shutdown at one
-make -C sonix-player/tests pictures        # the Screensaver folder's picture rules
-make -C sonix-player/tests bootpic         # the Bootlogo folder and the custom boot picture
-make -C sonix-player/tests swvolume        # the USB DAC's whole volume law
-make -C sonix-player/tests kblayout        # the on-screen keyboard's layouts and accents
-make -C sonix-player/tests eq              # EQ, PEQ and MSEB on PCM, radio and USB DAC
-make -C sonix-player/tests wifi            # hidden networks and the wpa_cli command
-make -C sonix-player/tests btafh           # Bluetooth AFH map for a joined Wi-Fi channel
-make -C sonix-player/tests edge-lock       # stock edge gesture does not scroll the page beneath it
-make -C sonix-player/tests calculator       # the arithmetic
-make -C sonix-player/tests notes           # the notes folder's rules
-make -C sonix-player/tests listenbrainz    # the scrobbler and its queue
-make -C sonix-player/tests aamlayout       # Album Art Max's arithmetic
-make -C sonix-player/tests tagdate         # the dates tags carry
-make -C sonix-player/tests genius          # Smart Mix track-count limits and traversal
-make -C sonix-player/tests lrclib          # lyrics search, ranking and sidecar save
-make -C sonix-player/tests tags            # tag reading and format sniffing
-make -C sonix-player/tests covers          # the 1000-cover cache
-make -C sonix-player/tests tagwrite        # rewriting a cover into an MP3 or FLAC
-make -C sonix-player/tests alac            # a real ALAC file decoded back to its PCM
-make -C sonix-player/tests mostplayed      # the Most played list, on the real database
-make -C sonix-player/tests podcastplayed   # heard podcast episodes
-make -C sonix-player/tests ui              # main menu, screensaver, Tools, Wi-Fi, charge, lyrics
-make -C sonix-player/tests earfun          # the EarFun control protocol
-make -C sonix-player/tests ytmusic         # YouTube Music resolution and the keyless build
-make -C sonix-player/tests extractkeys     # the stock-firmware credential extractor
-make -C sonix-player/tests relay           # tools/ytmusic-relay.py over a real socket
+make -C sonix-player/tests basebuild       # system information
+make -C sonix-player/tests tagwrite        # cover writing
+make -C sonix-player/tests artsearch       # cover search
+make -C sonix-player/tests batteryguard
+make -C sonix-player/tests cpupower
+make -C sonix-player/tests touch
+make -C sonix-player/tests pictures
+make -C sonix-player/tests swvolume
+make -C sonix-player/tests calculator
+make -C sonix-player/tests notes
+make -C sonix-player/tests eq
+make -C sonix-player/tests genius
+make -C sonix-player/tests earfun
 ```
 
-Or all of them, in that order:
+Run the curated set with:
 
 ```sh
 make -C sonix-player/tests all -j"$(nproc)"
 ```
+
+Other standalone targets include `test`, `sanitize`, `codecs`,
+`sanitize-codecs`, `radioflac`, `sanitize-radioflac`, `bootpic`, `kblayout`,
+`wifi`, `btafh`, `edge-lock`, `listenbrainz`, `aamlayout`, `tagdate`,
+`coverart`, `lrclib`, `tags`, `covers`, `tagwrite-cover`, `alac`,
+`mostplayed`, `podcastplayed`, `ui`, `earfun`, `ytmusic`, `extractkeys`, and
+`relay`.
 
 These require only a C compiler, Make and Python 3 (plus standard pthread/dl/math libraries, and `libopusfile-dev`/`libwavpack-dev` for the codec suites). They **do not require ALSA, a MIPS toolchain, a music server, a real account, or downloaded audio**, and the `ui` and `edge-lock` suites need only the LVGL checkout the host build already uses.
 
@@ -427,10 +416,11 @@ showed its "nothing to show" note whatever was counted.
 
 ## Headless calculator and notes page tests
 
-The `ui` target also builds `test_tools_pages`, which lays the two new pages
-out on the real renderer at the V1 panel size, with the Game Boy core compiled
-in as the firmware does, so the More menu is laid out with the seven entries
-the device has.
+The `ui` target also builds `test_tools_pages`, which lays out the calculator
+and notes pages and checks the Plugins page, including its registry rows and
+defaults. It runs on the real renderer at the V1 panel size, with the Game Boy
+core compiled in as the firmware does, so the More menu is laid out with the
+seven entries the device has.
 
 It checks that both destinations are on the More page in every theme -- the
 tiles of Dark and Light, and the V1's single-column list under the palettes

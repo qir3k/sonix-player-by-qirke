@@ -117,7 +117,8 @@ Favourites suddenly comes back empty, import a fresh one.
 - **Explore** — the store's front page, one row per carousel ("New albums &
   singles", "Trending", …). Tapping a carousel lists its cards without another
   request.
-- **Top songs** — the charts page.- **Favourites** — two answers, and it picks without being told. With a session
+- **Top songs** — the charts page.
+- **Favourites** — two answers, and it picks without being told. With a session
   imported it is your account's liked songs, the list only that
   credential can reach. Without one it is the player's own list of songs you
   hearted here, with no account, no sign-in and no network involved: the heart
