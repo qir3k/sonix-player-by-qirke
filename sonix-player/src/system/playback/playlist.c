@@ -241,7 +241,7 @@ bool playlist_is_playable_file(const char *name) {
 // How many long files the cue sheets of one folder may claim between them.
 // One sheet per album is the normal case; a handful covers a box set kept in a
 // single folder.
-#define PLAYLIST_CUE_CLAIM_MAX 8
+#define PLAYLIST_CUE_CLAIM_MAX 256
 
 // A folder's track and its place on the record, while the folder is sorted.
 typedef struct {
@@ -523,10 +523,12 @@ static size_t load_folder_cues(const char *folder, char claimed[][512], size_t c
 				break;
 			}
 		}
-		const char *slash = strrchr(sheet->audio_path, '/');
-		if (claims < claim_max) {
-			snprintf(claimed[claims], 512, "%s", slash ? slash + 1 : sheet->audio_path);
-			claims++;
+		for (int t = 0; t < sheet->track_count && claims < claim_max; t++) {
+			const char *audio = sheet->tracks[t].audio_path;
+			const char *slash = strrchr(audio, '/');
+			if (slash && (size_t)(slash - audio) == strlen(folder) && strncmp(audio, folder, strlen(folder)) == 0) {
+				snprintf(claimed[claims++], 512, "%s", slash + 1);
+			}
 		}
 	}
 
@@ -538,12 +540,14 @@ static size_t load_folder_cues(const char *folder, char claimed[][512], size_t c
 void playlist_load_folder(const char *folder, const char *selected_filename) {
 	playlist_clear();
 
-	char claimed[PLAYLIST_CUE_CLAIM_MAX][512];
-	size_t claims = load_folder_cues(folder, claimed, PLAYLIST_CUE_CLAIM_MAX);
+	char (*claimed)[512] = calloc(PLAYLIST_CUE_CLAIM_MAX, sizeof(*claimed));
+	size_t claims = claimed ? load_folder_cues(folder, claimed, PLAYLIST_CUE_CLAIM_MAX) : 0;
 
 	DIR *dir = opendir(folder);
-	if (!dir)
+	if (!dir) {
+		free(claimed);
 		return;
+	}
 
 	char full[768];
 	struct dirent *de;
@@ -569,6 +573,7 @@ void playlist_load_folder(const char *folder, const char *selected_filename) {
 	}
 
 	closedir(dir);
+	free(claimed);
 
 	sort_folder(folder);
 
