@@ -66,6 +66,62 @@ static void test_off_is_a_no_op(void) {
 	CHECK(memcmp(buf, original, sizeof(buf)) == 0);
 }
 
+// A module switched off in Plugins hands nothing to the chain, whatever its
+// own switch says: its page is never built, so the switch that lives on it is
+// gone. The setting itself is kept, which is what makes switching the module
+// back on restore exactly what was there.
+static void test_module_switches_gate_the_chain(void) {
+	all_off();
+	eq_set_enabled(true);
+	eq_set_band(5, 12); // 1 kHz
+	peq_set_enabled(true);
+	mseb_set_enabled(true);
+
+	short original[FRAMES * 2];
+	short buf[FRAMES * 2];
+	fill_sine(original, FRAMES, RATE, 1000, AMP);
+	memcpy(buf, original, sizeof(buf));
+	eq_process(buf, FRAMES, 2, RATE);
+	CHECK(memcmp(buf, original, sizeof(buf)) != 0); // the chain is working
+
+	// Every sound-shaping module switched off, its own switch left on.
+	config_set_bool("addons", "eq", false);
+	config_set_bool("addons", "peq", false);
+	config_set_bool("addons", "mseb", false);
+	config_set_bool("addons", "mono", false);
+	config_set_bool("audio", "mono", true);
+	eq_init();
+	CHECK(!eq_get_enabled());
+	CHECK(!peq_get_enabled());
+	CHECK(!mseb_get_enabled());
+	CHECK(!mono_get_enabled());
+	memcpy(buf, original, sizeof(buf));
+	eq_process(buf, FRAMES, 2, RATE);
+	CHECK(memcmp(buf, original, sizeof(buf)) == 0);
+
+	short pair[] = {9000, -3000};
+	mono_process(pair, 1, 2);
+	CHECK(pair[0] == 9000 && pair[1] == -3000);
+
+	// Back on: the switches, the curve and the mixdown are where they were.
+	config_set_bool("addons", "eq", true);
+	config_set_bool("addons", "peq", true);
+	config_set_bool("addons", "mseb", true);
+	config_set_bool("addons", "mono", true);
+	eq_init();
+	CHECK(eq_get_enabled());
+	CHECK(peq_get_enabled());
+	CHECK(mseb_get_enabled());
+	CHECK(mono_get_enabled());
+	memcpy(buf, original, sizeof(buf));
+	eq_process(buf, FRAMES, 2, RATE);
+	CHECK(memcmp(buf, original, sizeof(buf)) != 0);
+	mono_process(pair, 1, 2);
+	CHECK(pair[0] == 3000 && pair[1] == 3000);
+
+	all_off();
+}
+
 static void test_graphic_eq_changes_samples(void) {
 	all_off();
 	eq_set_enabled(true);
@@ -386,6 +442,7 @@ int main(void) {
 	CHECK(balance_get_enabled());
 
 	test_off_is_a_no_op();
+	test_module_switches_gate_the_chain();
 	test_graphic_eq_changes_samples();
 	test_peq_changes_samples();
 	test_mseb_changes_samples();

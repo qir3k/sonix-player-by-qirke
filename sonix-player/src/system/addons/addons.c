@@ -59,6 +59,7 @@ static const addon_t ADDONS[] = {
 	{"eq", "equaliser", "addon_eq_note", "plugins_section_features"},
 	{"peq", "peq", "addon_peq_note", "plugins_section_features"},
 	{"mseb", "mseb", "addon_mseb_note", "plugins_section_features"},
+	{"mono", "musicsettings_mono_audio", "Downmix both channels into one.", "plugins_section_features"},
 	{"soundfield", "musicsettings_soundfield", "Stereo width processing.", "plugins_section_features"},
 	{"crossfeed", "musicsettings_crossfeed", "Headphone crossfeed processing.", "plugins_section_features"},
 	{"channel_balance", "musicsettings_channel_balance", "Left/right channel level correction.", "plugins_section_features"},
@@ -121,6 +122,7 @@ static bool addon_is_default_on(const char *id) {
 	if (strcmp(id, "mseb") == 0) return true;
 	// These controls used to be available on every install. Keep them visible
 	// by default so existing settings and behavior remain unchanged on upgrade.
+	if (strcmp(id, "mono") == 0) return true;
 	if (strcmp(id, "soundfield") == 0) return true;
 	if (strcmp(id, "crossfeed") == 0) return true;
 	if (strcmp(id, "channel_balance") == 0) return true;

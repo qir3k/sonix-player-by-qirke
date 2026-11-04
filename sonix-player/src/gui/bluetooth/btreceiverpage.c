@@ -12,6 +12,7 @@
 #include "src/gui/shell/switcher.h"
 #include "src/gui/shell/theme.h"
 #include "src/gui/settings/musicsettings.h"
+#include "src/system/addons/addons.h"
 #include "src/system/audio/eq.h"
 #include "src/system/bluetooth/bluetooth.h"
 #include "src/system/bluetooth/btreceiver.h"
@@ -388,13 +389,21 @@ void btreceiverpage_init(gui_config_t *cfg) {
 	//
 	// Straight ahead of the format line, so on the V1 they are on screen
 	// without a scroll.
-	lv_obj_t *equaliser_pills = NULL;
-	settingsrow_pills(container, "dac_equalisers", &equaliser_pills);
-	eq_pill = settingsrow_pill(equaliser_pills, "eq_short", 0, eq_cb);
-	peq_pill = settingsrow_pill(equaliser_pills, "peq", 1, peq_cb);
-	peq_profile_pill = settingsrow_pill_text(equaliser_pills, "", 0, peq_profile_cb);
-	mseb_pill = settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb);
-	paint_equaliser_pills();
+	// Only the equalisers whose module is on, as on the DAC page: a pill for a
+	// module that is switched off opens a page that was never built. With all
+	// three off, the row is not drawn at all.
+	bool eq_on = addons_enabled("eq");
+	bool peq_on = addons_enabled("peq");
+	bool mseb_on = addons_enabled("mseb");
+	if (eq_on || peq_on || mseb_on) {
+		lv_obj_t *equaliser_pills = NULL;
+		settingsrow_pills(container, "dac_equalisers", &equaliser_pills);
+		eq_pill = eq_on ? settingsrow_pill(equaliser_pills, "eq_short", 0, eq_cb) : NULL;
+		peq_pill = peq_on ? settingsrow_pill(equaliser_pills, "peq", 1, peq_cb) : NULL;
+		peq_profile_pill = peq_on ? settingsrow_pill_text(equaliser_pills, "", 0, peq_profile_cb) : NULL;
+		mseb_pill = mseb_on ? settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb) : NULL;
+		paint_equaliser_pills();
+	}
 
 	format_label = lv_label_create(container);
 	lv_obj_set_width(format_label, lv_pct(100));

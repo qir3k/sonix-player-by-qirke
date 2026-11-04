@@ -10,6 +10,7 @@
 #include "src/gui/shell/switcher.h"
 #include "src/gui/settings/musicsettings.h"
 #include "src/gui/shell/theme.h"
+#include "src/system/addons/addons.h"
 #include "src/system/audio/eq.h"
 #include "src/system/core/lang.h"
 #include "src/system/audio/usbdac.h"
@@ -59,8 +60,10 @@ static void paint_equaliser_pills(void) {
 	}
 	bool high_gain = musicsettings_high_gain();
 	settingsrow_pill_active(gain_pill, high_gain);
-	lv_label_set_text(lv_obj_get_child(gain_pill, 0),
-					  tr(high_gain ? "musicsettings_high_gain" : "musicsettings_low_gain"));
+	if (gain_pill) {
+		lv_label_set_text(lv_obj_get_child(gain_pill, 0),
+						  tr(high_gain ? "musicsettings_high_gain" : "musicsettings_low_gain"));
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -383,14 +386,24 @@ void dacpage_init(gui_config_t *cfg) {
 	// The equalisers the control centre cannot be asked for here (see the block
 	// above). Straight under the mode switch, ahead of the artwork, so on the
 	// V1's 320 px panel they are on screen without a scroll.
-	lv_obj_t *equaliser_pills;
-	settingsrow_pills(container, "dac_equalisers", &equaliser_pills);
-	eq_pill = settingsrow_pill(equaliser_pills, "eq_short", 0, eq_cb);
-	peq_pill = settingsrow_pill(equaliser_pills, "peq", 1, peq_cb);
-	peq_profile_pill = settingsrow_pill_text(equaliser_pills, "", 0, peq_profile_cb);
-	mseb_pill = settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb);
-	gain_pill = settingsrow_pill(equaliser_pills, "gain_short", 3, gain_cb);
-	paint_equaliser_pills();
+	// Only the equalisers whose module is on: a module switched off in
+	// Plugins has no page to open, so its pill would be a dead control on this
+	// page long after its row left Music settings. With all three off the row
+	// goes with them -- an "Equalisers" title over nothing is the same
+	// evidence of a module the player does not have.
+	bool eq_on = addons_enabled("eq");
+	bool peq_on = addons_enabled("peq");
+	bool mseb_on = addons_enabled("mseb");
+	if (eq_on || peq_on || mseb_on) {
+		lv_obj_t *equaliser_pills;
+		settingsrow_pills(container, "dac_equalisers", &equaliser_pills);
+		eq_pill = eq_on ? settingsrow_pill(equaliser_pills, "eq_short", 0, eq_cb) : NULL;
+		peq_pill = peq_on ? settingsrow_pill(equaliser_pills, "peq", 1, peq_cb) : NULL;
+		peq_profile_pill = peq_on ? settingsrow_pill_text(equaliser_pills, "", 0, peq_profile_cb) : NULL;
+		mseb_pill = mseb_on ? settingsrow_pill(equaliser_pills, "mseb", 2, mseb_cb) : NULL;
+		gain_pill = settingsrow_pill(equaliser_pills, "gain_short", 3, gain_cb);
+		paint_equaliser_pills();
+	}
 
 	// Straight into the flex flow, with no alignment of its own: the container
 	// settingsrow_page() builds already centres its children on the cross axis,

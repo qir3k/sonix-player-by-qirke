@@ -2673,10 +2673,13 @@ static void build_playback_page(gui_config_t *cfg) {
 	build_fade_page(cfg);
 	fade_row = settingsrow_add(container, "fade", NULL, switch_screen_cb, fade_screen);
 
-	// Both channels as one, for a single earbud or one ear.
-	settingsrow_toggle(container, "musicsettings_mono_audio", &mono_switch, mono_cb);
-	if (mono_get_enabled()) {
-		lv_obj_add_state(mono_switch, LV_STATE_CHECKED);
+	// Both channels as one, for a single earbud or one ear. A module of its
+	// own in Plugins: off, the row is not drawn and the mixdown never runs.
+	if (addons_enabled("mono")) {
+		settingsrow_toggle(container, "musicsettings_mono_audio", &mono_switch, mono_cb);
+		if (mono_get_enabled()) {
+			lv_obj_add_state(mono_switch, LV_STATE_CHECKED);
+		}
 	}
 
 	// "Add to queue" in the library, the search and the browser: next, as it

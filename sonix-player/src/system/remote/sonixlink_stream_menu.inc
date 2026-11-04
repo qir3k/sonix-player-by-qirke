@@ -429,26 +429,7 @@ static void menu_radio(sonixlink_stream_list_t *out) {
 	snprintf(out->title, sizeof(out->title), "%s", "Internet radio");
 }
 
-typedef struct {
-	const char *id;
-	const char *name;
-	const char *url;
-	const char *icon;
-} flylo_station_t;
-
-static const flylo_station_t FLYLO_STATIONS[] = {
-	{"ilove-chillhop", "I Love Chillhop", "https://streams.ilovemusic.de/iloveradio17.mp3",
-	 "https://ilovemusic.de/favicon.png"},
-	{"ilove-chillhop-2", "ChillHop", "http://stream01.iloveradio.de/iloveradio17.mp3",
-	 "https://ilovemusic.de/favicon.png"},
-	{"fluxfm-chillhop", "Flux Fm Chillhop", "https://streams.fluxfm.de/Chillhop/mp3-320/streams.fluxfm.de/",
-	 "https://www.fluxfm.de/assets/favicons/apple-icon-180x180.png"},
-	{"le-mellotron", "Le Mellotron", "https://listen.radioking.com/radio/477719/stream/534044",
-	 "https://cdn.prod.website-files.com/62288d6c9e6c33efb4e67d74/622895c09e6c33d606e6e822_Icone-webclip.png"},
-	{"zeno-lofi", "Lo-Fi Hip-Hop Radio", "https://stream.zeno.fm/0r0xa792kwzuv",
-	 "https://zeno.fm/icon-192x192.png"},
-};
-#define FLYLO_STATION_COUNT ((int)(sizeof(FLYLO_STATIONS) / sizeof(FLYLO_STATIONS[0])))
+#include "src/gui/streaming/flylo.h"
 
 static void list_radio_full(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
 	const char *mode = kind && kind[0] ? kind : "recommended";

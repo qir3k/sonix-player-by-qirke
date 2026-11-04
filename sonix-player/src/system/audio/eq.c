@@ -301,7 +301,11 @@ static void peq_load(void) {
 }
 
 void eq_init(void) {
-	eq_enabled = (int)config_get_int("eq", "enabled", 0);
+	// A module switched off in Plugins is not built, its page does not exist
+	// and its switch is gone -- so its effect must be gone too. The setting
+	// itself is kept: switching the module back on is what "back to normal"
+	// means, and it comes back exactly as it was left.
+	eq_enabled = addons_enabled("eq") && (int)config_get_int("eq", "enabled", 0);
 	for (int i = 0; i < EQ_BANDS; i++) {
 		char key[16];
 		snprintf(key, sizeof(key), "band%d", i);
@@ -318,7 +322,7 @@ void eq_init(void) {
 	sf_width = clamp_width((int)config_get_int("soundfield", "width", SOUNDFIELD_WIDTH_DEFAULT));
 
 	bal_enabled = addons_enabled("channel_balance") && config_get_int("balance", "enabled", 0);
-	mono_enabled = config_get_int("audio", "mono", 0) ? 1 : 0;
+	mono_enabled = addons_enabled("mono") && config_get_int("audio", "mono", 0) ? 1 : 0;
 	balance_set_gains(clamp_balance((int)config_get_int("balance", "value", BALANCE_CENTRE)));
 
 	cf_enabled = addons_enabled("crossfeed") && config_get_int("crossfeed", "enabled", 0);
@@ -331,7 +335,7 @@ void eq_init(void) {
 	cf_ready_rate = 0;
 	crossfeed_reset();
 
-	mseb_enabled = (int)config_get_int("mseb", "enabled", 0);
+	mseb_enabled = addons_enabled("mseb") && (int)config_get_int("mseb", "enabled", 0);
 	mseb_range = (int)config_get_int("mseb", "range", MSEB_RANGE_DEFAULT);
 	if (mseb_range != 20 && mseb_range != 40 && mseb_range != 100) {
 		mseb_range = MSEB_RANGE_DEFAULT;
@@ -350,6 +354,9 @@ void eq_init(void) {
 	}
 
 	peq_load();
+	if (!addons_enabled("peq")) {
+		peq_enabled = 0;
+	}
 
 	settings_version++;
 }
