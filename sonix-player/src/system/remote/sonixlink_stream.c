@@ -12,6 +12,7 @@
 #include "src/system/playback/device_state.h"
 #include "src/system/streaming/podcast.h"
 #include "src/system/streaming/podcastcache.h"
+#include "src/system/streaming/podcastplayed.h"
 #include "src/system/streaming/podcastsubs.h"
 #include "src/system/streaming/qobuz.h"
 #include "src/system/streaming/qobuzcache.h"
@@ -20,6 +21,7 @@
 #include "src/system/streaming/tidal.h"
 #include "src/system/streaming/tidalcache.h"
 #include "src/system/streaming/ytmusic.h"
+#include "src/system/streaming/ytpodcastplayed.h"
 
 // How many rows one request asks a service for. The pages use their own,
 // smaller, limits; the phone can draw more in one go.
@@ -30,6 +32,10 @@
 static pthread_mutex_t list_lock = PTHREAD_MUTEX_INITIALIZER;
 static sonixlink_stream_list_t last_list;
 static char last_service[16];
+
+// Reverses a list that the phone asked for the other way round (see the list
+// entry point at the bottom of this file).
+static void stream_rows_order(sonixlink_stream_list_t *out, const char *order);
 
 // ---------------------------------------------------------------------------
 // rows
@@ -95,6 +101,12 @@ int sonixlink_stream_services(sonixlink_stream_service_t *out, int max) {
 static void yt_row(const ytmusic_item_t *item, sonixlink_stream_row_t *row) {
 	if (item->kind == YTMUSIC_ITEM_CONTAINER) {
 		row_set(row, "container", item->browse_id, item->title, item->subtitle);
+	} else if (item->podcast_episode) {
+		// An episode is not a song: the phone draws it differently, offers it
+		// the episode speed, and ticks it once it has been heard. The mark is
+		// the player's own, from the store its podcast pages tick rows with.
+		row_set(row, "episode", item->id, item->title, item->subtitle);
+		row->played = ytpodcastplayed_get(item->id);
 	} else {
 		row_set(row, "track", item->id, item->title, item->subtitle);
 	}
@@ -103,7 +115,8 @@ static void yt_row(const ytmusic_item_t *item, sonixlink_stream_row_t *row) {
 	row->duration = item->duration;
 }
 
-static void list_youtube(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
+static void list_youtube(const char *kind, const char *id, const char *q, const char *order,
+						 const char *parent, sonixlink_stream_list_t *out) {
 	ytmusic_item_t items[STREAM_PAGE];
 	int count;
 	char error[192] = "";
@@ -153,8 +166,14 @@ static void list_youtube(const char *kind, const char *id, const char *q, sonixl
 	}
 	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
 		yt_row(&items[i], &out->rows[out->count++]);
+		if (items[i].podcast_episode && parent && parent[0]) {
+			// A show's own page names the show in its header and nowhere on
+			// its rows, so this is where the creator comes from.
+			snprintf(out->rows[out->count - 1].subtitle, sizeof(out->rows[0].subtitle), "%s", parent);
+		}
 	}
 	out->more = count >= STREAM_PAGE;
+	stream_rows_order(out, order);
 }
 
 // ---------------------------------------------------------------------------
@@ -289,11 +308,16 @@ static void list_qobuz(const char *kind, const char *id, const char *q, int offs
 // Podcasts
 // ---------------------------------------------------------------------------
 
-static void list_podcasts(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
+static void list_podcasts(const char *kind, const char *id, const char *q, const char *order,
+						  sonixlink_stream_list_t *out) {
 	const char *mode = kind && kind[0] ? kind : "trending";
 	podcast_feed_t feeds[PODCAST_PAGE_LIMIT];
 	podcast_episode_t episodes[PODCAST_PAGE_LIMIT];
 	int count = 0;
+	// Whose show the episodes belong to, when the page is one show's.
+	podcast_feed_t feed;
+	bool have_feed = false;
+	memset(&feed, 0, sizeof(feed));
 
 	if (strcmp(mode, "search") == 0) {
 		if (!q || !q[0]) {
@@ -307,6 +331,7 @@ static void list_podcasts(const char *kind, const char *id, const char *q, sonix
 		snprintf(out->title, sizeof(out->title), "%s", "Followed");
 	} else if (strcmp(mode, "feed") == 0) {
 		count = podcast_episodes((long long)atoll(id), episodes, PODCAST_PAGE_LIMIT);
+		have_feed = podcast_feed((long long)atoll(id), &feed) && feed.author[0];
 	} else if (strcmp(mode, "trending") == 0) {
 		count = podcast_trending(feeds, PODCAST_PAGE_LIMIT);
 		snprintf(out->title, sizeof(out->title), "%s", "Trending");
@@ -324,12 +349,16 @@ static void list_podcasts(const char *kind, const char *id, const char *q, sonix
 		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
 			podcast_episode_t *e = &episodes[i];
 			sonixlink_stream_row_t *row = &out->rows[out->count++];
-			row_set(row, "episode", "", e->title, e->feed_title);
+			// The creator is the feed's author: an episode carries only the
+			// feed's title. One request for the feed says who made it, and it
+			// is asked once per page rather than once per row.
+			row_set(row, "episode", "", e->title, have_feed ? feed.author : e->feed_title);
 			snprintf(row->id, sizeof(row->id), "%lld", e->id);
 			snprintf(row->art, sizeof(row->art), "%s", e->image);
 			snprintf(row->mime, sizeof(row->mime), "%s", e->mime[0] ? e->mime : "audio/mpeg");
 			row->duration = e->duration_secs;
 			row->playable = e->enclosure[0] != '\0';
+			row->played = podcastplayed_get(e->id);
 		}
 	} else {
 		for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
@@ -342,6 +371,7 @@ static void list_podcasts(const char *kind, const char *id, const char *q, sonix
 		}
 	}
 	out->more = count >= PODCAST_PAGE_LIMIT;
+	stream_rows_order(out, order);
 }
 
 // ---------------------------------------------------------------------------
@@ -459,8 +489,22 @@ static void list_radio(const char *kind, const char *id, const char *q, sonixlin
 
 #include "sonixlink_stream_menu.inc"
 
+// Episode pages are the one place a list can be wanted the other way round, and
+// it is the same rows either way -- the phone plays by index, so the order it
+// draws has to be the order this list was kept in.
+static void stream_rows_order(sonixlink_stream_list_t *out, const char *order) {
+	if (!order || strcmp(order, "oldest") != 0 || out->count < 2) {
+		return;
+	}
+	for (int i = 0, j = out->count - 1; i < j; i++, j--) {
+		sonixlink_stream_row_t swap = out->rows[i];
+		out->rows[i] = out->rows[j];
+		out->rows[j] = swap;
+	}
+}
+
 bool sonixlink_stream_list(const char *service, const char *kind, const char *id, const char *q, int offset,
-						   sonixlink_stream_list_t *out) {
+						   const char *order, const char *parent, sonixlink_stream_list_t *out) {
 	if (!service || !service[0] || !out) {
 		return false;
 	}
@@ -471,13 +515,13 @@ bool sonixlink_stream_list(const char *service, const char *kind, const char *id
 	}
 
 	if (strcmp(service, "youtube") == 0) {
-		list_youtube_full(kind, id, q, out);
+		list_youtube_full(kind, id, q, order, parent, out);
 	} else if (strcmp(service, "tidal") == 0) {
 		list_tidal_full(kind, id, q, offset, out);
 	} else if (strcmp(service, "qobuz") == 0) {
 		list_qobuz_full(kind, id, q, offset, out);
 	} else if (strcmp(service, "podcasts") == 0) {
-		list_podcasts(kind, id, q, out);
+		list_podcasts(kind, id, q, order, out);
 	} else if (strcmp(service, "radio") == 0) {
 		list_radio_full(kind, id, q, out);
 	} else {

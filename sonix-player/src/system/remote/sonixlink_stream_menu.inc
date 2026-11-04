@@ -301,7 +301,8 @@ static void menu_youtube(sonixlink_stream_list_t *out) {
 	snprintf(out->title, sizeof(out->title), "%s", "YouTube Music");
 }
 
-static void list_youtube_full(const char *kind, const char *id, const char *q, sonixlink_stream_list_t *out) {
+static void list_youtube_full(const char *kind, const char *id, const char *q, const char *order,
+							  const char *parent, sonixlink_stream_list_t *out) {
 	const char *mode = kind && kind[0] ? kind : "explore";
 	if (strcmp(mode, "favourites") == 0) {
 		snprintf(out->title, sizeof(out->title), "%s", "Favourites");
@@ -353,7 +354,7 @@ static void list_youtube_full(const char *kind, const char *id, const char *q, s
 		out->more = count >= STREAM_PAGE;
 		return;
 	}
-	list_youtube(kind, id, q, out);
+	list_youtube(kind, id, q, order, parent, out);
 }
 
 // ---------------------------------------------------------------------------

@@ -991,6 +991,7 @@ static void route_state(client_t *c) {
 	buf_fmt(&j, "\"display_position\":%d,\"display_count\":%d,", s.display_position, s.display_count);
 	buf_fmt(&j, "\"favourites_revision\":%u,\"playlists_revision\":%u,", s.favourites_revision,
 			s.playlists_revision);
+	buf_fmt(&j, "\"podcast\":%s,\"podcast_speed\":%d,", s.podcast ? "true" : "false", s.podcast_speed);
 	buf_fmt(&j, "\"scanning\":%s,\"scan_count\":%u,\"tracks\":%u}", s.scanning ? "true" : "false", s.scan_count,
 			s.track_count);
 	reply_json(c, &j);
@@ -1288,6 +1289,14 @@ static void route_command(client_t *c, const char *query) {
 			reply_status(c, "503 Service Unavailable", "GUI command queue is full");
 			return;
 		}
+	} else if (strcmp(what, "speed") == 0) {
+		// Thousandths, like the player's own speed menu: 1000 is 1.0x, and the
+		// range is the one that menu offers.
+		if (number < 250 || number > 4000) {
+			reply_status(c, "400 Bad Request", "speed must be 250 to 4000");
+			return;
+		}
+		push_command(SONIXLINK_CMD_SPEED, number);
 	} else if (strcmp(what, "scan") == 0) {
 		push_command(SONIXLINK_CMD_SCAN, 0);
 	} else {
@@ -2329,12 +2338,17 @@ static void route_stream_services(client_t *c) {
 }
 
 static void route_stream_list(client_t *c, const char *query) {
-	char service[16], kind[24], id[SONIXLINK_STREAM_ID], q[200], offset_text[16];
+	char service[16], kind[24], id[SONIXLINK_STREAM_ID], q[200], offset_text[16], order[16];
+	char parent[SONIXLINK_STREAM_TITLE];
 	query_value(query, "service", service, sizeof(service));
 	query_value(query, "kind", kind, sizeof(kind));
 	query_value(query, "id", id, sizeof(id));
 	query_value(query, "q", q, sizeof(q));
 	query_value(query, "offset", offset_text, sizeof(offset_text));
+	// "oldest" turns an episode page round; the title of the row the page was
+	// opened from names the show under each of its episodes.
+	query_value(query, "order", order, sizeof(order));
+	query_value(query, "title", parent, sizeof(parent));
 	int offset = offset_text[0] ? atoi(offset_text) : 0;
 
 	sonixlink_stream_list_t *list = calloc(1, sizeof(*list));
@@ -2342,7 +2356,7 @@ static void route_stream_list(client_t *c, const char *query) {
 		reply_status(c, "503 Service Unavailable", "out of memory");
 		return;
 	}
-	sonixlink_stream_list(service, kind, id, q, offset, list);
+	sonixlink_stream_list(service, kind, id, q, offset, order, parent, list);
 
 	buf_t j;
 	memset(&j, 0, sizeof(j));
@@ -2366,8 +2380,8 @@ static void route_stream_list(client_t *c, const char *query) {
 		buf_json_field(&j, "art", row->art, true);
 		buf_json_field(&j, "url", row->url, true);
 		buf_json_field(&j, "mime", row->mime, true);
-		buf_fmt(&j, "\"duration\":%d,\"track_number\":%d,\"playable\":%s", row->duration, row->track_number,
-				row->playable ? "true" : "false");
+		buf_fmt(&j, "\"duration\":%d,\"track_number\":%d,\"playable\":%s,\"played\":%s", row->duration,
+				row->track_number, row->playable ? "true" : "false", row->played ? "true" : "false");
 		buf_str(&j, "}");
 	}
 	buf_str(&j, "]}");

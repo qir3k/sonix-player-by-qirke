@@ -93,6 +93,11 @@ static ytmusic_item_t track_items[YTMUSIC_PAGE_RESULTS];
 static int track_count;
 static ytmusic_section_t explore_sections[YTMUSIC_SECTIONS_MAX];
 static int explore_section_count;
+// True while the results screen is showing one of Explore's carousels. A card
+// there is an album or a single, and its folder holds a row per track -- for a
+// single, one row with nothing but a name. A tap on a card in this list plays
+// it instead of opening that page; everywhere else a card still opens.
+static bool explore_cards;
 
 // The album a downloaded song lands in. A song row's own second column names the
 // album where YouTube sends one; an album's own track list does not, so the
@@ -100,6 +105,12 @@ static int explore_section_count;
 // neither did, and the downloader's plain "Unknown album" is the honest answer
 // then.
 static char list_album[YTMUSIC_TITLE_MAX];
+
+// The show a page of episodes was opened from. YouTube names the show in the
+// page's header and nowhere on its rows, so every episode of a show would be a
+// title with nothing under it -- and a download would carry no creator into the
+// now-playing screen. Read the same way list_album is, from the card tapped.
+static char list_show[YTMUSIC_TITLE_MAX];
 
 // Whether the tracks screen is showing the favourites this player keeps itself
 // rather than a card opened from the store. Only that list has to be rebuilt
@@ -257,6 +268,9 @@ typedef enum {
 typedef struct {
 	list_kind_t kind;
 	bool to_tracks;
+	// Set when the list was asked for by a card tapped in Explore: the tracks
+	// it returns are queued and started instead of being shown.
+	bool autoplay;
 	unsigned generation;
 	ytmusic_filter_t filter;
 	char query[YTMUSIC_QUERY_MAX];
@@ -1907,13 +1921,15 @@ static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int
 }
 
 static bool start_list_request(list_kind_t kind, bool to_tracks, ytmusic_filter_t filter,
-							   const char *query, const char *browse_id, const char *title) {
+							   const char *query, const char *browse_id, const char *title,
+							   bool autoplay) {
 	// A search, the charts, the liked songs or Explore starts a new context: the
 	// album folder of a downloaded song comes from the list it was opened in, and
 	// a card's title is only meaningful for that card's own tracks.
 	if (kind == LIST_SEARCH || !browse_id || strcmp(browse_id, "FEmusic_charts") == 0 ||
 		strcmp(browse_id, "VLLM") == 0 || strncmp(browse_id, "FEmusic_", 8) == 0) {
 		list_album[0] = '\0';
+		list_show[0] = '\0';
 	}
 	if (!begin_busy()) return false;
 	list_result_t *result = calloc(1, sizeof(*result));
@@ -1924,6 +1940,7 @@ static bool start_list_request(list_kind_t kind, bool to_tracks, ytmusic_filter_
 	}
 	result->kind = kind;
 	result->to_tracks = to_tracks;
+	result->autoplay = autoplay;
 	result->filter = filter;
 	if (query) snprintf(result->query, sizeof(result->query), "%s", query);
 	if (browse_id) snprintf(result->browse_id, sizeof(result->browse_id), "%s", browse_id);
@@ -1980,12 +1997,32 @@ static void list_done(void *data) {
 	}
 	int count = result->count;
 	if (count > YTMUSIC_PAGE_RESULTS) count = YTMUSIC_PAGE_RESULTS;
+	// A card tapped in Explore: the tracks it was hiding are the point of the
+	// tap, not the page they would fill. They are queued straight from the
+	// fetched list -- play_item_at copies everything it keeps -- so the folder
+	// is never drawn and the carousel stays where the tap was.
+	if (result->autoplay && count > 0 && result->items[0].kind == YTMUSIC_ITEM_TRACK) {
+		play_item_at(result->items, count, 0);
+		free(result);
+		return;
+	}
 	if (result->to_tracks) {
 		// Whatever a card opened, the tracks screen is a page of the store
 		// again: only the Favourites row sets this.
 		tracks_are_likes = false;
 		track_count = count;
 		memcpy(track_items, result->items, sizeof(track_items[0]) * (size_t)count);
+		// Episodes of the show just opened say whose they are. The subtitle a
+		// show page puts on its rows is a date, and the name of the show is
+		// worth more than that: it is what the listener recognises the show by,
+		// and the name the download carries into the player.
+		if (list_show[0]) {
+			for (int i = 0; i < track_count; i++) {
+				if (track_items[i].podcast_episode) {
+					snprintf(track_items[i].subtitle, sizeof(track_items[0].subtitle), "%s", list_show);
+				}
+			}
+		}
 		if (!podcast_newest_first() && items_are_podcast_episodes(track_items, track_count)) {
 			for (int i = 0, j = track_count - 1; i < j; i++, j--) {
 				ytmusic_item_t tmp = track_items[i];
@@ -2001,6 +2038,7 @@ static void list_done(void *data) {
 		}
 		switch_screen(tracks_screen);
 	} else {
+		explore_cards = false;
 		result_count = count;
 		memcpy(result_items, result->items, sizeof(result_items[0]) * (size_t)count);
 		lv_label_set_text(results_title, tr(result->title[0] ? result->title : "ytmusic_search_results"));
@@ -2050,7 +2088,10 @@ static void item_clicked_cb(lv_event_t *e) {
 		// Everything opened from here belongs to this list: an album's own
 		// track list does not name the album on its rows.
 		snprintf(list_album, sizeof(list_album), "%s", item->title);
-		start_list_request(LIST_BROWSE, true, YTMUSIC_FILTER_SONGS, NULL, item->browse_id, item->title);
+		snprintf(list_show, sizeof(list_show), "%s", item->title);
+		bool from_explore = lv_obj_get_parent(lv_event_get_target(e)) == results_list && explore_cards;
+		start_list_request(LIST_BROWSE, true, YTMUSIC_FILTER_SONGS, NULL, item->browse_id, item->title,
+						   from_explore);
 	} else {
 		play_item_at(list_items, list_count, index);
 	}
@@ -2140,6 +2181,7 @@ static void section_clicked_cb(lv_event_t *e) {
 	if (index < 0 || index >= explore_section_count) return;
 	const ytmusic_section_t *section = &explore_sections[index];
 	tracks_are_likes = false;
+	explore_cards = true;
 	result_count = section->count;
 	memcpy(result_items, section->items, sizeof(result_items[0]) * (size_t)result_count);
 	lv_label_set_text(results_title, tr(section->title[0] ? section->title : "ytmusic_explore"));
@@ -2277,7 +2319,7 @@ static void search_run(void) {
 	// The results take the page: a keyboard left up covers a list nobody asked
 	// for, and hides what came back.
 	search_keyboard_show(false);
-	start_list_request(LIST_SEARCH, false, search_filter, query, NULL, "ytmusic_search_results");
+	start_list_request(LIST_SEARCH, false, search_filter, query, NULL, "ytmusic_search_results", false);
 }
 
 // The keyboard and the history cannot both have the space under the field --
@@ -2461,7 +2503,7 @@ static void podcasts_cb(lv_event_t *e) {
 // with the playlists that hold them, and both are worth showing.
 static void charts_cb(lv_event_t *e) {
 	(void)e;
-	start_list_request(LIST_BROWSE, false, YTMUSIC_FILTER_SONGS, NULL, "FEmusic_charts", "ytmusic_charts");
+	start_list_request(LIST_BROWSE, false, YTMUSIC_FILTER_SONGS, NULL, "FEmusic_charts", "ytmusic_charts", false);
 }
 
 // The rows of the player's own list, in the shape the lists draw.
@@ -2512,7 +2554,7 @@ static void favourites_cb(lv_event_t *e) {
 	(void)e;
 	if (ytmusic_session_cookie_attached()) {
 		tracks_are_likes = false;
-		start_list_request(LIST_BROWSE, false, YTMUSIC_FILTER_SONGS, NULL, "VLLM", "ytmusic_favourites");
+		start_list_request(LIST_BROWSE, false, YTMUSIC_FILTER_SONGS, NULL, "VLLM", "ytmusic_favourites", false);
 		return;
 	}
 	list_album[0] = '\0';

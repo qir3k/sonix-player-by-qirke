@@ -107,6 +107,11 @@ typedef struct {
 	// copies only when they are stale.
 	unsigned favourites_revision;
 	unsigned playlists_revision;
+
+	// Whether what is playing is a podcast episode -- the only thing the speed
+	// applies to -- and the speed it is set to, in thousandths.
+	bool podcast;
+	int podcast_speed;
 } sonixlink_state_t;
 
 // The five orders the player understands, in the order the phone cycles them.
@@ -147,6 +152,11 @@ typedef enum {
 	SONIXLINK_CMD_FAVOURITES_REMOVE,
 	SONIXLINK_CMD_PLAYLIST_ADD,
 	SONIXLINK_CMD_PLAYLIST_REMOVE,
+
+	// The podcast speed setting, in thousandths (1000 is 1.0x). Sent while an
+	// episode is playing and it is heard at once; sent otherwise it is stored
+	// for the next one, which is what the player's own speed menu does.
+	SONIXLINK_CMD_SPEED,
 } sonixlink_command_kind_t;
 
 // The three rows of the circle-play menu.

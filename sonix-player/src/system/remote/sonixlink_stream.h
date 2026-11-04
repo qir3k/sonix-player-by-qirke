@@ -40,6 +40,10 @@ typedef struct {
 	int duration;
 	int track_number;
 	bool playable;
+	// The player's own record of having heard this episode, from the same
+	// stores its podcast pages tick rows with. False for a song, a card or a
+	// station.
+	bool played;
 } sonixlink_stream_row_t;
 
 typedef struct {
@@ -64,8 +68,13 @@ int sonixlink_stream_services(sonixlink_stream_service_t *out, int max);
 // One page of one service. `kind` and `id` are the values from a row, and `q`
 // the search text; see sonixlink_stream.c for what each service accepts.
 // Blocking: call from the request thread.
+// `order` is "oldest" to reverse an episode list the player otherwise sends
+// newest first, and anything else for the order the service gave. `parent` is
+// the title of the row the list was opened from: an episode page does not name
+// the show it belongs to, and that is the name the phone draws under the title.
 bool sonixlink_stream_list(const char *service, const char *kind, const char *id, const char *q,
-						   int offset, sonixlink_stream_list_t *out);
+						   int offset, const char *order, const char *parent,
+						   sonixlink_stream_list_t *out);
 
 // Plays entry `index` of the last list returned for `service`, queueing the
 // rest of that list's playable rows with it. Returns false with `error` filled

@@ -31,6 +31,9 @@
 #include "src/system/library/playlists.h"
 #include "src/system/playback/playlist.h"
 #include "src/system/remote/sonixlink.h"
+#include "src/system/streaming/podcast.h"
+#include "src/system/streaming/podcastcache.h"
+#include "src/system/streaming/ytmusic.h"
 #include "src/system/net/wifi.h"
 
 lv_obj_t *sonixlink_screen;
@@ -262,6 +265,13 @@ static void publish_state(void) {
 	medialist_sort_prefs(&s.sort_desc, &s.sort_added, &s.artist_by_album, &s.favourites_reversed);
 	player_queue_position(&s.display_position, &s.display_count);
 
+	// The phone offers the episode speed on the now-playing screen, and only
+	// there: what it changes is the podcast setting the player's own speed menu
+	// changes, so both screens show the same rate.
+	s.podcast = !s.path[0] ? false
+		: (podcastcache_is_episode(s.path) || ytmusic_cache_is_podcast_episode(s.path));
+	s.podcast_speed = podcast_speed_permille();
+
 	// The app wears the player's own accent.
 	lv_color_t accent = theme()->accent;
 	snprintf(s.accent, sizeof(s.accent), "#%02x%02x%02x", accent.red, accent.green, accent.blue);
@@ -466,6 +476,21 @@ static void apply_command(const sonixlink_command_t *cmd) {
 		wire_to_mode(cmd->arg);
 		player_refresh_now_playing();
 		break;
+	case SONIXLINK_CMD_SPEED: {
+		// The setting, and the sound of it: the playback thread picks the
+		// factor up on its next block, so an episode being listened to changes
+		// rate at once. A song is untouched -- the stretcher is bypassed at
+		// 1.0 and the speed is only ever applied to an episode.
+		int permille = cmd->arg < 250 ? 250 : (cmd->arg > 4000 ? 4000 : cmd->arg);
+		device_state_t now;
+		podcast_set_speed_permille(permille);
+		device_state_get(&now);
+		if (podcastcache_is_episode(now.current_file) || ytmusic_cache_is_podcast_episode(now.current_file)) {
+			audio_set_speed((double)podcast_speed_permille() / 1000.0);
+		}
+		player_refresh_now_playing();
+		break;
+	}
 	case SONIXLINK_CMD_PLAY_PATH: {
 		// The app names a track by the path it read out of the index. It is
 		// checked before it is played: the app's copy of the index can outlive
