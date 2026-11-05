@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/sonix-core", "crates/sonix-ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "GPL-3.0-only"
+repository = "https://github.com/qir3k/sonix-player-by-qirke"
+
+[profile.release]
+# The device has 55.6 MB of RAM and a read-only rootfs that is updated as a
+# whole image, so size wins over the last few percent of speed everywhere.
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+panic = "abort"

@@ -1,0 +1,17 @@
+[package]
+name = "sonix-core"
+description = "Platform-free half of the Sonix Player Rust port: hashing, base64, JSON and the settings store."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No dependencies on purpose. Every crate added here is another thing the
+# cross-build has to compile for mipsel and another licence to carry, and the
+# modules ported so far are the ones the C side wrote by hand rather than
+# borrowed from somebody else.
+[dependencies]
+
+[lib]
+doctest = true

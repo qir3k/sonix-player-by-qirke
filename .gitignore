@@ -61,3 +61,8 @@ sonix-player/.ytmusic-key
 .freebuff/
 .kilo/
 repomix-output.xml
+
+# The Rust port: cargo output and the archive the firmware links.
+sonix-player/rust/target/
+sonix-player/rust/libsonix_player_core.a
+sonix-player/rust/tests/differential/build/

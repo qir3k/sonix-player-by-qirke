@@ -1,0 +1,18 @@
+# Cross-compilation settings for the TempoTec Variations V1.
+#
+# The linker is the same mipsel toolchain the C firmware already builds with
+# (see ROCKBOX_TOOLCHAIN_DIR in ../Makefile), so the archive and the C objects
+# it is linked beside come from one linker and one libc.
+#
+# target-cpu=mips32r2 matches the C side's -march=mips32r2. The C build also
+# passes -mno-madd4 (no fused multiply-add) and -mplt; neither has a stable
+# `-C target-feature` spelling, so check the result against the C objects
+# instead of assuming: `make check-abi` in the parent directory reads the
+# dynamic symbols back out of the target binary.
+#
+# Relative paths are resolved against this workspace root, not this file.
+
+[target.mipsel-unknown-linux-gnu]
+linker = "../rockbox-toolchain/bin/mipsel-rockbox-linux-gnu-gcc"
+ar = "../rockbox-toolchain/bin/mipsel-rockbox-linux-gnu-ar"
+rustflags = ["-C", "target-cpu=mips32r2"]

@@ -1,0 +1,19 @@
+[package]
+name = "sonix-ffi"
+description = "C ABI for the ported Sonix Player core, so the C firmware can call Rust one function at a time."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sonix-core = { path = "../sonix-core" }
+
+[lib]
+# Deliberately not `sonix_core`: a lib name that matched the dependency would
+# collide in the doctest harness, and the archive is clearer to spell out in a
+# link line anyway. The result is `libsonix_player_core.a`.
+name = "sonix_player_core"
+# staticlib: what the firmware links. rlib: what this crate's own tests use.
+crate-type = ["staticlib", "rlib"]
