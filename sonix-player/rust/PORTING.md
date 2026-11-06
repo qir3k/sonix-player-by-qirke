@@ -47,7 +47,7 @@ Recommendation: (1) until it is done, then (2) GUI screen by screen. Not (3).
 
 | Constraint | Consequence |
 |---|---|
-| Ingenic X1600, MIPS32r2, o32 ABI | `mipsel-unknown-linux-gnu` is **Tier 3**: no `rustup target add`, no prebuilt `std`. Needs nightly + `-Z build-std`. |
+| Ingenic X1600, MIPS32r2, o32 ABI | `mipsel-unknown-linux-gnu` is **Tier 3**: no `rustup target add`, no prebuilt `std`. Needs nightly + `-Z build-std`. A `mipsel-unknown-linux-musl` build with `-Z build-std=std` compiles the archive as a smoke test (11.9 MB, and `file` reports `ELF32, LSB, MIPS`), but musl is not the device's libc: it proves the code compiles for a 32-bit MIPS target, not that it links against glibc 2.22. |
 | glibc 2.22 | the linked `std` must not call symbols newer than that; verify against the toolchain's sysroot. |
 | 55.6 MB RAM total, ~10 MB free at runtime | the settings store's fixed table, the token-array JSON reader and the no-allocation-on-the-hot-path style all exist for this. Keep them. |
 | Read-only rootfs, one UBIFS writable partition | `std::fs` is fine, but atomic-write-and-rename must be kept for anything that survives a power cut. |
@@ -69,6 +69,7 @@ Recommendation: (1) until it is done, then (2) GUI screen by screen. Not (3).
 | `system/library/tagdate.c` | 140 | **ported** |
 | `system/library/id3chap.c` | 207 | **ported** |
 | `system/addons/addons.c` | 178 | **ported** |
+| `system/notes/notesstore.c` | 303 | **ported** |
 | everything else | ~243,000 | C |
 
 ### The one module that cannot be swapped by deleting its file
@@ -93,7 +94,6 @@ Line counts are `.c` only.
 |---|---|---|
 | `system/core/` (`logging`, `lang`, `region`, `respath`, `glibc_compat`) | ~1,400 | everything includes it; pure string and formatting work (`utils` is done) |
 | `system/core/db` | 46 | thin SQLite wrapper |
-| `system/notes/` (`notesstore.c`) | 303 | small and self-contained, but needs POSIX `mkdir`/`localtime_r` shims before it can be verified off the device |
 | `system/input/` | 1,143 | key mapping and gesture state, pure logic |
 | `system/playback/playlist.c` + `sleeptimer.c` | ~1,300 | queue, shuffle, repeat — completely testable |
 | `system/library/cue.c`, `vorbischap.c` | ~1,070 | parsers with fixed grammars (`tagdate` and `id3chap` are done) |
@@ -137,7 +137,7 @@ Line counts are `.c` only.
 Each module gets three levels:
 
 1. **Unit tests** in the Rust module, for the behaviour the header documents.
-   Done for everything ported so far (122 tests: 96 in `sonix-core`, 26 through
+   Done for everything ported so far (138 tests: 111 in `sonix-core`, 27 through
    the C ABI in `sonix-ffi`).
 2. **A differential harness** (`tests/differential`, run with `make
    differential`): the original `.c` files are compiled with their symbols
@@ -146,7 +146,7 @@ Each module gets three levels:
    buffers through each hash in uneven chunks, 250 generated JSON documents
    plus a hand-picked corpus walked token by token, and a settings file driven
    through both implementations. Any disagreement fails the run. **Done, and
-   passing: 1,088,004 checks, 0 failures.**
+   passing: 1,088,004 checks on Windows and 1,088,656 on Linux, 0 failures.**
 3. **Golden vectors** from the C implementation where the arithmetic is not
    self-evident — the equaliser coefficients, ReplayGain, the smart-mix
    scoring. The C build can be made to print them. Needed once the audio and
@@ -169,6 +169,13 @@ It is worth recording, because none of them was visible to the unit tests:
   into the caller's frame: a segfault, and one that happened *only on Linux*,
   because MinGW's `struct tm` really is the nine fields. Running the harness on
   Windows alone had said it was fine.
+* `notes_display_name` cut the extension off the name and then copied it into
+  the caller's buffer, where the C copied the name first and *then* cut at the
+  last dot. With a name too long for the buffer the two disagree: `"a.b.txt"`
+  in three bytes is `"a"` from the C and `"a."` from the port, because the dot
+  that survives truncation is the one that counts. The visible string was short
+  enough that only the whole-buffer comparison caught it, and it is now written
+  in the original's order.
 * `json_long` clamped to 32 bits unconditionally. That is right for the device
   (`long` is 32 there) and for Windows, and wrong on LP64, where C's `strtol`
   returns the whole 64 and Rust was handing back `i32::MAX`. It now clamps to

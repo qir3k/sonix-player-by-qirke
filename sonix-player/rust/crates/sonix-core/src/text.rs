@@ -197,6 +197,56 @@ pub fn decode_to_string(raw: &[u8]) -> String {
     String::from_utf8_lossy(&decode(raw)).into_owned()
 }
 
+/// Writes `body` to `path` through a temporary file, so a card pulled out
+/// mid-write leaves the old file whole instead of a truncated one.
+///
+/// A final newline is added unless the body already has one, which is what the
+/// C `textfile_write` does and what every caller here relies on.
+pub fn write_text_file(path: &std::path::Path, body: &[u8]) -> bool {
+    let need_newline = body.last().is_some_and(|&b| b != b'\n');
+    write_atomic(path, body, need_newline)
+}
+
+/// The same without touching the last byte.
+pub fn write_file(path: &std::path::Path, body: &[u8]) -> bool {
+    write_atomic(path, body, false)
+}
+
+fn write_atomic(path: &std::path::Path, body: &[u8], newline: bool) -> bool {
+    use std::io::Write as _;
+
+    // The C built "%s.tmp" into a 1024-byte local and refused anything longer.
+    if path.as_os_str().len() + 4 + 1 > 1024 {
+        return false;
+    }
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".tmp");
+    let temp = std::path::PathBuf::from(name);
+
+    let Ok(mut file) = std::fs::File::create(&temp) else {
+        return false;
+    };
+
+    // The bytes have to be on the card before the rename, or a card pulled out
+    // in between leaves the new name pointing at an empty file — which is worse
+    // than not having written at all.
+    let ok = file.write_all(body).is_ok()
+        && (!newline || file.write_all(b"\n").is_ok())
+        && file.flush().is_ok()
+        && file.sync_all().is_ok();
+    drop(file);
+
+    if !ok {
+        let _ = std::fs::remove_file(&temp);
+        return false;
+    }
+    if std::fs::rename(&temp, path).is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return false;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

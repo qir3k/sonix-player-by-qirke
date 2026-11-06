@@ -14,10 +14,12 @@
 
 pub mod addons;
 pub mod base64;
+pub mod c_time;
 pub mod config;
 pub mod hash;
 pub mod id3chap;
 pub mod json;
+pub mod notes;
 pub mod tagdate;
 pub mod text;
 pub mod utils;

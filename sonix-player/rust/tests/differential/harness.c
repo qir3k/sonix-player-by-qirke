@@ -22,6 +22,13 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef HAVE_NOTESSTORE
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 /* ------------------------------------------------------------------------ */
 /* Prototypes, declared by hand on both sides                                */
 /*                                                                          */
@@ -200,6 +207,39 @@ extern bool addons_enabled(const char *id);
 extern bool addons_set(const char *id, bool on);
 extern void addons_apply_defaults(bool (*is_default)(const char *id));
 extern bool addons_any_game_enabled(void);
+
+/* notes. notesstore.c is only compiled on a POSIX host: it makes directories
+ * with the two-argument mkdir() and asks for the date with localtime_r, and
+ * MinGW has neither. The guard is set by run.sh there and nowhere else. */
+#ifdef HAVE_NOTESSTORE
+typedef struct {
+	char name[97];
+} note_row;
+
+extern bool c_notes_dir(char *out, size_t size, const char *card_root);
+extern bool c_notes_path(char *out, size_t size, const char *dir, const char *name);
+extern bool c_notes_is_note_name(const char *name);
+extern int c_notes_list(const char *dir, note_row *out, int max);
+extern char *c_notes_read(const char *path, bool *truncated);
+extern bool c_notes_fits_editor(const char *text);
+extern bool c_notes_file_name(const char *name, char *out, size_t size);
+extern bool c_notes_write(const char *dir, const char *name, const char *text);
+extern bool c_notes_name_ok(const char *name);
+extern void c_notes_display_name(const char *name, char *out, size_t size);
+extern void c_notes_default_name(const char *dir, char *out, size_t size);
+
+extern bool notes_dir(char *out, size_t size, const char *card_root);
+extern bool notes_path(char *out, size_t size, const char *dir, const char *name);
+extern bool notes_is_note_name(const char *name);
+extern int notes_list(const char *dir, note_row *out, int max);
+extern char *notes_read(const char *path, bool *truncated);
+extern bool notes_fits_editor(const char *text);
+extern bool notes_file_name(const char *name, char *out, size_t size);
+extern bool notes_write(const char *dir, const char *name, const char *text);
+extern bool notes_name_ok(const char *name);
+extern void notes_display_name(const char *name, char *out, size_t size);
+extern void notes_default_name(const char *dir, char *out, size_t size);
+#endif
 
 /* ------------------------------------------------------------------------ */
 /* Reporting                                                                 */
@@ -1986,6 +2026,592 @@ static void test_addons(const char *workdir) {
 	remove(tmp);
 }
 
+/* ------------------------------------------------------------------------ */
+/* notes                                                                    */
+/* ------------------------------------------------------------------------ */
+
+#ifdef HAVE_NOTESSTORE
+
+#define NOTES_BUF 1024
+
+/* The whole buffer is compared, not just the text: these functions are called
+ * with the sizes the page uses, and a terminator one byte off the end is the
+ * kind of bug that shows up as a corrupted row much later. */
+static void notes_reset(char *buf) {
+	memset(buf, 0xA5, NOTES_BUF);
+	buf[NOTES_BUF - 1] = 0;
+}
+
+static void compare_notes_string(bool c_ok, const char *cbuf, bool r_ok, const char *rbuf,
+                                 size_t size, const char *what) {
+	checks++;
+	if (c_ok != r_ok || memcmp(cbuf, rbuf, NOTES_BUF) != 0) {
+		char detail[440];
+		snprintf(detail, sizeof detail, "size=%lu: C \"%s\"(%d), Rust \"%s\"(%d)",
+		         (unsigned long)size, cbuf, (int)c_ok, rbuf, (int)r_ok);
+		fail(what, detail);
+	}
+}
+
+static void compare_notes_dir(const char *root, size_t size) {
+	char cbuf[NOTES_BUF];
+	char rbuf[NOTES_BUF];
+	notes_reset(cbuf);
+	notes_reset(rbuf);
+	bool c_ok = c_notes_dir(cbuf, size, root);
+	bool r_ok = notes_dir(rbuf, size, root);
+	compare_notes_string(c_ok, cbuf, r_ok, rbuf, size, "notes_dir");
+}
+
+static void compare_notes_path(const char *dir, const char *name, size_t size) {
+	char cbuf[NOTES_BUF];
+	char rbuf[NOTES_BUF];
+	notes_reset(cbuf);
+	notes_reset(rbuf);
+	bool c_ok = c_notes_path(cbuf, size, dir, name);
+	bool r_ok = notes_path(rbuf, size, dir, name);
+	compare_notes_string(c_ok, cbuf, r_ok, rbuf, size, "notes_path");
+}
+
+static void compare_note_name(const char *name) {
+	bool c = c_notes_is_note_name(name);
+	bool r = notes_is_note_name(name);
+	checks++;
+	if (c != r) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "\"%s\": C %d, Rust %d", name, (int)c, (int)r);
+		fail("notes_is_note_name", detail);
+	}
+}
+
+static void compare_note_ok(const char *name) {
+	bool c = c_notes_name_ok(name);
+	bool r = notes_name_ok(name);
+	checks++;
+	if (c != r) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "\"%s\": C %d, Rust %d", name, (int)c, (int)r);
+		fail("notes_name_ok", detail);
+	}
+}
+
+static void compare_note_file_name(const char *name, size_t size) {
+	char cbuf[NOTES_BUF];
+	char rbuf[NOTES_BUF];
+	notes_reset(cbuf);
+	notes_reset(rbuf);
+	bool c_ok = c_notes_file_name(name, cbuf, size);
+	bool r_ok = notes_file_name(name, rbuf, size);
+	compare_notes_string(c_ok, cbuf, r_ok, rbuf, size, "notes_file_name");
+}
+
+static void compare_note_display(const char *name, size_t size) {
+	char cbuf[NOTES_BUF];
+	char rbuf[NOTES_BUF];
+	notes_reset(cbuf);
+	notes_reset(rbuf);
+	c_notes_display_name(name, cbuf, size);
+	notes_display_name(name, rbuf, size);
+	checks++;
+	if (memcmp(cbuf, rbuf, NOTES_BUF) != 0) {
+		char detail[300];
+		snprintf(detail, sizeof detail, "\"%s\" size=%lu: C \"%s\", Rust \"%s\"", name,
+		         (unsigned long)size, cbuf, rbuf);
+		fail("notes_display_name", detail);
+	}
+}
+
+/* The listing. Both sides stop after `max` names and then sort, so which names
+ * a short list gets depends on readdir order, which is the filesystem's
+ * business and not a contract. The count is compared at every limit; the names
+ * and their order are compared on a list long enough to hold the folder. */
+static void compare_notes_list(const char *cdir, const char *rdir, int max, bool full) {
+	static note_row c[16];
+	static note_row r[16];
+	memset(c, 0x5A, sizeof c);
+	memset(r, 0x5A, sizeof r);
+
+	size_t span = max > 0 && max < 16 ? (size_t)max : 16;
+	int cc = c_notes_list(cdir, c, max);
+	int cr = notes_list(rdir, r, max);
+
+	checks++;
+	if (cc != cr) {
+		char detail[240];
+		snprintf(detail, sizeof detail, "max=%d: C listed %d, Rust listed %d", max, cc, cr);
+		fail("notes_list", detail);
+		return;
+	}
+
+	if (!full) {
+		return;
+	}
+
+	for (int i = 0; i < cc && i < 16; i++) {
+		checks++;
+		if (strcmp(c[i].name, r[i].name) != 0) {
+			char detail[300];
+			snprintf(detail, sizeof detail, "entry %d: C \"%s\", Rust \"%s\"", i, c[i].name,
+			         r[i].name);
+			fail("notes_list", detail);
+		}
+	}
+
+	/* Nothing past the count may be touched, in a name or in the slack after it. */
+	checks++;
+	if (span < 16 && memcmp(c, r, (span + 1) * sizeof(note_row)) != 0) {
+		fail("notes_list", "a side wrote past the entries it reported");
+	}
+}
+
+static void make_test_file(const char *path, const char *bytes, size_t len) {
+	FILE *f = fopen(path, "wb");
+	if (!f) {
+		fail("notes", "could not create a test file");
+		return;
+	}
+	if (len) {
+		fwrite(bytes, 1, len, f);
+	}
+	fclose(f);
+}
+
+static const char *const NOTE_FILES[] = {
+    "b.txt",  "A.txt", "note-10.txt", "note-2.txt", "note-02.txt", "c.MD",
+    "d.lrc",  "e.nfo", "f.ini",      "cover.jpg", "x.txt.tmp",   ".hidden.txt",
+    "noext",  "trailing.txt ", "spaced name.txt", "with-dash.txt", ".txt",
+    "dir.txt", NULL,
+};
+
+static void build_note_folder(const char *dir) {
+	char path[1200];
+	char name[160];
+	mkdir(dir, 0777);
+
+	for (int i = 0; NOTE_FILES[i]; i++) {
+		snprintf(path, sizeof path, "%s/%s", dir, NOTE_FILES[i]);
+		if (strcmp(NOTE_FILES[i], "dir.txt") == 0) {
+			/* A directory that looks like a note: offering it to the editor
+			 * would be offering to write over it. */
+			mkdir(path, 0777);
+		} else {
+			make_test_file(path, "note\n", 5);
+		}
+	}
+
+	/* The longest name the row can hold, and one byte more. */
+	memset(name, 'a', 92);
+	memcpy(name + 92, ".txt", 5);
+	snprintf(path, sizeof path, "%s/%s", dir, name);
+	make_test_file(path, "long\n", 5);
+
+	memset(name, 'b', 93);
+	memcpy(name + 93, ".txt", 5);
+	snprintf(path, sizeof path, "%s/%s", dir, name);
+	make_test_file(path, "longer\n", 7);
+}
+
+/* Everything the test left behind, including the nested folder a write makes.
+ * A missing folder is not an error: this runs before the first test too. */
+static void empty_note_folder(const char *dir) {
+	DIR *handle = opendir(dir);
+	if (handle) {
+		struct dirent *entry;
+		while ((entry = readdir(handle)) != NULL) {
+			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+				continue;
+			}
+			char path[1300];
+			if ((size_t)snprintf(path, sizeof path, "%s/%s", dir, entry->d_name) >= sizeof path) {
+				continue;
+			}
+			struct stat st;
+			if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+				empty_note_folder(path);
+			} else {
+				remove(path);
+			}
+		}
+		closedir(handle);
+	}
+	rmdir(dir);
+}
+
+static void compare_notes_read(const char *path, const char *label) {
+	bool c_truncated = true;
+	bool r_truncated = true;
+	char *c = c_notes_read(path, &c_truncated);
+	char *r = notes_read(path, &r_truncated);
+
+	checks++;
+	if ((c == NULL) != (r == NULL)) {
+		char detail[220];
+		snprintf(detail, sizeof detail, "%s: C %s, Rust %s", label, c ? "read it" : "returned null",
+		         r ? "read it" : "returned null");
+		fail("notes_read", detail);
+		free(c);
+		free(r);
+		return;
+	}
+	if (c && r) {
+		checks++;
+		if (c_truncated != r_truncated || strcmp(c, r) != 0) {
+			char chex[80];
+			char rhex[80];
+			char cd[33];
+			char rd[33];
+			size_t cl = strlen(c);
+			size_t rl = strlen(r);
+			c_md5_hex(c, cl, cd);
+			md5_hex(r, rl, rd);
+			hex_into(chex, sizeof chex, (const unsigned char *)c, cl < 24 ? cl : 24);
+			hex_into(rhex, sizeof rhex, (const unsigned char *)r, rl < 24 ? rl : 24);
+			snprintf(cd + 0, sizeof cd, "%s", cd);
+			char detail[400];
+			snprintf(detail, sizeof detail,
+			         "%s: C %lu bytes%s md5 %s [%s], Rust %lu bytes%s md5 %s [%s]", label,
+			         (unsigned long)cl, c_truncated ? " truncated" : "", cd, chex,
+			         (unsigned long)rl, r_truncated ? " truncated" : "", rd, rhex);
+			fail("notes_read", detail);
+		}
+	}
+	free(c);
+	free(r);
+}
+
+static void compare_notes_write(const char *cdir, const char *rdir, const char *name,
+                                const char *text) {
+	bool c = c_notes_write(cdir, name, text);
+	bool r = notes_write(rdir, name, text);
+
+	checks++;
+	if (c != r) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "\"%s\": C %d, Rust %d", name, (int)c, (int)r);
+		fail("notes_write", detail);
+		return;
+	}
+	if (!c) {
+		return;
+	}
+
+	char file[NOTES_BUF];
+	char cpath[NOTES_BUF * 2];
+	char rpath[NOTES_BUF * 2];
+	if (!c_notes_file_name(name, file, sizeof file) ||
+	    !c_notes_path(cpath, sizeof cpath, cdir, file) ||
+	    !notes_path(rpath, sizeof rpath, rdir, file)) {
+		fail("notes_write", "the file name could not be worked out after a successful write");
+		return;
+	}
+
+	char *cf = read_file(cpath);
+	char *rf = read_file(rpath);
+	checks++;
+	if (!cf || !rf) {
+		fail("notes_write", "a side reported a write and left no file");
+	} else if (strcmp(cf, rf) != 0) {
+		char detail[400];
+		snprintf(detail, sizeof detail, "\"%s\": C wrote \"%s\", Rust wrote \"%s\"", name, cf, rf);
+		fail("notes_write", detail);
+	}
+	free(cf);
+	free(rf);
+}
+
+static void compare_notes_default(const char *cdir, const char *rdir, size_t size) {
+	char cbuf[NOTES_BUF];
+	char rbuf[NOTES_BUF];
+	notes_reset(cbuf);
+	notes_reset(rbuf);
+	c_notes_default_name(cdir, cbuf, size);
+	notes_default_name(rdir, rbuf, size);
+	checks++;
+	if (memcmp(cbuf, rbuf, NOTES_BUF) != 0) {
+		char detail[300];
+		snprintf(detail, sizeof detail, "size=%lu: C \"%s\", Rust \"%s\"", (unsigned long)size, cbuf,
+		         rbuf);
+		fail("notes_default_name", detail);
+	}
+}
+
+static void test_notes(const char *workdir) {
+	char cdir[700];
+	char rdir[700];
+	snprintf(cdir, sizeof cdir, "%s/notes_c", workdir);
+	snprintf(rdir, sizeof rdir, "%s/notes_r", workdir);
+
+	/* The two string builders that make a path. */
+	{
+		static const char *roots[] = {"/mnt/sd", "", "card", "/", "a/",
+		                              "/a/very/long/card/root/name/that/goes/on",
+		                              "//double//slash"};
+		static const size_t sizes[] = {0, 1, 2, 3, 6, 7, 16, 64, NOTES_BUF - 1, NOTES_BUF};
+		for (size_t i = 0; i < sizeof roots / sizeof *roots; i++) {
+			for (size_t s = 0; s < sizeof sizes / sizeof *sizes; s++) {
+				compare_notes_dir(roots[i], sizes[s]);
+			}
+		}
+	}
+	{
+		static const char *dirs[] = {"/mnt/sd/Notes", "", "d", "/", "dir/"};
+		static const char *names[] = {"a.txt", "", "a name with spaces.md", "x",
+		                             "0123456789012345678901234567890123456789012345678901234567890123456789"};
+		static const size_t sizes[] = {0, 1, 2, 5, 16, 64, NOTES_BUF - 1, NOTES_BUF};
+		for (size_t i = 0; i < sizeof dirs / sizeof *dirs; i++) {
+			for (size_t j = 0; j < sizeof names / sizeof *names; j++) {
+				for (size_t s = 0; s < sizeof sizes / sizeof *sizes; s++) {
+					compare_notes_path(dirs[i], names[j], sizes[s]);
+				}
+			}
+		}
+	}
+
+	/* Which names count as notes. */
+	{
+		static const char *names[] = {
+		    "shopping.txt", "SHOPPING.TXT", "a.Md", "a.lrc", "a.nfo", "a.ini",
+		    "cover.jpg", ".txt", ".hidden.txt", "txt", "a.txtx", "a.docx",
+		    "", "x.txt.tmp", "x.txt ", " x.txt", "a.b.txt", "a/b.txt", ".",
+		    "...txt", "a.tXt", "note-1.md"};
+		for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+			compare_note_name(names[i]);
+		}
+		for (int len = 88; len <= 100; len++) {
+			char name[120];
+			memset(name, 'n', (size_t)len - 4);
+			memcpy(name + len - 4, ".txt", 5);
+			compare_note_name(name);
+		}
+	}
+
+	/* Which names can be written. */
+	{
+		static const char *names[] = {"shopping", "a b c", "", "   ", "\t", ".hidden",
+		                              "a/b",      "a\\b", "a\tb", "a\nb", "a\rb",
+		                              " lead",    "trail ", "ok-ish", "2026-10-16"};
+		for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+			compare_note_ok(names[i]);
+		}
+		for (int len = 90; len <= 100; len++) {
+			char name[120];
+			memset(name, 'n', (size_t)len);
+			name[len] = 0;
+			compare_note_ok(name);
+		}
+	}
+
+	/* The file a name is written as, and how it is shown. */
+	{
+		static const char *names[] = {"list",   "list.md", "list.MD", "2026.10.16",
+		                              "a.b.jpg", "",      "shopping.txt", "x.nfo",
+		                              "a.b.txt", ".hidden", "trailing.txt "};
+		static const size_t sizes[] = {0, 1, 3, 8, 16, 64, NOTES_BUF - 1, NOTES_BUF};
+		for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+			for (size_t s = 0; s < sizeof sizes / sizeof *sizes; s++) {
+				compare_note_file_name(names[i], sizes[s]);
+				compare_note_display(names[i], sizes[s]);
+			}
+		}
+	}
+
+	/* The folder. Both sides get the same names, made in the same order. */
+	empty_note_folder(cdir);
+	empty_note_folder(rdir);
+	build_note_folder(cdir);
+	build_note_folder(rdir);
+
+	static const int limits[] = {0, 1, 2, 3, 5, 8, 12, 16};
+	for (size_t i = 0; i < sizeof limits / sizeof *limits; i++) {
+		compare_notes_list(cdir, rdir, limits[i], false);
+	}
+	/* The whole folder, in order, including the natural-number comparison. */
+	compare_notes_list(cdir, rdir, 16, true);
+	compare_notes_list(cdir, rdir, 200, true);
+
+	/* A folder that is not there. */
+	{
+		char missing[800];
+		snprintf(missing, sizeof missing, "%s/notes_absent", workdir);
+		compare_notes_list(missing, missing, 8, true);
+	}
+
+	/* Reading: a note, too long a note, a decode through CRLF and a BOM, and a
+	 * file that is not there. */
+	{
+		char cpath[900];
+		char rpath[900];
+		snprintf(cpath, sizeof cpath, "%s/plain.txt", cdir);
+		snprintf(rpath, sizeof rpath, "%s/plain.txt", rdir);
+		compare_notes_read(cpath, "a plain note");
+		if (strcmp(rpath, cpath) == 0) {
+			fail("notes", "the two folders ended up as one");
+		}
+
+		snprintf(cpath, sizeof cpath, "%s/missing.txt", cdir);
+		snprintf(rpath, sizeof rpath, "%s/missing.txt", rdir);
+		compare_notes_read(cpath, "a note that is not there");
+
+		/* Over the ceiling: 70 KiB, read to 64 KiB and flagged. */
+		snprintf(cpath, sizeof cpath, "%s/long.txt", cdir);
+		snprintf(rpath, sizeof rpath, "%s/long.txt", rdir);
+		static char big[70 * 1024];
+		for (size_t i = 0; i < sizeof big; i++) {
+			big[i] = (char)('a' + (i % 26));
+		}
+		make_test_file(cpath, big, sizeof big);
+		make_test_file(rpath, big, sizeof big);
+		compare_notes_read(cpath, "a note over the ceiling");
+
+		/* Exactly the ceiling, and one byte over it. */
+		for (size_t len = 64 * 1024 - 2; len <= 64 * 1024 + 1; len++) {
+			make_test_file(cpath, big, len);
+			make_test_file(rpath, big, len);
+			compare_notes_read(cpath, "a note at the ceiling");
+		}
+
+		/* Bytes that are not plain ASCII: CRLF, a BOM and a Windows-1252 quote
+		 * all go through textfile's decoder, which is where they could diverge. */
+		static const char *encoded[] = {"a\r\nb\r\n", "\xEF\xBB\xBFhello\n", "\x93quoted\x94\n",
+		                                "caf\xE9\n"};
+		for (size_t i = 0; i < sizeof encoded / sizeof *encoded; i++) {
+			make_test_file(cpath, encoded[i], strlen(encoded[i]));
+			make_test_file(rpath, encoded[i], strlen(encoded[i]));
+			compare_notes_read(cpath, "a note with another encoding");
+		}
+
+		remove(cpath);
+		remove(rpath);
+	}
+
+	/* Writing: names that become files, names that are refused, a folder that
+	 * has to be made, and the newline the writer adds. */
+	{
+		static const char *names[] = {"fresh", "2026.10.16", "already.md", "with space",
+		                              "",      ".hidden",     "a/b"};
+		static const char *texts[] = {"hello", "hello\n", "", "one\ntwo"};
+
+		for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+			for (size_t j = 0; j < sizeof texts / sizeof *texts; j++) {
+				char cname[128];
+				snprintf(cname, sizeof cname, "%s-%lu", names[i], (unsigned long)j);
+				compare_notes_write(cdir, rdir, cname, texts[j]);
+			}
+			compare_notes_write(cdir, rdir, names[i], "x");
+		}
+
+		/* Writing the same note again replaces it. */
+		compare_notes_write(cdir, rdir, "fresh", "second version");
+		compare_notes_write(cdir, rdir, "fresh", "third\nversion");
+
+		/* A folder that does not exist yet is made. */
+		char cnested[800];
+		char rnested[800];
+		snprintf(cnested, sizeof cnested, "%s/notes_c/Nested", workdir);
+		snprintf(rnested, sizeof rnested, "%s/notes_r/Nested", workdir);
+		compare_notes_write(cnested, rnested, "first", "made the folder");
+
+		char cwritten[1000];
+		char rwritten[1000];
+		snprintf(cwritten, sizeof cwritten, "%s/first.txt", cnested);
+		snprintf(rwritten, sizeof rwritten, "%s/first.txt", rnested);
+		compare_notes_read(cwritten, "the note just written");
+		compare_notes_read(rwritten, "the note just written");
+	}
+
+	/* The name the new-note dialog opens with: free today, then today-2. */
+	{
+		char cdef[NOTES_BUF];
+		char rdef[NOTES_BUF];
+
+		compare_notes_default(cdir, rdir, NOTES_BUF);
+		compare_notes_default(cdir, rdir, 4);
+		compare_notes_default(cdir, rdir, 1);
+		compare_notes_default(NULL, NULL, NOTES_BUF);
+
+		c_notes_default_name(cdir, cdef, sizeof cdef);
+		notes_default_name(rdir, rdef, sizeof rdef);
+
+		/* Claim each name in turn: the next one has to move on, on both sides
+		 * and by the same amount. */
+		for (int round = 0; round < 4; round++) {
+			char cpath[900];
+			char rpath[900];
+			char file[NOTES_BUF];
+			c_notes_default_name(cdir, cdef, sizeof cdef);
+			notes_default_name(rdir, rdef, sizeof rdef);
+			checks++;
+			if (strcmp(cdef, rdef) != 0) {
+				char detail[300];
+				snprintf(detail, sizeof detail, "round %d: C \"%s\", Rust \"%s\"", round, cdef, rdef);
+				fail("notes_default_name", detail);
+				break;
+			}
+			if (!c_notes_file_name(cdef, file, sizeof file)) {
+				break;
+			}
+			snprintf(cpath, sizeof cpath, "%s/%s", cdir, file);
+			snprintf(rpath, sizeof rpath, "%s/%s", rdir, file);
+			make_test_file(cpath, "taken\n", 6);
+			make_test_file(rpath, "taken\n", 6);
+			remove(cpath);
+			remove(rpath);
+		}
+	}
+
+	/* How much the editor holds: characters, not bytes. */
+	{
+		size_t max = 16384;
+		char *buf = malloc(max * 4 + 2);
+		if (!buf) {
+			fail("notes", "out of memory");
+		} else {
+			struct {
+				size_t len;
+				const char *piece;
+			} shapes[] = {{
+			    max, "a"},
+			    {max + 1, "a"},
+			    {max, "\xC3\xA9"},
+			    {max + 1, "\xC3\xA9"},
+			    {max, "\xE4\xB8\x96"},
+			    {max, "\xF0\x9F\x8E\xB5"},
+			    {max + 1, "\xF0\x9F\x8E\xB5"},
+			};
+			for (size_t i = 0; i < sizeof shapes / sizeof shapes[0]; i++) {
+				size_t piece = strlen(shapes[i].piece);
+				size_t w = 0;
+				while (w + piece <= shapes[i].len * piece && w + piece < max * 4) {
+					memcpy(buf + w, shapes[i].piece, piece);
+					w += piece;
+				}
+				buf[w] = 0;
+				checks++;
+				if (c_notes_fits_editor(buf) != notes_fits_editor(buf)) {
+					char detail[160];
+					snprintf(detail, sizeof detail, "%lu bytes of \"%s\": the two disagree",
+					         (unsigned long)w, shapes[i].piece);
+					fail("notes_fits_editor", detail);
+				}
+			}
+
+			/* A string of continuation bytes is no characters at all. */
+			memset(buf, '\x80', 10);
+			buf[10] = 0;
+			checks++;
+			if (c_notes_fits_editor(buf) != notes_fits_editor(buf)) {
+				fail("notes_fits_editor", "a run of continuation bytes is measured differently");
+			}
+			free(buf);
+		}
+	}
+
+	empty_note_folder(cdir);
+	empty_note_folder(rdir);
+}
+
+#endif /* HAVE_NOTESSTORE */
+
 int main(int argc, char **argv) {
 	const char *workdir = argc > 1 ? argv[1] : ".";
 
@@ -1998,6 +2624,9 @@ int main(int argc, char **argv) {
 	test_tagdate();
 	test_id3chap(workdir);
 	test_addons(workdir);
+#ifdef HAVE_NOTESSTORE
+	test_notes(workdir);
+#endif
 
 	printf("\n%d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

@@ -5,7 +5,7 @@ builds two crates:
 
 | Crate | What it is |
 |---|---|
-| `sonix-core` | Pure logic with no dependencies: base64, MD5, SHA-1, SHA-256, the JSON reader, the settings store, the duration formatters and integer roots, text decoding and tag dates. No LVGL, no ALSA, no sockets, no filesystem. |
+| `sonix-core` | Pure logic with no dependencies: base64, MD5, SHA-1, SHA-256, the JSON reader, the settings store, the duration formatters and integer roots, text decoding, tag dates and the note folder. No LVGL, no ALSA, no sockets. |
 | `sonix-ffi` | A C ABI over the above, exporting each function under **the same name and signature the C file it replaces had**, so the firmware can switch over one module at a time. Produces `libsonix_player_core.a`. |
 
 ## What is ported today
@@ -23,6 +23,11 @@ builds two crates:
 | `src/system/library/tagdate.c` | `sonix-core/src/tagdate.rs` | ported (parse, precision), tested; `to_time` goes through libc `mktime` |
 | `src/system/library/id3chap.c` | `sonix-core/src/id3chap.rs` | ported (ID3v2.3/2.4 CHAP frames), tested |
 | `src/system/addons/addons.c` | `sonix-core/src/addons.rs` | ported (the module list and its gates), tested |
+| `src/system/notes/notesstore.c` | `sonix-core/src/notes.rs` | ported (the folder rules, the listing order, read/write, the next free name), tested |
+
+`sonix-core/src/c_time.rs` is shared support rather than a port of one file: C's
+`time_t` and the real glibc `struct tm` layout, so `mktime` and `localtime_r`
+write where the C allocates.
 
 Everything else — the GUI, the decoders, streaming, Bluetooth, the audio path —
 is still C. [PORTING.md](PORTING.md) is the map of what is left and in what
@@ -32,7 +37,7 @@ order, with the real line counts.
 
 ```bash
 cd sonix-player/rust
-make test          # cargo test --workspace, 122 tests
+make test          # cargo test --workspace, 138 tests
 make differential  # the C originals beside the Rust port, same inputs
 make staticlib     # libsonix_player_core.a for the firmware to link
 ```
@@ -61,13 +66,19 @@ writes compared byte for byte, the date parser over a corpus plus every pair
 through the precision rule, generated MP3 tags — both tag versions, with and
 without an extended header and padding, at every chapter count from none to six,
 then truncated byte by byte and corrupted at random — read by both chapter
-readers, and the add-on list compared row by row along with every switch's
-default, every `addons_set` and the settings file each one writes.
+readers, the add-on list compared row by row along with every switch's
+default, every `addons_set` and the settings file each one writes, and the note
+folder driven through both sides: the same names built in two directories, the
+listing compared in full and at every limit, reads of plain, encoded and
+over-length files, writes compared byte for byte (including the folder a first
+write has to make), and the "next free name" claimed one note at a time.
 
 It runs on Windows (`CC=` a MinGW gcc) and on Linux, and does: **1,088,004
-checks on Windows, 1,088,006 on Linux, 0 failures on both** — the two extra
-checks are the settings-file comparison, which Windows has to relax because the
-C original opens the file in text mode. Running it in both places is not
+checks on Windows, 1,088,656 on Linux, 0 failures on both**. The difference is
+the 650 notes checks plus the two settings-file comparisons that Windows has to
+relax because the C original opens the file in text mode: `notesstore.c` needs
+the two-argument `mkdir` and `localtime_r`, which MinGW has neither of, so that
+section is compiled only on a POSIX host. Running it in both places is not
 ceremony: the Linux run found a `struct tm` that was twenty bytes too small for
 `mktime` to write into, which the Windows run could not see.
 

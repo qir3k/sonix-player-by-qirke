@@ -63,13 +63,31 @@ RENAMES="-Dbase64_decode=c_base64_decode
 -Did3chap_read=c_id3chap_read -Did3chap_present=c_id3chap_present
 -Daddons_count=c_addons_count -Daddons_at=c_addons_at -Daddons_find=c_addons_find
 -Daddons_enabled=c_addons_enabled -Daddons_set=c_addons_set
--Daddons_apply_defaults=c_addons_apply_defaults -Daddons_any_game_enabled=c_addons_any_game_enabled"
+-Daddons_apply_defaults=c_addons_apply_defaults -Daddons_any_game_enabled=c_addons_any_game_enabled
+-Dnotes_dir=c_notes_dir -Dnotes_path=c_notes_path -Dnotes_is_note_name=c_notes_is_note_name
+-Dnotes_list=c_notes_list -Dnotes_read=c_notes_read -Dnotes_fits_editor=c_notes_fits_editor
+-Dnotes_file_name=c_notes_file_name -Dnotes_write=c_notes_write -Dnotes_name_ok=c_notes_name_ok
+-Dnotes_display_name=c_notes_display_name -Dnotes_default_name=c_notes_default_name"
 
 # textfile.c flushes with POSIX `fsync`; the Windows CRT calls that `_commit`.
 # It is the same call, so the comparison stays a fair one.
 case "$(uname -s)" in
 MINGW* | MSYS* | CYGWIN*) textfile_defs="-Dfsync=_commit" ;;
 *) textfile_defs="" ;;
+esac
+
+# notesstore.c makes its folders with the two-argument mkdir() and asks for the
+# date with localtime_r, which MinGW has neither of. Its part of the harness is
+# left out on Windows rather than testing a hand-written stand-in.
+notes_defs=""
+case "$(uname -s)" in
+MINGW* | MSYS* | CYGWIN*) ;;
+*)
+	notes_defs="-DHAVE_NOTESSTORE=1"
+	# shellcheck disable=SC2086
+	"$CC" -O1 -w -std=gnu99 -I"$app" $RENAMES \
+		-c "$app/src/system/notes/notesstore.c" -o "$build/notesstore.o"
+	;;
 esac
 
 echo "== compiling the C originals with renamed symbols"
@@ -123,7 +141,8 @@ esac
 
 echo "== linking the harness"
 # shellcheck disable=SC2086
-"$CC" -O1 -w -std=gnu99 -I"$core" \
+# shellcheck disable=SC2086
+"$CC" -O1 -w -std=gnu99 -I"$core" $notes_defs \
 	"$here/harness.c" \
 	"$build"/*.o \
 	"$archive" \

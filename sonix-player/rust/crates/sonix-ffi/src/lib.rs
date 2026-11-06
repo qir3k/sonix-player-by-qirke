@@ -32,6 +32,7 @@
 //! | `library/tagdate.c` | `tagdate_parse`, `tagdate_better`, `tagdate_to_time` |
 //! | `library/id3chap.c` | `id3chap_read`, `id3chap_present` |
 //! | `addons/addons.c` | `addons_count`, `addons_at`, `addons_find`, `addons_enabled`, `addons_set`, `addons_apply_defaults`, `addons_any_game_enabled` |
+//! | `notes/notesstore.c` | `notes_dir`, `notes_path`, `notes_is_note_name`, `notes_list`, `notes_read`, `notes_fits_editor`, `notes_file_name`, `notes_write`, `notes_name_ok`, `notes_display_name`, `notes_default_name` |
 //!
 //! `utils.c` is the one exception to "delete the file and link": it is a mixed
 //! file, and the half below `format_row_duration` is pthreads, `mmap`,
@@ -59,7 +60,7 @@ use std::ffi::CStr;
 use std::io::Read as _;
 use std::sync::{Mutex, OnceLock};
 
-use sonix_core::{addons, base64, config, hash, id3chap, json, tagdate, text, utils};
+use sonix_core::{addons, base64, config, hash, id3chap, json, notes, tagdate, text, utils};
 
 /// C's `long`.
 ///
@@ -89,54 +90,10 @@ extern "C" {
     fn free(ptr: *mut c_void);
 }
 
-/// C's `time_t`.
-///
-/// 32 bits on the device (glibc 2.22, mipsel) — the header for this very module
-/// says so — and 64 on Windows and on any 64-bit target. A 32-bit Linux build
-/// with glibc's time64 transition would disagree, which is why this matches the
-/// target and not the pointer width alone.
-#[cfg(any(target_os = "windows", target_pointer_width = "64"))]
-pub type c_time_t = i64;
-#[cfg(all(not(target_os = "windows"), target_pointer_width = "32"))]
-pub type c_time_t = i32;
-
-/// `struct tm`, as libc lays it out.
-///
-/// The first nine fields are in the same order everywhere. What follows them is
-/// not the same size: glibc and musl add `tm_gmtoff` (a `long`) and `tm_zone` (a
-/// pointer), which makes the struct 56 bytes on x86-64 Linux against the 36 that
-/// nine ints add up to — and `mktime` **writes those two fields back**.
-///
-/// Declaring only the nine put twenty bytes of glibc's answer into this frame,
-/// past the end of the struct: a segfault, and one that only happened on Linux,
-/// because MinGW's `struct tm` really is the nine fields. That is exactly the
-/// kind of bug a Windows-only test cannot see.
-///
-/// The tail is declared generously rather than exactly: it only has to be big
-/// enough and correctly aligned, and `usize` gives both. Every libc this targets
-/// puts the extra members at the end.
-#[repr(C)]
-struct tm_t {
-    tm_sec: c_int,
-    tm_min: c_int,
-    tm_hour: c_int,
-    tm_mday: c_int,
-    tm_mon: c_int,
-    tm_year: c_int,
-    tm_wday: c_int,
-    tm_yday: c_int,
-    tm_isdst: c_int,
-    /// Room for `tm_gmtoff` and `tm_zone`. See above.
-    tail: [usize; 4],
-}
-
-extern "C" {
-    // Deliberately libc's: the date a tag names is a local-time calendar date,
-    // and turning it into a moment is `mktime`'s job — it is the only thing that
-    // knows the device's timezone, and doing it again in Rust would be a second
-    // implementation of the same rule.
-    fn mktime(tm: *mut tm_t) -> c_time_t;
-}
+/// C's `time_t`, and `struct tm` with it: see [`sonix_core::c_time`], which is
+/// where the layout and the libc calls live so that there is only one copy of
+/// each.
+pub use sonix_core::c_time::TimeT as c_time_t;
 
 /// A C path, byte for byte on POSIX.
 #[cfg(unix)]
@@ -1079,47 +1036,10 @@ pub unsafe extern "C" fn textfile_read(
 /// mid-write leaves the old file whole instead of a truncated one.
 #[no_mangle]
 pub unsafe extern "C" fn textfile_write(path: *const c_char, text: *const c_char) -> bool {
-    use std::io::Write as _;
-
-    let path_bytes = c_bytes(path);
-
-    // `snprintf("%s.tmp", ...)` into a 1024-byte local, and a failure when the
-    // result does not fit.
-    let mut temp_bytes = Vec::with_capacity(path_bytes.len() + 4);
-    temp_bytes.extend_from_slice(path_bytes);
-    temp_bytes.extend_from_slice(b".tmp");
-    if temp_bytes.len() + 1 > 1024 {
+    if path.is_null() {
         return false;
     }
-
-    let body = c_bytes(text);
-    let need_newline = body.last().is_some_and(|&b| b != b'\n');
-
-    let temp_path = path_from_bytes(&temp_bytes);
-    let final_path = path_from_bytes(path_bytes);
-
-    let Ok(mut file) = std::fs::File::create(&temp_path) else {
-        return false;
-    };
-
-    // The bytes have to be on the card before the rename, or a card pulled out
-    // in between leaves the new name pointing at an empty file — which is worse
-    // than not having written at all.
-    let ok = file.write_all(body).is_ok()
-        && (!need_newline || file.write_all(b"\n").is_ok())
-        && file.flush().is_ok()
-        && file.sync_all().is_ok();
-    drop(file);
-
-    if !ok {
-        let _ = std::fs::remove_file(&temp_path);
-        return false;
-    }
-    if std::fs::rename(&temp_path, &final_path).is_err() {
-        let _ = std::fs::remove_file(&temp_path);
-        return false;
-    }
-    true
+    text::write_text_file(&path_from_bytes(c_bytes(path)), c_bytes(text))
 }
 
 // ---------------------------------------------------------------------------
@@ -1167,31 +1087,12 @@ pub unsafe extern "C" fn tagdate_better(a: *const tagdate_t, b: *const tagdate_t
     let b = b.as_ref().map(tagdate_t::as_date);
     tagdate::better(a.as_ref(), b.as_ref())
 }
-
 #[no_mangle]
 pub unsafe extern "C" fn tagdate_to_time(d: *const tagdate_t) -> c_time_t {
-    if d.is_null() || (*d).year <= 0 {
+    if d.is_null() {
         return 0;
     }
-
-    let mut tm = tm_t {
-        tm_sec: 0,
-        tm_min: 0,
-        tm_hour: 0,
-        tm_mday: if (*d).day > 0 { (*d).day } else { 1 },
-        tm_mon: if (*d).month > 0 { (*d).month - 1 } else { 0 },
-        tm_year: (*d).year - 1900,
-        tm_wday: 0,
-        tm_yday: 0,
-        tm_isdst: -1,
-        tail: [0; 4],
-    };
-    let when = mktime(&mut tm);
-    if when == -1 {
-        0
-    } else {
-        when
-    }
+    sonix_core::c_time::to_time((*d).year, (*d).month, (*d).day)
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,6 +1238,192 @@ pub unsafe extern "C" fn addons_any_game_enabled() -> bool {
         }
     }
     false
+}
+
+// ---------------------------------------------------------------------------
+// notes
+// ---------------------------------------------------------------------------
+
+/// `snprintf` into a caller's buffer: truncate, terminate, and say whether the
+/// whole thing fitted.
+unsafe fn write_c_string(text: &str, out: *mut c_char, size: size_t) -> bool {
+    if out.is_null() || size == 0 {
+        return false;
+    }
+    let bytes = text.as_bytes();
+    let n = bytes.len().min(size - 1);
+    if n > 0 {
+        ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, n);
+    }
+    *(out as *mut u8).add(n) = 0;
+    bytes.len() < size
+}
+
+#[repr(C)]
+pub struct note_entry_t {
+    pub name: [c_char; notes::NAME_MAX + 1],
+}
+
+impl Default for note_entry_t {
+    fn default() -> Self {
+        note_entry_t {
+            name: [0; notes::NAME_MAX + 1],
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_dir(
+    out: *mut c_char,
+    size: size_t,
+    card_root: *const c_char,
+) -> bool {
+    if card_root.is_null() {
+        return false;
+    }
+    match notes::dir(c_str(card_root)) {
+        Some(text) => write_c_string(&text, out, size),
+        None => false,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_path(
+    out: *mut c_char,
+    size: size_t,
+    dir: *const c_char,
+    name: *const c_char,
+) -> bool {
+    if dir.is_null() || name.is_null() {
+        return false;
+    }
+    match notes::path(c_str(dir), c_str(name)) {
+        Some(text) => write_c_string(&text, out, size),
+        None => false,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_is_note_name(name: *const c_char) -> bool {
+    if name.is_null() {
+        return false;
+    }
+    notes::is_note_name(c_str(name))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_list(
+    dir: *const c_char,
+    out: *mut note_entry_t,
+    max: c_int,
+) -> c_int {
+    if dir.is_null() || out.is_null() || max <= 0 {
+        return 0;
+    }
+    let names = notes::list(&path_from_bytes(c_bytes(dir)), max as usize);
+    for (i, name) in names.iter().enumerate() {
+        let slot = &mut *out.add(i);
+        let bytes = name.as_bytes();
+        let n = bytes.len().min(notes::NAME_MAX);
+        for (j, &b) in bytes[..n].iter().enumerate() {
+            slot.name[j] = b as c_char;
+        }
+        slot.name[n] = 0;
+    }
+    names.len() as c_int
+}
+
+/// The note's text, decoded to UTF-8 in a buffer the caller frees.
+#[no_mangle]
+pub unsafe extern "C" fn notes_read(path: *const c_char, truncated: *mut bool) -> *mut c_char {
+    if !truncated.is_null() {
+        *truncated = false;
+    }
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let Some((raw, more)) = notes::read_raw(&path_from_bytes(c_bytes(path))) else {
+        return ptr::null_mut();
+    };
+
+    let decoded = text::decode(&raw);
+    let out = malloc(decoded.len() + 1) as *mut u8;
+    if out.is_null() {
+        return ptr::null_mut();
+    }
+    if !decoded.is_empty() {
+        ptr::copy_nonoverlapping(decoded.as_ptr(), out, decoded.len());
+    }
+    *out.add(decoded.len()) = 0;
+    if !truncated.is_null() {
+        *truncated = more;
+    }
+    out as *mut c_char
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_fits_editor(text: *const c_char) -> bool {
+    if text.is_null() {
+        return false;
+    }
+    notes::fits_editor(c_str(text))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_file_name(
+    name: *const c_char,
+    out: *mut c_char,
+    size: size_t,
+) -> bool {
+    if name.is_null() {
+        return false;
+    }
+    write_c_string(&notes::file_name(c_str(name)), out, size)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_write(
+    dir: *const c_char,
+    name: *const c_char,
+    text: *const c_char,
+) -> bool {
+    if dir.is_null() || name.is_null() {
+        return false;
+    }
+    notes::write(&path_from_bytes(c_bytes(dir)), c_str(name), c_str(text))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_name_ok(name: *const c_char) -> bool {
+    if name.is_null() {
+        return false;
+    }
+    notes::name_ok(c_str(name))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_display_name(name: *const c_char, out: *mut c_char, size: size_t) {
+    if out.is_null() || size == 0 {
+        return;
+    }
+    // The whole name goes into the caller's buffer before the extension is cut
+    // off, which is what the C did: with a name too long for `size`, what fits
+    // is what decides where the dot is. See [`notes::display_name_into`].
+    let buf = slice::from_raw_parts_mut(out as *mut u8, size);
+    notes::display_name_into(c_str(name), buf);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn notes_default_name(dir: *const c_char, out: *mut c_char, size: size_t) {
+    if out.is_null() || size == 0 {
+        return;
+    }
+    let folder = if dir.is_null() {
+        None
+    } else {
+        Some(path_from_bytes(c_bytes(dir)))
+    };
+    write_c_string(&notes::default_name(folder.as_deref()), out, size);
 }
 
 // ---------------------------------------------------------------------------
@@ -1852,17 +1939,9 @@ mod tests {
             assert_eq!(tagdate_to_time(&none), 0, "no year, no moment");
         }
     }
-
     #[test]
-    fn struct_tm_has_room_for_what_mktime_writes() {
-        // glibc's is 56 bytes on LP64: nine ints, then tm_gmtoff and tm_zone.
-        // Anything at or above that is safe; below it, mktime writes into the
-        // caller's frame. This is the check that the Linux crash was made of.
-        assert!(core::mem::size_of::<tm_t>() >= 56, "too small for glibc");
-        assert_eq!(
-            core::mem::align_of::<tm_t>(),
-            core::mem::align_of::<usize>()
-        );
+    fn a_note_entry_matches_the_c_struct() {
+        assert_eq!(core::mem::size_of::<note_entry_t>(), notes::NAME_MAX + 1);
     }
 
     #[test]

@@ -292,10 +292,6 @@ pub fn present(path: &Path) -> bool {
 mod tests {
     use super::*;
 
-    fn title(ch: &Chapter) -> String {
-        ch.title().into_owned()
-    }
-
     #[test]
     fn text_encodings() {
         let mut out = [0u8; 128];
