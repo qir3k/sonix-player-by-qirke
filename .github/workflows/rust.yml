@@ -50,9 +50,22 @@ jobs:
         working-directory: sonix-player/rust
         run: cargo fmt --all --check
 
+      # --no-fail-fast and an annotation per failure: a red step on GitHub
+      # hides the log from anyone not signed in, so the lines that say what
+      # broke are repeated as check annotations, where they cost nothing to
+      # read.
       - name: Unit tests
         working-directory: sonix-player/rust
-        run: cargo test --workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --no-fail-fast 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^(test .* FAILED|failures:|---- |thread .* panicked|error\[)" test.log |
+              head -60 | sed 's/^/::error::/' || true
+          fi
+          exit "$status"
 
       # Every ported module is in this harness beside the C original it
       # replaces. A section that quietly stops testing anything is itself a
@@ -60,9 +73,16 @@ jobs:
       # tracks, notes or timers.
       - name: Differential against the C
         working-directory: sonix-player/rust
-        env:
-          CC: gcc
-        run: sh tests/differential/run.sh
+        shell: bash
+        run: |
+          set -o pipefail
+          CC=gcc sh tests/differential/run.sh 2>&1 | tee differential.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^(== |sleeptimer:|config.*fail|checks,|.*: C |.*error.*)" differential.log |
+              head -80 | sed 's/^/::error::/' || true
+          fi
+          exit "$status"
 
   windows:
     name: Unit tests and differential (Windows)
@@ -92,6 +112,13 @@ jobs:
         working-directory: sonix-player/rust
         shell: bash
         run: |
+          set -o pipefail
           export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
           gcc --version
-          CC=gcc sh tests/differential/run.sh
+          CC=gcc sh tests/differential/run.sh 2>&1 | tee differential.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^(== |sleeptimer:|config.*fail|checks,|.*: C |.*error.*|.*multiple definition.*)" differential.log |
+              head -80 | sed 's/^/::error::/' || true
+          fi
+          exit "$status"
