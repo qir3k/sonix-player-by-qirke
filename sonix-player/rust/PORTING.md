@@ -64,7 +64,22 @@ Recommendation: (1) until it is done, then (2) GUI screen by screen. Not (3).
 | `system/core/sha256.c` | 125 | **ported** |
 | `system/core/json.c` | 540 | **ported** |
 | `system/core/config.c` | 300 | **ported** |
-| everything else | ~244,000 | C |
+| `system/core/utils.c` | 480 | **pure half ported** — roots, formatters, `has_extension`; the platform half (threads, `mmap`, `mallinfo`, breadcrumbs) stays C |
+| `system/text/textfile.c` | 210 | **ported** |
+| `system/library/tagdate.c` | 140 | **ported** |
+| everything else | ~243,000 | C |
+
+### The one module that cannot be swapped by deleting its file
+
+`utils.c` is a grab bag: the top half is arithmetic and string formatting, the
+bottom half is `/proc`, `sched_setscheduler`, `sigaltstack` and `mallinfo`. The
+top half is ported and exported from `sonix-ffi` under its own names, but the
+file has to stay in the build until the bottom half moves — and that half should
+move to a `utils_platform.c` companion rather than to Rust, because it is the
+kind of code that wants to keep working exactly as it always has until the
+device is on the bench. Moving those functions out and dropping the pure ones
+is a mechanical edit, worth doing as its own commit with a flashed player to
+hand.
 
 ## Inventory, in the order it should be attacked
 
@@ -74,14 +89,13 @@ Line counts are `.c` only.
 
 | Area | Lines | Why here |
 |---|---|---|
-| `system/core/` (`utils`, `logging`, `lang`, `region`, `respath`, `glibc_compat`) | ~1,900 | everything includes it; pure string and formatting work |
+| `system/core/` (`logging`, `lang`, `region`, `respath`, `glibc_compat`) | ~1,400 | everything includes it; pure string and formatting work (`utils` is done) |
 | `system/core/db` | 46 | thin SQLite wrapper |
-| `system/text/textfile.c` | 160 | file reading and line splitting |
 | `system/notes/` | 303 | small, self-contained |
 | `system/addons/` | 178 | plugin registry |
 | `system/input/` | 1,143 | key mapping and gesture state, pure logic |
 | `system/playback/playlist.c` + `sleeptimer.c` | ~1,300 | queue, shuffle, repeat — completely testable |
-| `system/library/tagdate.c`, `cue.c`, `id3chap.c`, `vorbischap.c` | ~1,500 | parsers with fixed grammars |
+| `system/library/cue.c`, `id3chap.c`, `vorbischap.c` | ~1,360 | parsers with fixed grammars (`tagdate` is done — it was the one with a shape worth copying) |
 | `system/audio/eq.c` (the filter maths, not the ALSA glue) | ~1,000 | biquads; needs golden data from the C build |
 
 ### Tier 2 — network and protocol, testable against recorded responses
@@ -122,7 +136,8 @@ Line counts are `.c` only.
 Each module gets three levels:
 
 1. **Unit tests** in the Rust module, for the behaviour the header documents.
-   Done for everything ported so far (59 tests).
+   Done for everything ported so far (108 tests: 82 in `sonix-core`, 26 through
+   the C ABI in `sonix-ffi`).
 2. **A differential harness** (`tests/differential`, run with `make
    differential`): the original `.c` files are compiled with their symbols
    renamed (`-Djson_parse=c_json_parse …`), linked beside the Rust ones, and
@@ -130,7 +145,7 @@ Each module gets three levels:
    buffers through each hash in uneven chunks, 250 generated JSON documents
    plus a hand-picked corpus walked token by token, and a settings file driven
    through both implementations. Any disagreement fails the run. **Done, and
-   passing: 385,974 checks, 0 failures.**
+   passing: 1,084,531 checks, 0 failures.**
 3. **Golden vectors** from the C implementation where the arithmetic is not
    self-evident — the equaliser coefficients, ReplayGain, the smart-mix
    scoring. The C build can be made to print them. Needed once the audio and

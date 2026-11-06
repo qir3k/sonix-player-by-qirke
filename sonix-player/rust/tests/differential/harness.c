@@ -10,14 +10,17 @@
  * against what the header *says*; this checks it against what the C code
  * *does*, including the parts nobody wrote down.
  *
- * Built and run by run.sh. Covers base64, md5, sha1, sha256, json and config.
+ * Built and run by run.sh. Covers base64, md5, sha1, sha256, json, config, the
+ * pure half of utils, textfile and tagdate.
  */
 
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* ------------------------------------------------------------------------ */
 /* Prototypes, declared by hand on both sides                                */
@@ -120,6 +123,47 @@ extern void config_set_int(const char *section, const char *key, long value);
 extern void config_set_bool(const char *section, const char *key, bool value);
 extern bool config_save(void);
 extern const char *config_path(void);
+
+/* utils: the pure prefix of utils.c, extracted by run.sh and compiled with the
+ * same -D renames as the rest. The thread, mmap and breadcrumb half of that
+ * file is not here because it cannot be compiled off the device. */
+extern uint32_t c_utils_isqrt32(uint32_t v);
+extern uint64_t c_utils_isqrt64(uint64_t v);
+extern bool c_has_extension(const char *name, const char *ext);
+extern int c_formatDoubleSeconds(double total_seconds, char *buffer, size_t max_len);
+extern void c_formatDoubleProgress(double current_secs, double total_secs, char *buffer, size_t max_len);
+extern void c_format_row_duration(int seconds, char *out, size_t size);
+
+extern uint32_t utils_isqrt32(uint32_t v);
+extern uint64_t utils_isqrt64(uint64_t v);
+extern bool has_extension(const char *name, const char *ext);
+extern int formatDoubleSeconds(double total_seconds, char *buffer, size_t max_len);
+extern void formatDoubleProgress(double current_secs, double total_secs, char *buffer, size_t max_len);
+extern void format_row_duration(int seconds, char *out, size_t size);
+
+/* textfile */
+extern char *c_textfile_decode(const unsigned char *raw, size_t len);
+extern bool c_textfile_read(const char *path, size_t max, unsigned char **raw, size_t *bytes, bool *truncated);
+extern bool c_textfile_write(const char *path, const char *text);
+
+extern char *textfile_decode(const unsigned char *raw, size_t len);
+extern bool textfile_read(const char *path, size_t max, unsigned char **raw, size_t *bytes, bool *truncated);
+extern bool textfile_write(const char *path, const char *text);
+
+/* tagdate */
+typedef struct {
+	int year;
+	int month;
+	int day;
+} date_fields;
+
+extern bool c_tagdate_parse(const char *text, date_fields *out);
+extern bool c_tagdate_better(const date_fields *a, const date_fields *b);
+extern time_t c_tagdate_to_time(const date_fields *d);
+
+extern bool tagdate_parse(const char *text, date_fields *out);
+extern bool tagdate_better(const date_fields *a, const date_fields *b);
+extern time_t tagdate_to_time(const date_fields *d);
 
 /* ------------------------------------------------------------------------ */
 /* Reporting                                                                 */
@@ -837,6 +881,630 @@ static void test_config(const char *workdir) {
 
 /* ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------ */
+/* utils                                                                    */
+/* ------------------------------------------------------------------------ */
+
+static void compare_isqrt32(uint32_t v) {
+	uint32_t c = c_utils_isqrt32(v);
+	uint32_t r = utils_isqrt32(v);
+	checks++;
+	if (c != r) {
+		char detail[96];
+		snprintf(detail, sizeof detail, "v=%lu: C %lu, Rust %lu", (unsigned long)v,
+		         (unsigned long)c, (unsigned long)r);
+		fail("utils_isqrt32", detail);
+	}
+}
+
+static void compare_isqrt64(uint64_t v) {
+	uint64_t c = c_utils_isqrt64(v);
+	uint64_t r = utils_isqrt64(v);
+	checks++;
+	if (c != r) {
+		char detail[128];
+		snprintf(detail, sizeof detail, "v=%llu: C %llu, Rust %llu",
+		         (unsigned long long)v, (unsigned long long)c, (unsigned long long)r);
+		fail("utils_isqrt64", detail);
+	}
+}
+
+/* The formatters are compared on the whole buffer, not just the text: a
+ * terminator written one byte too far is exactly the kind of bug that shows up
+ * as a corrupted widget three screens later. FMT_MAX - 1 is the largest size
+ * passed, so the sentinel at the end survives every call and can be printed. */
+#define FMT_MAX 64
+
+static void buffer_reset(char *buf) {
+	memset(buf, 0xA5, FMT_MAX);
+	buf[FMT_MAX - 1] = 0;
+}
+
+static void compare_seconds(double v, size_t cap) {
+	char cbuf[FMT_MAX], rbuf[FMT_MAX];
+	buffer_reset(cbuf);
+	buffer_reset(rbuf);
+
+	int cw = c_formatDoubleSeconds(v, cbuf, cap);
+	int rw = formatDoubleSeconds(v, rbuf, cap);
+
+	checks++;
+	if (cw != rw || memcmp(cbuf, rbuf, sizeof cbuf) != 0) {
+		char detail[220];
+		snprintf(detail, sizeof detail, "%.17g cap=%lu: C \"%s\"(%d), Rust \"%s\"(%d)", v,
+		         (unsigned long)cap, cbuf, cw, rbuf, rw);
+		fail("formatDoubleSeconds", detail);
+	}
+}
+
+static void compare_progress(double cur, double total, size_t cap) {
+	char cbuf[FMT_MAX], rbuf[FMT_MAX];
+	buffer_reset(cbuf);
+	buffer_reset(rbuf);
+
+	c_formatDoubleProgress(cur, total, cbuf, cap);
+	formatDoubleProgress(cur, total, rbuf, cap);
+
+	checks++;
+	if (memcmp(cbuf, rbuf, sizeof cbuf) != 0) {
+		char detail[220];
+		snprintf(detail, sizeof detail, "%.17g/%.17g cap=%lu: C \"%s\", Rust \"%s\"", cur, total,
+		         (unsigned long)cap, cbuf, rbuf);
+		fail("formatDoubleProgress", detail);
+	}
+}
+
+static void compare_row(int seconds, size_t size) {
+	char cbuf[FMT_MAX], rbuf[FMT_MAX];
+	buffer_reset(cbuf);
+	buffer_reset(rbuf);
+
+	c_format_row_duration(seconds, cbuf, size);
+	format_row_duration(seconds, rbuf, size);
+
+	checks++;
+	if (memcmp(cbuf, rbuf, sizeof cbuf) != 0) {
+		char detail[220];
+		snprintf(detail, sizeof detail, "%d size=%lu: C \"%s\", Rust \"%s\"", seconds,
+		         (unsigned long)size, cbuf, rbuf);
+		fail("format_row_duration", detail);
+	}
+}
+
+static void compare_ext(const char *name, const char *ext) {
+	bool c = c_has_extension(name, ext);
+	bool r = has_extension(name, ext);
+	checks++;
+	if (c != r) {
+		char detail[200];
+		snprintf(detail, sizeof detail, "name=\"%s\" ext=\"%s\": C %d, Rust %d", name, ext, (int)c, (int)r);
+		fail("has_extension", detail);
+	}
+}
+
+static void test_utils(void) {
+	/* Integer square roots. The low range, the top, and every power of two on
+	 * either side of itself — the edges are where a one-bit shift goes wrong. */
+	for (uint32_t v = 0; v < 60000; v++) {
+		compare_isqrt32(v);
+	}
+	for (uint32_t k = 0; k < 10000; k++) {
+		compare_isqrt32(UINT32_MAX - k);
+	}
+	for (int b = 0; b < 32; b++) {
+		uint32_t base = (uint32_t)1 << b;
+		compare_isqrt32(base - 1);
+		compare_isqrt32(base);
+		if (base < UINT32_MAX) {
+			compare_isqrt32(base + 1);
+		}
+	}
+	for (int i = 0; i < 40000; i++) {
+		compare_isqrt32(rnd());
+	}
+
+	static const uint64_t wide[] = {
+	    0, 1, 2, 3, 4, 15, 16, 17, 255, 256, 65535, 65536, 4294967295ULL, 4294967296ULL,
+	    4294967297ULL, 1ULL << 62, (1ULL << 62) + 1, UINT64_MAX - 1, UINT64_MAX};
+	for (size_t i = 0; i < sizeof wide / sizeof wide[0]; i++) {
+		compare_isqrt64(wide[i]);
+	}
+	for (int i = 0; i < 40000; i++) {
+		compare_isqrt64(((uint64_t)rnd() << 32) | rnd());
+	}
+	for (int b = 0; b < 63; b++) {
+		uint64_t base = 1ULL << b;
+		compare_isqrt64(base - 1);
+		compare_isqrt64(base);
+	}
+
+	/* Extensions, including the near-misses: a name that is exactly the
+	 * extension, a name shorter than it, and an empty extension. */
+	static const char *names[] = {"a.flac", "a.FLAC",  "a.Flac", "flac", ".flac",   "track.flac",
+	                              "x.wav",  "noext",   "",      "a.b.c.mp3", "long.name.with.dots.OGG",
+	                              "track.oga", "a.flac ", "flac .flac"};
+	static const char *exts[] = {".flac", ".FLAC", ".ogg", ".wav", ".mp3", ".oga",
+	                             "flac",  "",      ".flacx", ".f",  ".c"};
+	for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+		for (size_t j = 0; j < sizeof exts / sizeof exts[0]; j++) {
+			compare_ext(names[i], exts[j]);
+		}
+	}
+
+	/* Durations. Nothing at or past 2^32 seconds: C's double-to-uint32_t cast is
+	 * undefined there and Rust saturates, so the two are allowed to differ on a
+	 * number no track can have. */
+	static const double secs[] = {0.0,      -0.0,      0.4,       0.5,       0.999, 1.0,
+	                              5.9,      59.9,      60.0,      65.0,      3599.0, 3600.0,
+	                              3601.0,   3661.5,    86399.0,   86400.0,   359999.0, 360000.0,
+	                              4294967000.0, -1.0,  -3600.0,   -1e9,      1e-9,   12345.678};
+	for (size_t i = 0; i < sizeof secs / sizeof secs[0]; i++) {
+		for (size_t cap = 0; cap < FMT_MAX - 1; cap++) {
+			compare_seconds(secs[i], cap);
+		}
+	}
+	/* A negative time and a NaN both have to come out as zero. */
+	for (size_t cap = 0; cap < FMT_MAX - 1; cap++) {
+		compare_seconds(nan(""), cap);
+		compare_seconds(-1.0 / 0.0, cap);
+	}
+	for (int i = 0; i < 3000; i++) {
+		double v = (double)rnd() / 7.0;
+		compare_seconds(v, rnd_below(FMT_MAX - 1));
+		compare_seconds(-v, rnd_below(FMT_MAX - 1));
+	}
+
+	for (size_t i = 0; i < sizeof secs / sizeof secs[0]; i++) {
+		for (size_t j = 0; j < sizeof secs / sizeof secs[0]; j += 3) {
+			for (size_t cap = 0; cap < FMT_MAX - 1; cap += 3) {
+				compare_progress(secs[i], secs[j], cap);
+			}
+		}
+	}
+	for (int i = 0; i < 2000; i++) {
+		compare_progress((double)rnd() / 7.0, (double)rnd() / 3.0, rnd_below(FMT_MAX - 1));
+	}
+
+	for (int s = -8; s < 40000; s++) {
+		for (size_t size = 0; size < FMT_MAX; size += 5) {
+			compare_row(s, size);
+		}
+	}
+	for (int i = 0; i < 2000; i++) {
+		compare_row((int)rnd(), rnd_below(FMT_MAX));
+	}
+}
+
+/* ------------------------------------------------------------------------ */
+/* textfile                                                                 */
+/* ------------------------------------------------------------------------ */
+
+static void hex_into(char *dst, size_t dstsz, const unsigned char *p, size_t n) {
+	size_t w = 0;
+	dst[0] = 0;
+	for (size_t i = 0; i < n && w + 3 < dstsz; i++) {
+		w += (size_t)snprintf(dst + w, dstsz - w, "%02X ", p[i]);
+	}
+}
+
+/* The decoded text never holds a NUL — every code point below 0x20 is dropped —
+ * so strlen is a safe length here on both sides. */
+static void compare_decode(const unsigned char *raw, size_t len, const char *label) {
+	char *c = c_textfile_decode(raw, len);
+	char *r = textfile_decode(raw, len);
+
+	checks++;
+	if (!c || !r) {
+		free(c);
+		free(r);
+		fail(label, "one side decoded nothing");
+		return;
+	}
+
+	size_t cl = strlen(c);
+	size_t rl = strlen(r);
+	checks++;
+	if (cl != rl || (cl && memcmp(c, r, cl) != 0)) {
+		char detail[400];
+		char chex[180];
+		char rhex[180];
+		hex_into(chex, sizeof chex, (const unsigned char *)c, cl < 50 ? cl : 50);
+		hex_into(rhex, sizeof rhex, (const unsigned char *)r, rl < 50 ? rl : 50);
+		snprintf(detail, sizeof detail, "C %lu [%s] vs Rust %lu [%s]", (unsigned long)cl, chex,
+		         (unsigned long)rl, rhex);
+		fail(label, detail);
+	}
+
+	free(c);
+	free(r);
+}
+
+static size_t utf8_of(uint32_t cp, unsigned char *out) {
+	if (cp < 0x80) {
+		out[0] = (unsigned char)cp;
+		return 1;
+	}
+	if (cp < 0x800) {
+		out[0] = (unsigned char)(0xC0 | (cp >> 6));
+		out[1] = (unsigned char)(0x80 | (cp & 0x3F));
+		return 2;
+	}
+	if (cp < 0x10000) {
+		out[0] = (unsigned char)(0xE0 | (cp >> 12));
+		out[1] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+		out[2] = (unsigned char)(0x80 | (cp & 0x3F));
+		return 3;
+	}
+	out[0] = (unsigned char)(0xF0 | (cp >> 18));
+	out[1] = (unsigned char)(0x80 | ((cp >> 12) & 0x3F));
+	out[2] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+	out[3] = (unsigned char)(0x80 | (cp & 0x3F));
+	return 4;
+}
+
+static size_t utf16_of(uint32_t cp, unsigned char *out, bool le) {
+	uint32_t units[2];
+	int n;
+	if (cp >= 0x10000) {
+		uint32_t v = cp - 0x10000;
+		units[0] = 0xD800 + (v >> 10);
+		units[1] = 0xDC00 + (v & 0x3FF);
+		n = 2;
+	} else {
+		units[0] = cp;
+		n = 1;
+	}
+	for (int i = 0; i < n; i++) {
+		if (le) {
+			out[i * 2] = (unsigned char)(units[i] & 0xFF);
+			out[i * 2 + 1] = (unsigned char)(units[i] >> 8);
+		} else {
+			out[i * 2] = (unsigned char)(units[i] >> 8);
+			out[i * 2 + 1] = (unsigned char)(units[i] & 0xFF);
+		}
+	}
+	return (size_t)n * 2;
+}
+
+static uint32_t pick_codepoint(void) {
+	uint32_t r = rnd();
+	switch (r % 6) {
+	case 0:
+		return r % 0x80; /* ASCII, controls included */
+	case 1:
+		return 0x80 + r % 0x780; /* two bytes */
+	case 2:
+		return 0x800 + r % 0xD000; /* three bytes, below the surrogates */
+	case 3:
+		return 0xE000 + r % 0x2000; /* three bytes, above them */
+	case 4:
+		return 0x10000 + r % 0x100000; /* four bytes */
+	default:
+		return r % 0x110000; /* anywhere, surrogates and all */
+	}
+}
+
+#define FIX(s, label) {(const unsigned char *)(s), sizeof(s) - 1, label}
+
+static void test_textfile(const char *workdir) {
+	static const struct {
+		const unsigned char *bytes;
+		size_t len;
+		const char *label;
+	} fixed[] = {
+	    FIX("", "empty"),
+	    FIX("hello", "plain"),
+	    FIX("a\r\nb", "crlf"),
+	    FIX("a\rb", "lone cr"),
+	    FIX("a\r\r\nb", "double cr"),
+	    FIX("a\tb", "tab"),
+	    FIX("a\0b\033c\177d", "controls"),
+	    FIX("\xEF\xBB\xBFhello", "utf8 bom"),
+	    FIX("a\xEF\xBB\xBFb", "utf8 bom inside"),
+	    FIX("h\xC3\xA9llo", "utf8 e acute"),
+	    FIX("\xE4\xB8\x96\xE7\x95\x8C", "utf8 cjk"),
+	    FIX("\xF0\x9F\x8E\xB5 note", "utf8 emoji"),
+	    FIX("\xFF\xFEh\0e\0l\0l\0o\0", "utf16le"),
+	    FIX("\xFE\xFF\0h\0e\0l\0l\0o", "utf16be"),
+	    FIX("\xFF\xFE\x3D\xD8\xB5\xDF", "utf16le pair"),
+	    FIX("\xFF\xFE\x3C\xD8a\0", "utf16le unpaired"),
+	    FIX("\xFF\xFE\r\0\n\0", "utf16le crlf"),
+	    FIX("\x93quoted\x94", "1252 quotes"),
+	    FIX("caf\xE9 x", "1252 e acute"),
+	    FIX("a\x81b", "1252 hole"),
+	    FIX("\x80", "1252 euro"),
+	    FIX("caf\xE9", "1252 high byte last"),
+	    FIX("\xC0\xAF", "overlong"),
+	    FIX("ab\xE4\xB8", "clipped utf8 at the end"),
+	};
+	for (size_t i = 0; i < sizeof fixed / sizeof fixed[0]; i++) {
+		compare_decode(fixed[i].bytes, fixed[i].len, fixed[i].label);
+	}
+
+	/* A null pointer with no length is an empty file, and the C version allocates
+	 * an empty string for it rather than failing. */
+	compare_decode(NULL, 0, "null and empty");
+
+	/* Random inputs of four kinds: raw bytes (which land on the Windows-1252
+	 * path as soon as one sequence is invalid), ASCII, generated UTF-8 and
+	 * generated UTF-16. */
+	unsigned char buf[520];
+	for (int round = 0; round < 3000; round++) {
+		size_t want = rnd_below(400);
+		int kind = (int)rnd_below(4);
+		size_t w = 0;
+
+		if (kind == 3 && want >= 2) {
+			bool le = (rnd() & 1) != 0;
+			buf[w++] = le ? 0xFF : 0xFE;
+			buf[w++] = le ? 0xFE : 0xFF;
+			while (w < want) {
+				unsigned char enc[4];
+				uint32_t cp = pick_codepoint();
+				/* A surrogate is a single unit on this side and is dropped
+				 * by both readers, which is the case worth covering. */
+				size_t n = cp >= 0x10000 ? 4 : 2;
+				if (w + n > want) {
+					break;
+				}
+				size_t put = cp >= 0x10000 ? utf16_of(cp, buf + w, le)
+				                             : utf16_of(cp, enc, le);
+				if (cp < 0x10000) {
+					memcpy(buf + w, enc, put);
+				}
+				w += put;
+			}
+		} else {
+			while (w < want) {
+				if (kind == 0) {
+					buf[w++] = (unsigned char)rnd();
+				} else if (kind == 1) {
+					buf[w++] = (unsigned char)(rnd() & 0x7F);
+				} else {
+					unsigned char enc[4];
+					size_t n = utf8_of(pick_codepoint(), enc);
+					if (w + n > want) {
+						break;
+					}
+					memcpy(buf + w, enc, n);
+					w += n;
+				}
+			}
+		}
+		compare_decode(buf, w, "fuzz");
+	}
+
+	/* The file side: one file, read at every interesting limit. */
+	char path[600];
+	snprintf(path, sizeof path, "%s/diff_textfile_src.txt", workdir);
+	FILE *f = fopen(path, "wb");
+	if (!f) {
+		fail("textfile", "could not create the test file");
+		return;
+	}
+	for (int i = 0; i < 300; i++) {
+		fputc('a' + (i % 26), f);
+		if (i % 40 == 0) {
+			fputs("\r\n", f);
+		}
+	}
+	fclose(f);
+
+	static const size_t limits[] = {0, 1, 2, 7, 255, 299, 300, 301, 4096, 65536};
+	for (size_t i = 0; i < sizeof limits / sizeof limits[0]; i++) {
+		unsigned char *c_raw = NULL;
+		unsigned char *r_raw = NULL;
+		size_t c_bytes = 12345;
+		size_t r_bytes = 12345;
+		bool c_trunc = true;
+		bool r_trunc = true;
+
+		bool c_ok = c_textfile_read(path, limits[i], &c_raw, &c_bytes, &c_trunc);
+		bool r_ok = textfile_read(path, limits[i], &r_raw, &r_bytes, &r_trunc);
+
+		checks++;
+		if (c_ok != r_ok) {
+			fail("textfile_read", "one side opened the file and the other did not");
+		} else if (c_ok) {
+			checks++;
+			if (c_bytes != r_bytes || c_trunc != r_trunc ||
+			    (c_bytes && memcmp(c_raw, r_raw, c_bytes) != 0)) {
+				char detail[200];
+				snprintf(detail, sizeof detail, "max=%lu: C %lu bytes%s, Rust %lu bytes%s",
+				         (unsigned long)limits[i], (unsigned long)c_bytes,
+				         c_trunc ? " truncated" : "", (unsigned long)r_bytes,
+				         r_trunc ? " truncated" : "");
+				fail("textfile_read", detail);
+			}
+		}
+		free(c_raw);
+		free(r_raw);
+	}
+	remove(path);
+
+	/* A file that is not there. */
+	{
+		unsigned char *c_raw = NULL;
+		unsigned char *r_raw = NULL;
+		size_t c_bytes = 0;
+		size_t r_bytes = 0;
+		bool c_trunc = false;
+		bool r_trunc = false;
+		snprintf(path, sizeof path, "%s/diff_textfile_missing.txt", workdir);
+		checks++;
+		if (c_textfile_read(path, 64, &c_raw, &c_bytes, &c_trunc) !=
+		    textfile_read(path, 64, &r_raw, &r_bytes, &r_trunc)) {
+			fail("textfile_read", "a missing file was reported differently");
+		}
+		free(c_raw);
+		free(r_raw);
+	}
+
+	/* Writes, through both sides, compared byte for byte. The C version appends
+	 * the newline a note is supposed to end with, so the missing case matters. */
+	static const char *writes[] = {"hello", "hello\n", "", "one\ntwo", "trailing \n\n",
+	                              "\xC3\xA9t\xC3\xA9", "a\tb"};
+	char c_path[600];
+	char r_path[600];
+	for (size_t i = 0; i < sizeof writes / sizeof writes[0]; i++) {
+		snprintf(c_path, sizeof c_path, "%s/diff_write_c%lu.txt", workdir, (unsigned long)i);
+		snprintf(r_path, sizeof r_path, "%s/diff_write_r%lu.txt", workdir, (unsigned long)i);
+
+		bool c_ok = c_textfile_write(c_path, writes[i]);
+		bool r_ok = textfile_write(r_path, writes[i]);
+
+		checks++;
+		if (c_ok != r_ok) {
+			fail("textfile_write", "one side wrote and the other did not");
+		} else if (c_ok) {
+			char *cf = read_file(c_path);
+			char *rf = read_file(r_path);
+			checks++;
+			if (!cf || !rf) {
+				fail("textfile_write", "a side left no file behind");
+			} else if (strcmp(cf, rf) != 0) {
+				char detail[300];
+				snprintf(detail, sizeof detail, "C \"%s\" vs Rust \"%s\"", cf, rf);
+				fail("textfile_write", detail);
+			}
+			free(cf);
+			free(rf);
+		}
+		remove(c_path);
+		remove(r_path);
+	}
+}
+
+/* ------------------------------------------------------------------------ */
+/* tagdate                                                                  */
+/* ------------------------------------------------------------------------ */
+
+static void compare_tagdate(const char *text) {
+	date_fields c = {-7, -7, -7};
+	date_fields r = {-7, -7, -7};
+	bool c_ok = c_tagdate_parse(text, &c);
+	bool r_ok = tagdate_parse(text, &r);
+
+	checks++;
+	if (c_ok != r_ok || c.year != r.year || c.month != r.month || c.day != r.day) {
+		char detail[260];
+		snprintf(detail, sizeof detail,
+		         "\"%s\": C %d %d-%d-%d, Rust %d %d-%d-%d", text, (int)c_ok, c.year, c.month,
+		         c.day, (int)r_ok, r.year, r.month, r.day);
+		fail("tagdate_parse", detail);
+		return;
+	}
+
+	/* Only a date that was really read has a moment; the failure case is
+	 * compared too, and both must answer zero for it. */
+	time_t c_time = c_tagdate_to_time(&c);
+	time_t r_time = tagdate_to_time(&r);
+	checks++;
+	if (c_time != r_time) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "\"%s\": C %lld, Rust %lld", text, (long long)c_time,
+		         (long long)r_time);
+		fail("tagdate_to_time", detail);
+	}
+}
+
+static void test_tagdate(void) {
+	static const char *corpus[] = {
+	    "",
+	    " ",
+	    "\t\t",
+	    "n/a",
+	    "2026",
+	    "2026-03",
+	    "2026-03-12",
+	    "2026/03/12",
+	    "20260312",
+	    "2026-3-2",
+	    "2026/3/12",
+	    "2026-03-2",
+	    "2026-3-12",
+	    "2026-03-12T08:00:00",
+	    "2026-03-12 08:00",
+	    "2026-03-12T08:00:00Z",
+	    "2026-03-12T08:00:00+02:00",
+	    "2026-03-12/2026-03-13",
+	    "  2026-03-12",
+	    "\t20260312",
+	    "0000",
+	    "0000-01-01",
+	    "9999",
+	    "9999-12-31",
+	    "10000-01-01",
+	    "2026-13",
+	    "2026-00",
+	    "2026-00-10",
+	    "2026-02-99",
+	    "2026-02-31",
+	    "2026-02-00",
+	    "2026-03-32",
+	    "2026-",
+	    "2026-x",
+	    "2026-03x",
+	    "2026/1",
+	    "202603121",
+	    "2026031",
+	    "202603",
+	    "12/03/2026",
+	    "-2026-03-12",
+	    "2026--03",
+	    "2026-03-12abc",
+	    "1970-01-01",
+	    "2037-12-31",
+	    "1900-01-01",
+	    "0001-01-01",
+	};
+
+	for (size_t i = 0; i < sizeof corpus / sizeof corpus[0]; i++) {
+		compare_tagdate(corpus[i]);
+	}
+
+	/* Every pair, including the nulls: the tie rule is where a sort would go
+	 * wrong silently. */
+	date_fields dates[sizeof corpus / sizeof corpus[0]];
+	bool have[sizeof corpus / sizeof corpus[0]];
+	for (size_t i = 0; i < sizeof corpus / sizeof corpus[0]; i++) {
+		have[i] = c_tagdate_parse(corpus[i], &dates[i]);
+	}
+	for (size_t i = 0; i < sizeof corpus / sizeof corpus[0]; i++) {
+		for (size_t j = 0; j < sizeof corpus / sizeof corpus[0]; j++) {
+			bool c = c_tagdate_better(have[i] ? &dates[i] : NULL, have[j] ? &dates[j] : NULL);
+			bool r = tagdate_better(have[i] ? &dates[i] : NULL, have[j] ? &dates[j] : NULL);
+			checks++;
+			if (c != r) {
+				fail("tagdate_better", "the fuller date did not win the same way on both sides");
+			}
+		}
+	}
+
+	/* Random shapes, built from the parts a tagger writes. */
+	static const char *seps[] = {"-", "/", "", "--", "."};
+	for (int round = 0; round < 2000; round++) {
+		char text[64];
+		int year = (int)rnd_below(12000);
+		int month = (int)rnd_below(20);
+		int day = (int)rnd_below(40);
+		const char *s1 = seps[rnd_below(5)];
+		const char *s2 = seps[rnd_below(5)];
+		int form = (int)rnd_below(4);
+
+		if (form == 0) {
+			snprintf(text, sizeof text, "%04d%s%02d%s%02d", year, s1, month, s2, day);
+		} else if (form == 1) {
+			snprintf(text, sizeof text, "%04d%s%d%s%dT08:00:00", year, s1, month, s2, day);
+		} else if (form == 2) {
+			snprintf(text, sizeof text, "%04d%02d%02d", year, month, day);
+		} else {
+			snprintf(text, sizeof text, "%04d%s%02d", year, s1, month);
+		}
+		compare_tagdate(text);
+	}
+}
+
 int main(int argc, char **argv) {
 	const char *workdir = argc > 1 ? argv[1] : ".";
 
@@ -844,6 +1512,9 @@ int main(int argc, char **argv) {
 	test_hashes();
 	test_json();
 	test_config(workdir);
+	test_utils();
+	test_textfile(workdir);
+	test_tagdate();
 
 	printf("\n%d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

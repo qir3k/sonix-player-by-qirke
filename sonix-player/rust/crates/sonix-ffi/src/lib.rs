@@ -19,14 +19,24 @@
 //!
 //! # Symbols provided
 //!
-//! | C file (`src/system/core/`) | Symbols |
+//! | C file | Symbols |
 //! |---|---|
-//! | `base64.c`   | `base64_decode` |
-//! | `md5.c`      | `md5`, `md5_hex` |
-//! | `sha1.c`     | `sha1`, `sha1_hex` |
-//! | `sha256.c`   | `sha256_init`, `sha256_update`, `sha256_final_hex` |
-//! | `config.c`   | `config_*`, `config_store_*` |
-//! | `json.c`     | `json_*` |
+//! | `core/base64.c`   | `base64_decode` |
+//! | `core/md5.c`      | `md5`, `md5_hex` |
+//! | `core/sha1.c`     | `sha1`, `sha1_hex` |
+//! | `core/sha256.c`   | `sha256_init`, `sha256_update`, `sha256_final_hex` |
+//! | `core/config.c`   | `config_*`, `config_store_*` |
+//! | `core/json.c`     | `json_*` |
+//! | `core/utils.c`    | `utils_isqrt32`, `utils_isqrt64`, `has_extension`, `formatDoubleSeconds`, `formatDoubleProgress`, `format_row_duration` |
+//! | `text/textfile.c` | `textfile_decode`, `textfile_read`, `textfile_write` |
+//! | `library/tagdate.c` | `tagdate_parse`, `tagdate_better`, `tagdate_to_time` |
+//!
+//! `utils.c` is the one exception to "delete the file and link": it is a mixed
+//! file, and the half below `format_row_duration` is pthreads, `mmap`,
+//! `mallinfo` and `sigaltstack`, which has no business in a desktop build and no
+//! Rust equivalent worth inventing. Its pure half is ported and exported here,
+//! but the file cannot leave the build until that platform half moves to a
+//! companion translation unit. Everything else in the table is a swap.
 //!
 //! # `long`
 //!
@@ -44,9 +54,10 @@ use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use core::slice;
 use std::ffi::CStr;
+use std::io::Read as _;
 use std::sync::{Mutex, OnceLock};
 
-use sonix_core::{base64, config, hash, json};
+use sonix_core::{base64, config, hash, json, tagdate, text, utils};
 
 /// C's `long`.
 ///
@@ -69,6 +80,54 @@ extern "C" {
     // frees, and `json_tok_t` arrays live where a C `json_free` expects them.
     fn malloc(size: size_t) -> *mut u8;
     fn free(ptr: *mut u8);
+}
+
+/// C's `time_t`.
+///
+/// 32 bits on the device (glibc 2.22, mipsel) — the header for this very module
+/// says so — and 64 on Windows and on any 64-bit target. A 32-bit Linux build
+/// with glibc's time64 transition would disagree, which is why this matches the
+/// target and not the pointer width alone.
+#[cfg(any(target_os = "windows", target_pointer_width = "64"))]
+pub type c_time_t = i64;
+#[cfg(all(not(target_os = "windows"), target_pointer_width = "32"))]
+pub type c_time_t = i32;
+
+/// `struct tm`, as libc lays it out. The first nine fields are in the same order
+/// in glibc, musl and MinGW; the extra members glibc and MinGW append are the
+/// timezone's, which `mktime` fills in and no caller here reads.
+#[repr(C)]
+struct tm_t {
+    tm_sec: c_int,
+    tm_min: c_int,
+    tm_hour: c_int,
+    tm_mday: c_int,
+    tm_mon: c_int,
+    tm_year: c_int,
+    tm_wday: c_int,
+    tm_yday: c_int,
+    tm_isdst: c_int,
+}
+
+extern "C" {
+    // Deliberately libc's: the date a tag names is a local-time calendar date,
+    // and turning it into a moment is `mktime`'s job — it is the only thing that
+    // knows the device's timezone, and doing it again in Rust would be a second
+    // implementation of the same rule.
+    fn mktime(tm: *mut tm_t) -> c_time_t;
+}
+
+/// A C path, byte for byte on POSIX.
+#[cfg(unix)]
+fn path_from_bytes(bytes: &[u8]) -> std::path::PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    std::path::Path::new(std::ffi::OsStr::from_bytes(bytes)).to_path_buf()
+}
+
+/// The same on Windows, where a path is UTF-16 and the bytes have to be text.
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: &[u8]) -> std::path::PathBuf {
+    std::path::PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// Reads a C string as bytes, or an empty slice for a null pointer.
@@ -837,6 +896,264 @@ pub unsafe extern "C" fn json_obj_bool(
 }
 
 // ---------------------------------------------------------------------------
+// utils
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub extern "C" fn utils_isqrt32(v: u32) -> u32 {
+    utils::isqrt32(v)
+}
+
+#[no_mangle]
+pub extern "C" fn utils_isqrt64(v: u64) -> u64 {
+    utils::isqrt64(v)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn has_extension(name: *const c_char, ext: *const c_char) -> bool {
+    utils::has_extension(c_str(name), c_str(ext))
+}
+
+/// `snprintf` returns what the text wanted, not what fitted; so does this.
+#[no_mangle]
+pub unsafe extern "C" fn formatDoubleSeconds(
+    total_seconds: f64,
+    buffer: *mut c_char,
+    max_len: size_t,
+) -> c_int {
+    // `snprintf(NULL, 0, ...)` is legal C and means "just tell me the length".
+    let wanted = if buffer.is_null() || max_len == 0 {
+        utils::format_double_seconds(total_seconds, &mut [])
+    } else {
+        let out = slice::from_raw_parts_mut(buffer as *mut u8, max_len);
+        utils::format_double_seconds(total_seconds, out)
+    };
+    wanted as c_int
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn formatDoubleProgress(
+    current_secs: f64,
+    total_secs: f64,
+    buffer: *mut c_char,
+    max_len: size_t,
+) {
+    if buffer.is_null() || max_len == 0 {
+        return;
+    }
+    let out = slice::from_raw_parts_mut(buffer as *mut u8, max_len);
+    utils::format_double_progress(current_secs, total_secs, out);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn format_row_duration(seconds: c_int, out: *mut c_char, size: size_t) {
+    if out.is_null() || size == 0 {
+        return;
+    }
+    utils::format_row_duration(seconds, slice::from_raw_parts_mut(out as *mut u8, size));
+}
+
+// ---------------------------------------------------------------------------
+// textfile
+// ---------------------------------------------------------------------------
+
+/// Decodes to UTF-8 in a freshly allocated buffer the caller frees.
+///
+/// Never null for a null or empty input: an empty file is an empty string, not
+/// a failure, and the C version allocates for it too.
+#[no_mangle]
+pub unsafe extern "C" fn textfile_decode(raw: *const u8, len: size_t) -> *mut c_char {
+    let input = if raw.is_null() || len == 0 {
+        &[][..]
+    } else {
+        slice::from_raw_parts(raw, len)
+    };
+
+    let decoded = text::decode(input);
+    let out = malloc(decoded.len() + 1);
+    if out.is_null() {
+        return ptr::null_mut();
+    }
+    if !decoded.is_empty() {
+        ptr::copy_nonoverlapping(decoded.as_ptr(), out, decoded.len());
+    }
+    *out.add(decoded.len()) = 0;
+    out as *mut c_char
+}
+
+/// Reads up to `max` bytes of a file. `*truncated` says whether there was more.
+///
+/// The buffer is `max` bytes (or one, when `max` is zero) and belongs to the
+/// caller, exactly as the C version's does.
+#[no_mangle]
+pub unsafe extern "C" fn textfile_read(
+    path: *const c_char,
+    max: size_t,
+    raw: *mut *mut u8,
+    bytes: *mut size_t,
+    truncated: *mut bool,
+) -> bool {
+    if raw.is_null() || bytes.is_null() || truncated.is_null() {
+        return false;
+    }
+    *raw = ptr::null_mut();
+    *bytes = 0;
+    *truncated = false;
+
+    let path = path_from_bytes(c_bytes(path));
+    let Ok(mut file) = std::fs::File::open(&path) else {
+        return false;
+    };
+
+    let cap = max.max(1);
+    let mut buf = vec![0u8; cap];
+    let mut got = 0usize;
+    while got < max {
+        match file.read(&mut buf[got..max]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        }
+    }
+
+    // One more byte is how "the file was longer than we read" is answered.
+    let mut probe = [0u8; 1];
+    let more = matches!(file.read(&mut probe), Ok(1));
+
+    let buffer = malloc(cap);
+    if buffer.is_null() {
+        return false;
+    }
+    if got > 0 {
+        ptr::copy_nonoverlapping(buf.as_ptr(), buffer, got);
+    }
+
+    *raw = buffer;
+    *bytes = got;
+    *truncated = more;
+    true
+}
+
+/// Writes `text` to `path` through a temporary file, so a card pulled out
+/// mid-write leaves the old file whole instead of a truncated one.
+#[no_mangle]
+pub unsafe extern "C" fn textfile_write(path: *const c_char, text: *const c_char) -> bool {
+    use std::io::Write as _;
+
+    let path_bytes = c_bytes(path);
+
+    // `snprintf("%s.tmp", ...)` into a 1024-byte local, and a failure when the
+    // result does not fit.
+    let mut temp_bytes = Vec::with_capacity(path_bytes.len() + 4);
+    temp_bytes.extend_from_slice(path_bytes);
+    temp_bytes.extend_from_slice(b".tmp");
+    if temp_bytes.len() + 1 > 1024 {
+        return false;
+    }
+
+    let body = c_bytes(text);
+    let need_newline = body.last().is_some_and(|&b| b != b'\n');
+
+    let temp_path = path_from_bytes(&temp_bytes);
+    let final_path = path_from_bytes(path_bytes);
+
+    let Ok(mut file) = std::fs::File::create(&temp_path) else {
+        return false;
+    };
+
+    // The bytes have to be on the card before the rename, or a card pulled out
+    // in between leaves the new name pointing at an empty file — which is worse
+    // than not having written at all.
+    let ok = file.write_all(body).is_ok()
+        && (!need_newline || file.write_all(b"\n").is_ok())
+        && file.flush().is_ok()
+        && file.sync_all().is_ok();
+    drop(file);
+
+    if !ok {
+        let _ = std::fs::remove_file(&temp_path);
+        return false;
+    }
+    if std::fs::rename(&temp_path, &final_path).is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+        return false;
+    }
+    true
+}
+
+// ---------------------------------------------------------------------------
+// tagdate
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct tagdate_t {
+    pub year: c_int,
+    pub month: c_int,
+    pub day: c_int,
+}
+
+impl tagdate_t {
+    fn as_date(&self) -> tagdate::Date {
+        tagdate::Date {
+            year: self.year,
+            month: self.month,
+            day: self.day,
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tagdate_parse(text: *const c_char, out: *mut tagdate_t) -> bool {
+    if text.is_null() || out.is_null() {
+        return false;
+    }
+    *out = tagdate_t::default();
+    match tagdate::parse(c_str(text)) {
+        Some(date) => {
+            (*out).year = date.year;
+            (*out).month = date.month;
+            (*out).day = date.day;
+            true
+        }
+        None => false,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tagdate_better(a: *const tagdate_t, b: *const tagdate_t) -> bool {
+    let a = a.as_ref().map(tagdate_t::as_date);
+    let b = b.as_ref().map(tagdate_t::as_date);
+    tagdate::better(a.as_ref(), b.as_ref())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tagdate_to_time(d: *const tagdate_t) -> c_time_t {
+    if d.is_null() || (*d).year <= 0 {
+        return 0;
+    }
+
+    let mut tm = tm_t {
+        tm_sec: 0,
+        tm_min: 0,
+        tm_hour: 0,
+        tm_mday: if (*d).day > 0 { (*d).day } else { 1 },
+        tm_mon: if (*d).month > 0 { (*d).month - 1 } else { 0 },
+        tm_year: (*d).year - 1900,
+        tm_wday: 0,
+        tm_yday: 0,
+        tm_isdst: -1,
+    };
+    let when = mktime(&mut tm);
+    if when == -1 {
+        0
+    } else {
+        when
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1120,5 +1437,243 @@ mod tests {
     fn json_tok_layout_matches_the_c_struct() {
         assert_eq!(core::mem::size_of::<json_tok_t>(), 20);
         assert_eq!(core::mem::offset_of!(json_tok_t, parent), 16);
+    }
+
+    #[test]
+    fn tagdate_layout_matches_the_c_struct() {
+        assert_eq!(core::mem::size_of::<tagdate_t>(), 12);
+        assert_eq!(core::mem::offset_of!(tagdate_t, day), 8);
+    }
+
+    #[test]
+    fn isqrt_crosses_the_boundary() {
+        assert_eq!(utils_isqrt32(0), 0);
+        assert_eq!(utils_isqrt32(17), 4);
+        assert_eq!(utils_isqrt32(u32::MAX), 65535);
+        assert_eq!(utils_isqrt64(u64::MAX), 4_294_967_295);
+    }
+
+    #[test]
+    fn extension_check_crosses_the_boundary() {
+        unsafe {
+            let name = cstring("track.FLAC");
+            let ext = cstring(".flac");
+            assert!(has_extension(name.as_ptr(), ext.as_ptr()));
+            let other = cstring(".wav");
+            assert!(!has_extension(name.as_ptr(), other.as_ptr()));
+            // A null pointer is an empty string here, which no extension matches.
+            assert!(!has_extension(ptr::null(), ext.as_ptr()));
+        }
+    }
+
+    #[test]
+    fn seconds_report_a_length_even_without_a_buffer() {
+        let want = unsafe { formatDoubleSeconds(3661.0, ptr::null_mut(), 0) };
+        assert_eq!(want, 7, "snprintf(NULL, 0, ...) answers the length");
+
+        let mut buf = [0i8; 32];
+        let written = unsafe { formatDoubleSeconds(65.0, buf.as_mut_ptr(), buf.len()) };
+        assert_eq!(written, 4);
+        assert_eq!(unsafe { read_back(&buf[..5]) }, "1:05");
+    }
+
+    #[test]
+    fn seconds_terminate_inside_the_capacity() {
+        // Four bytes: three characters and the terminator, and the wanted
+        // length still reported whole, as snprintf does.
+        let mut buf = [0x55i8; 4];
+        let written = unsafe { formatDoubleSeconds(3661.0, buf.as_mut_ptr(), 4) };
+        assert_eq!(written, 7, "\"1:01:01\" is seven characters");
+        assert_eq!(unsafe { read_back(&buf) }, "1:0");
+
+        // With room to spare, nothing past the terminator is touched.
+        let mut roomy = [0x55i8; 16];
+        let written = unsafe { formatDoubleSeconds(3661.0, roomy.as_mut_ptr(), roomy.len()) };
+        assert_eq!(written, 7);
+        assert_eq!(unsafe { read_back(&roomy) }, "1:01:01");
+        assert!(
+            roomy[8..].iter().all(|&b| b == 0x55),
+            "the call wrote past what it needed"
+        );
+    }
+
+    #[test]
+    fn progress_and_row_duration_cross_the_boundary() {
+        let mut buf = [0i8; 32];
+        unsafe { formatDoubleProgress(65.0, 300.0, buf.as_mut_ptr(), buf.len()) };
+        assert_eq!(unsafe { read_back(&buf) }, "1:05/5:00");
+
+        let mut row = [0i8; 24];
+        unsafe { format_row_duration(185, row.as_mut_ptr(), row.len()) };
+        assert_eq!(unsafe { read_back(&row) }, "3:05");
+
+        // A track with no length is an empty string, not "0:00".
+        let mut empty = [0x33i8; 8];
+        unsafe { format_row_duration(0, empty.as_mut_ptr(), empty.len()) };
+        assert_eq!(empty[0], 0);
+    }
+
+    #[test]
+    fn decode_returns_c_owned_utf8() {
+        let raw = b"caf\xE9 x";
+        let out = unsafe { textfile_decode(raw.as_ptr(), raw.len()) };
+        assert!(!out.is_null());
+        let text = unsafe { CStr::from_ptr(out) }.to_bytes().to_vec();
+        unsafe { free(out as *mut u8) };
+        assert_eq!(text, "café x".as_bytes());
+    }
+
+    #[test]
+    fn decode_of_nothing_is_an_empty_string_not_null() {
+        let out = unsafe { textfile_decode(ptr::null(), 0) };
+        assert!(!out.is_null());
+        assert_eq!(unsafe { CStr::from_ptr(out) }.to_bytes(), b"");
+        unsafe { free(out as *mut u8) };
+    }
+
+    #[test]
+    fn a_file_round_trips_through_write_and_read() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("sonix-ffi-textfile-{}.txt", std::process::id()));
+        let path_c = cstring(path.to_str().unwrap());
+
+        // Written without a trailing newline, it comes back with one.
+        assert!(unsafe { textfile_write(path_c.as_ptr(), cstring("hello").as_ptr()) });
+        let body = std::fs::read(&path).unwrap();
+        assert_eq!(body, b"hello\n");
+
+        // No temporary file is left behind.
+        let leftover = dir.join(format!("sonix-ffi-textfile-{}.txt.tmp", std::process::id()));
+        assert!(!leftover.exists());
+
+        let mut raw: *mut u8 = ptr::null_mut();
+        let mut bytes = 99usize;
+        let mut truncated = true;
+        assert!(unsafe {
+            textfile_read(path_c.as_ptr(), 1024, &mut raw, &mut bytes, &mut truncated)
+        });
+        assert_eq!(bytes, 6);
+        assert!(!truncated);
+        let read = unsafe { slice::from_raw_parts(raw, bytes).to_vec() };
+        unsafe { free(raw) };
+        assert_eq!(read, b"hello\n");
+
+        // A short limit reports the cut.
+        let mut raw2: *mut u8 = ptr::null_mut();
+        let mut bytes2 = 0usize;
+        let mut truncated2 = false;
+        assert!(unsafe {
+            textfile_read(path_c.as_ptr(), 3, &mut raw2, &mut bytes2, &mut truncated2)
+        });
+        assert_eq!(bytes2, 3);
+        assert!(truncated2, "there was more in the file");
+        unsafe { free(raw2) };
+
+        // Exactly the whole file is not a truncation.
+        let mut raw3: *mut u8 = ptr::null_mut();
+        let mut bytes3 = 0usize;
+        let mut truncated3 = true;
+        assert!(unsafe {
+            textfile_read(path_c.as_ptr(), 6, &mut raw3, &mut bytes3, &mut truncated3)
+        });
+        assert_eq!(bytes3, 6);
+        assert!(!truncated3);
+        unsafe { free(raw3) };
+
+        // And a file that is not there is a failure, not an empty read.
+        let mut raw4: *mut u8 = ptr::null_mut();
+        let mut bytes4 = 0usize;
+        let mut truncated4 = false;
+        assert!(!unsafe { textfile_read(ptr::null(), 8, &mut raw4, &mut bytes4, &mut truncated4) });
+        assert!(raw4.is_null());
+
+        std::fs::remove_file(&path).unwrap();
+
+        // An empty note still produces a file, and it ends in a newline.
+        let empty_path = dir.join(format!(
+            "sonix-ffi-textfile-empty-{}.txt",
+            std::process::id()
+        ));
+        let empty_c = cstring(empty_path.to_str().unwrap());
+        assert!(unsafe { textfile_write(empty_c.as_ptr(), cstring("").as_ptr()) });
+        let empty_body = std::fs::read(&empty_path).unwrap();
+        std::fs::remove_file(&empty_path).unwrap();
+        assert_eq!(empty_body, b"", "an empty note is not given a newline");
+    }
+
+    #[test]
+    fn tagdate_crosses_the_boundary() {
+        let mut date = tagdate_t::default();
+        unsafe {
+            assert!(tagdate_parse(cstring("2026-03-12").as_ptr(), &mut date));
+            assert_eq!((date.year, date.month, date.day), (2026, 3, 12));
+
+            assert!(tagdate_parse(cstring("2026-13").as_ptr(), &mut date));
+            assert_eq!((date.year, date.month, date.day), (2026, 0, 0));
+
+            assert!(!tagdate_parse(cstring("n/a").as_ptr(), &mut date));
+            assert_eq!((date.year, date.month, date.day), (0, 0, 0));
+        }
+    }
+
+    #[test]
+    fn the_fuller_date_wins_across_the_boundary() {
+        let year = tagdate_t {
+            year: 2026,
+            month: 0,
+            day: 0,
+        };
+        let day = tagdate_t {
+            year: 2026,
+            month: 3,
+            day: 12,
+        };
+        unsafe {
+            assert!(tagdate_better(&day, &year));
+            assert!(!tagdate_better(&year, &day));
+            assert!(!tagdate_better(&day, &day));
+            assert!(tagdate_better(&year, ptr::null()));
+            assert!(!tagdate_better(ptr::null(), ptr::null()));
+        }
+    }
+
+    #[test]
+    fn a_tag_date_becomes_one_moment() {
+        // The parts a tag left out settle on the first of the month, so a month
+        // and its first day are the same moment.
+        let month = tagdate_t {
+            year: 2026,
+            month: 3,
+            day: 0,
+        };
+        let first = tagdate_t {
+            year: 2026,
+            month: 3,
+            day: 1,
+        };
+        let earlier = tagdate_t {
+            year: 2025,
+            month: 12,
+            day: 31,
+        };
+
+        unsafe {
+            assert_eq!(tagdate_to_time(&month), tagdate_to_time(&first));
+            assert!(tagdate_to_time(&earlier) < tagdate_to_time(&first));
+            assert_eq!(tagdate_to_time(ptr::null()), 0);
+
+            let none = tagdate_t::default();
+            assert_eq!(tagdate_to_time(&none), 0, "no year, no moment");
+        }
+    }
+
+    #[test]
+    fn time_t_matches_the_c_data_model() {
+        // 32 bits on the device, 64 on every desktop this is tested on.
+        #[cfg(any(target_os = "windows", target_pointer_width = "64"))]
+        assert_eq!(core::mem::size_of::<c_time_t>(), 8);
+
+        #[cfg(all(not(target_os = "windows"), target_pointer_width = "32"))]
+        assert_eq!(core::mem::size_of::<c_time_t>(), 4);
     }
 }
