@@ -10,6 +10,7 @@
 
 #include "src/system/audio/waveform.h"
 #include "src/system/device/ota.h"
+#include "src/gui/library/browser.h"
 #include "src/system/device/system.h"
 #include "src/system/core/panel.h"
 
@@ -1438,6 +1439,7 @@ void power_shutdown(void) {
 	// position seeked to while paused, which changes no state at all, would
 	// never be written.
 	device_state_remember_flush();
+	browser_state_flush();
 
 	// Dark the panel immediately, then fade/close audio before the kernel takes
 	// power away from the output stage. In particular, the HBC3000 is parked on

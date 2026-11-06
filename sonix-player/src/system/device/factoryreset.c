@@ -190,7 +190,7 @@ void factoryreset_run(void) {
 	unmount_card();
 
 	// This player's configuration goes now, without waiting for the reboot.
-	static const char *const OURS[] = {CONFIG_FILE, EBOOK_CONFIG_FILE};
+	static const char *const OURS[] = {CONFIG_FILE, CONFIG_FILE ".browser", CONFIG_FILE ".browser.tmp", EBOOK_CONFIG_FILE};
 	for (size_t i = 0; i < sizeof(OURS) / sizeof(OURS[0]); i++) {
 		if (unlink(OURS[i]) == 0) {
 			printf("factoryreset: %s deleted\n", OURS[i]);
@@ -245,6 +245,8 @@ static const char *const KEEP[] = {
 	"bt_macaddr.txt",
 	"device_config.ini",
 	"device_config.ini.tmp",
+	"device_config.ini.browser",
+	"device_config.ini.browser.tmp",
 	"ebook_config.ini",
 	"ebook_config.ini.tmp",
 	"tidal_session.ini",
