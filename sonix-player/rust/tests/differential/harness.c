@@ -177,6 +177,30 @@ extern bool c_id3chap_present(const char *path);
 extern int id3chap_read(const char *path, id3chap_fields *out, int max);
 extern bool id3chap_present(const char *path);
 
+/* addons */
+typedef struct {
+	const char *id;
+	const char *label;
+	const char *note;
+	const char *section;
+} addon_row;
+
+extern int c_addons_count(void);
+extern const addon_row *c_addons_at(int index);
+extern const addon_row *c_addons_find(const char *id);
+extern bool c_addons_enabled(const char *id);
+extern bool c_addons_set(const char *id, bool on);
+extern void c_addons_apply_defaults(bool (*is_default)(const char *id));
+extern bool c_addons_any_game_enabled(void);
+
+extern int addons_count(void);
+extern const addon_row *addons_at(int index);
+extern const addon_row *addons_find(const char *id);
+extern bool addons_enabled(const char *id);
+extern bool addons_set(const char *id, bool on);
+extern void addons_apply_defaults(bool (*is_default)(const char *id));
+extern bool addons_any_game_enabled(void);
+
 /* ------------------------------------------------------------------------ */
 /* Reporting                                                                 */
 /* ------------------------------------------------------------------------ */
@@ -1768,6 +1792,200 @@ static void test_id3chap(const char *workdir) {
 	compare_id3chap(path, 8, "a missing file");
 }
 
+/* ------------------------------------------------------------------------ */
+/* addons                                                                   */
+/* ------------------------------------------------------------------------ */
+
+static void compare_addons_state(const char *label) {
+	int n = c_addons_count();
+	for (int i = 0; i < n; i++) {
+		const addon_row *row = c_addons_at(i);
+		checks++;
+		if (c_addons_enabled(row->id) != addons_enabled(row->id)) {
+			char detail[200];
+			snprintf(detail, sizeof detail, "%s: the switch for \"%s\" differs", label, row->id);
+			fail("addons_enabled", detail);
+		}
+	}
+	checks++;
+	if (c_addons_any_game_enabled() != addons_any_game_enabled()) {
+		char detail[200];
+		snprintf(detail, sizeof detail, "%s: the two disagree on whether a game is on", label);
+		fail("addons_any_game_enabled", detail);
+	}
+}
+
+/* Deliberately not the compiled-in default rule: the point is that the caller's
+ * callback is what decides. */
+static bool addon_l_or_eq(const char *id) {
+	return id[0] == 'l' || strstr(id, "eq") != NULL;
+}
+
+/* The C settings writer opens the file with fopen(..., "w"), which the Windows
+ * CRT turns into CRLF; the Rust one writes the bytes it means. That is a text
+ * mode artefact of the C and not behaviour to copy — the device has no text
+ * mode — so line endings are ignored here and everything else is compared. On a
+ * POSIX host there are no CRs and this is strcmp. */
+static bool same_ignoring_cr(const char *a, const char *b) {
+	for (;;) {
+		while (*a == '\r') {
+			a++;
+		}
+		while (*b == '\r') {
+			b++;
+		}
+		if (*a != *b) {
+			return false;
+		}
+		if (*a == '\0') {
+			return true;
+		}
+		a++;
+		b++;
+	}
+}
+
+static void compare_config_files(const char *c_path, const char *r_path, const char *label) {
+	char *cf = read_file(c_path);
+	char *rf = read_file(r_path);
+	checks++;
+	if (!cf || !rf) {
+		fail(label, "a side wrote no settings file");
+	} else if (!same_ignoring_cr(cf, rf)) {
+		char detail[400];
+		snprintf(detail, sizeof detail, "C:\n%s\nRust:\n%s", cf, rf);
+		fail(label, detail);
+	}
+	free(cf);
+	free(rf);
+}
+
+static void test_addons(const char *workdir) {
+	char c_path[600];
+	char r_path[600];
+	char tmp[600];
+	snprintf(c_path, sizeof c_path, "%s/diff_addons_c.ini", workdir);
+	snprintf(r_path, sizeof r_path, "%s/diff_addons_r.ini", workdir);
+
+	/* The list itself, row by row, including the order the page depends on. */
+	checks++;
+	if (c_addons_count() != addons_count()) {
+		char detail[120];
+		snprintf(detail, sizeof detail, "C has %d rows, Rust has %d", c_addons_count(), addons_count());
+		fail("addons_count", detail);
+	}
+	for (int i = 0; i < c_addons_count(); i++) {
+		const addon_row *c = c_addons_at(i);
+		const addon_row *r = addons_at(i);
+		checks++;
+		if (!c || !r) {
+			fail("addons_at", "one side returned nothing for a valid index");
+			continue;
+		}
+		checks++;
+		if (strcmp(c->id, r->id) != 0 || strcmp(c->label, r->label) != 0 ||
+		    strcmp(c->note, r->note) != 0 || strcmp(c->section, r->section) != 0) {
+			char detail[400];
+			snprintf(detail, sizeof detail, "row %d: C {%s, %s, %s, %s} vs Rust {%s, %s, %s, %s}", i, c->id,
+			         c->label, c->note, c->section, r->id, r->label, r->note, r->section);
+			fail("addons_at", detail);
+		}
+	}
+	checks++;
+	if ((c_addons_at(-1) == NULL) != (addons_at(-1) == NULL) ||
+	    (c_addons_at(c_addons_count()) == NULL) != (addons_at(addons_count()) == NULL)) {
+		fail("addons_at", "out-of-range indices are handled differently");
+	}
+
+	/* find, by exact id only. */
+	{
+		static const char *ids[] = {"tidal", "", "nope", "TIDAL", "Tida", "gearboy",
+		                            "pebble_deluxe", "layout_poster", "addons", "tidal "};
+		for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+			const addon_row *c = c_addons_find(ids[i]);
+			const addon_row *r = addons_find(ids[i]);
+			checks++;
+			if ((c == NULL) != (r == NULL) || (c && strcmp(c->id, r->id) != 0)) {
+				char detail[200];
+				snprintf(detail, sizeof detail, "\"%s\": C %s, Rust %s", ids[i], c ? c->id : "none",
+				         r ? r->id : "none");
+				fail("addons_find", detail);
+			}
+		}
+		checks++;
+		if (c_addons_find(NULL) != NULL || addons_find(NULL) != NULL) {
+			fail("addons_find", "a null id found something");
+		}
+	}
+
+	/* The defaults, with no settings file at all. */
+	remove(c_path);
+	remove(r_path);
+	c_config_init(c_path);
+	config_init(r_path);
+	compare_addons_state("fresh install");
+
+	/* One set per fresh file: the C config save cannot replace an existing file
+	 * on Windows, and this test is about the switches, not about rename(). */
+	{
+		static const char *set_ids[] = {"tidal", "eq", "gearboy", "notes"};
+		for (size_t i = 0; i < sizeof set_ids / sizeof set_ids[0]; i++) {
+			for (int on = 0; on <= 1; on++) {
+				remove(c_path);
+				remove(r_path);
+				c_config_init(c_path);
+				config_init(r_path);
+
+				bool c_ok = c_addons_set(set_ids[i], on != 0);
+				bool r_ok = addons_set(set_ids[i], on != 0);
+				checks++;
+				if (c_ok != r_ok) {
+					char detail[200];
+					snprintf(detail, sizeof detail, "setting \"%s\" to %d: C %d, Rust %d", set_ids[i], on,
+					         (int)c_ok, (int)r_ok);
+					fail("addons_set", detail);
+				}
+				checks++;
+				if (c_addons_enabled(set_ids[i]) != addons_enabled(set_ids[i])) {
+					fail("addons_set", "the two disagree on the state after setting it");
+				}
+				compare_config_files(c_path, r_path, "addons settings file");
+			}
+		}
+
+		/* An id that is not a module is refused, and nothing is written. */
+		remove(c_path);
+		remove(r_path);
+		c_config_init(c_path);
+		config_init(r_path);
+		checks++;
+		if (c_addons_set("nope", true) != addons_set("nope", true)) {
+			fail("addons_set", "the two disagree on an unknown id");
+		}
+		checks++;
+		if (c_addons_set(NULL, true) != addons_set(NULL, true)) {
+			fail("addons_set", "the two disagree on a null id");
+		}
+	}
+
+	/* Defaults applied through a callback of the caller's own. */
+	remove(c_path);
+	remove(r_path);
+	c_config_init(c_path);
+	config_init(r_path);
+	c_addons_apply_defaults(addon_l_or_eq);
+	addons_apply_defaults(addon_l_or_eq);
+	compare_addons_state("applied defaults");
+	compare_config_files(c_path, r_path, "applied defaults file");
+
+	remove(c_path);
+	remove(r_path);
+	snprintf(tmp, sizeof tmp, "%s.tmp", c_path);
+	remove(tmp);
+	snprintf(tmp, sizeof tmp, "%s.tmp", r_path);
+	remove(tmp);
+}
+
 int main(int argc, char **argv) {
 	const char *workdir = argc > 1 ? argv[1] : ".";
 
@@ -1779,6 +1997,7 @@ int main(int argc, char **argv) {
 	test_textfile(workdir);
 	test_tagdate();
 	test_id3chap(workdir);
+	test_addons(workdir);
 
 	printf("\n%d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

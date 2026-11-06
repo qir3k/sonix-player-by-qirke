@@ -31,6 +31,7 @@
 //! | `text/textfile.c` | `textfile_decode`, `textfile_read`, `textfile_write` |
 //! | `library/tagdate.c` | `tagdate_parse`, `tagdate_better`, `tagdate_to_time` |
 //! | `library/id3chap.c` | `id3chap_read`, `id3chap_present` |
+//! | `addons/addons.c` | `addons_count`, `addons_at`, `addons_find`, `addons_enabled`, `addons_set`, `addons_apply_defaults`, `addons_any_game_enabled` |
 //!
 //! `utils.c` is the one exception to "delete the file and link": it is a mixed
 //! file, and the half below `format_row_duration` is pthreads, `mmap`,
@@ -58,7 +59,7 @@ use std::ffi::CStr;
 use std::io::Read as _;
 use std::sync::{Mutex, OnceLock};
 
-use sonix_core::{base64, config, hash, id3chap, json, tagdate, text, utils};
+use sonix_core::{addons, base64, config, hash, id3chap, json, tagdate, text, utils};
 
 /// C's `long`.
 ///
@@ -1207,6 +1208,96 @@ pub unsafe extern "C" fn id3chap_present(path: *const c_char) -> bool {
         return false;
     }
     id3chap::present(&path_from_bytes(c_bytes(path)))
+}
+
+// ---------------------------------------------------------------------------
+// addons
+// ---------------------------------------------------------------------------
+
+const ADDONS_SECTION: &CStr = c"addons";
+
+#[no_mangle]
+pub extern "C" fn addons_count() -> c_int {
+    addons::count() as c_int
+}
+
+#[no_mangle]
+pub extern "C" fn addons_at(index: c_int) -> *const addons::Addon {
+    match addons::at(index) {
+        Some(addon) => addon as *const _,
+        None => ptr::null(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn addons_find(id: *const c_char) -> *const addons::Addon {
+    if id.is_null() {
+        return ptr::null();
+    }
+    match addons::find(c_str(id)) {
+        Some(addon) => addon as *const _,
+        None => ptr::null(),
+    }
+}
+
+/// Whether a module is switched on. Unknown ids answer true: a gate is a way to
+/// leave something out, and a misspelt one must not quietly remove a feature.
+#[no_mangle]
+pub unsafe extern "C" fn addons_enabled(id: *const c_char) -> bool {
+    if id.is_null() {
+        return true;
+    }
+    let fallback = addons::is_default_on(c_str(id));
+    config_get_bool(ADDONS_SECTION.as_ptr(), id, fallback)
+}
+
+/// Switches one on or off and stores it. False if the setting could not be
+/// stored, or the id is not a module.
+#[no_mangle]
+pub unsafe extern "C" fn addons_set(id: *const c_char, on: bool) -> bool {
+    if id.is_null() || addons_find(id).is_null() {
+        return false;
+    }
+    let previous = addons_enabled(id);
+    config_set_bool(ADDONS_SECTION.as_ptr(), id, on);
+    if addons_enabled(id) != on || !config_save() {
+        config_set_bool(ADDONS_SECTION.as_ptr(), id, previous);
+        config_save();
+        return false;
+    }
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn addons_apply_defaults(
+    is_default: Option<extern "C" fn(*const c_char) -> bool>,
+) {
+    let Some(is_default) = is_default else {
+        return;
+    };
+    for addon in addons::table() {
+        config_set_bool(ADDONS_SECTION.as_ptr(), addon.id, is_default(addon.id));
+    }
+    config_save();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn addons_any_game_enabled() -> bool {
+    let mut buf = [0 as c_char; 32];
+    for id in addons::game_ids() {
+        let bytes = id.as_bytes();
+        if bytes.len() + 1 > buf.len() {
+            continue;
+        }
+        for (i, &b) in bytes.iter().enumerate() {
+            buf[i] = b as c_char;
+        }
+        buf[bytes.len()] = 0;
+        if addons_enabled(buf.as_ptr()) {
+            return true;
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------

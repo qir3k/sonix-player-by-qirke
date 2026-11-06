@@ -22,6 +22,7 @@ builds two crates:
 | `src/system/text/textfile.c` | `sonix-core/src/text.rs` | ported (UTF-8 / UTF-16 / Windows-1252 decode, atomic write), tested |
 | `src/system/library/tagdate.c` | `sonix-core/src/tagdate.rs` | ported (parse, precision), tested; `to_time` goes through libc `mktime` |
 | `src/system/library/id3chap.c` | `sonix-core/src/id3chap.rs` | ported (ID3v2.3/2.4 CHAP frames), tested |
+| `src/system/addons/addons.c` | `sonix-core/src/addons.rs` | ported (the module list and its gates), tested |
 
 Everything else — the GUI, the decoders, streaming, Bluetooth, the audio path —
 is still C. [PORTING.md](PORTING.md) is the map of what is left and in what
@@ -31,7 +32,7 @@ order, with the real line counts.
 
 ```bash
 cd sonix-player/rust
-make test          # cargo test --workspace, 116 tests
+make test          # cargo test --workspace, 122 tests
 make differential  # the C originals beside the Rust port, same inputs
 make staticlib     # libsonix_player_core.a for the firmware to link
 ```
@@ -60,9 +61,11 @@ reads at ten different limits including exactly past the end, writes compared
 byte for byte, the date parser over a corpus plus every pair through the
 precision rule, and generated MP3 tags — both tag versions, with and without an extended header
 and padding, at every chapter count from none to six, then truncated byte by
-byte and corrupted at random — read by both chapter readers.
+byte and corrupted at random — read by both chapter readers, and the add-on list
+compared row by row along with every switch's default, every `addons_set` and
+the settings file each one writes.
 
-It currently runs **1,087,782 checks with 0 failures**, and it is how the two
+It currently runs **1,088,004 checks with 0 failures**, and it is how the two
 bugs listed at the end of [PORTING.md](PORTING.md) were found — neither was
 visible to the unit tests.
 
@@ -124,6 +127,11 @@ callers depend on them:
   returns what the text *wanted* rather than what fitted, as `snprintf` does.
   Past 2^32 seconds C's cast is undefined and Rust saturates; no track reaches
   that, and the harness does not compare it.
+* `addons_enabled` still answers **true** for an id it has never heard of: a
+  gate is a way to leave something out, and a misspelt one must not quietly
+  remove a feature. The list itself is built behind a `gb-core` Cargo feature
+  that mirrors the Makefile's `-DGB_CORE=1`, because a build without the
+  emulator must not offer a row for it.
 * `tagdate_parse` still keeps whatever part of a date is real (`2026-13` is a
   year, `2026-02-99` is a year and a month) and `tagdate_better` still prefers
   the fuller one, ties going to whichever the caller already had.

@@ -12,6 +12,7 @@
 //! reader still accepts a handful of things strict JSON does not, because
 //! Tidal and Qobuz send them and the C version coped.
 
+pub mod addons;
 pub mod base64;
 pub mod config;
 pub mod hash;

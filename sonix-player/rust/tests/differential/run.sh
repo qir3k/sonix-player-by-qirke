@@ -60,7 +60,10 @@ RENAMES="-Dbase64_decode=c_base64_decode
 -Dformat_row_duration=c_format_row_duration
 -Dtextfile_decode=c_textfile_decode -Dtextfile_read=c_textfile_read -Dtextfile_write=c_textfile_write
 -Dtagdate_parse=c_tagdate_parse -Dtagdate_better=c_tagdate_better -Dtagdate_to_time=c_tagdate_to_time
--Did3chap_read=c_id3chap_read -Did3chap_present=c_id3chap_present"
+-Did3chap_read=c_id3chap_read -Did3chap_present=c_id3chap_present
+-Daddons_count=c_addons_count -Daddons_at=c_addons_at -Daddons_find=c_addons_find
+-Daddons_enabled=c_addons_enabled -Daddons_set=c_addons_set
+-Daddons_apply_defaults=c_addons_apply_defaults -Daddons_any_game_enabled=c_addons_any_game_enabled"
 
 # textfile.c flushes with POSIX `fsync`; the Windows CRT calls that `_commit`.
 # It is the same call, so the comparison stays a fair one.
@@ -83,6 +86,12 @@ done
 	-c "$library/tagdate.c" -o "$build/tagdate.o"
 "$CC" -O1 -w -std=gnu99 -I"$app" -I"$library" $RENAMES \
 	-c "$library/id3chap.c" -o "$build/id3chap.o"
+
+# GB_CORE is what the device Makefile passes, and it decides whether the list of
+# add-ons has a Gearboy row. The two sides have to be built with the same answer
+# or the comparison is meaningless.
+"$CC" -O1 -w -std=gnu99 -DGB_CORE=1 -I"$app" -I"$app/src/system/addons" $RENAMES \
+	-c "$app/src/system/addons/addons.c" -o "$build/addons.o"
 
 # utils.c is a mixed file: the pure half can be compiled here, the other half
 # (pthreads, mmap, sched, prctl) cannot leave the device. Taking the prefix of

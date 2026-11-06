@@ -68,6 +68,7 @@ Recommendation: (1) until it is done, then (2) GUI screen by screen. Not (3).
 | `system/text/textfile.c` | 210 | **ported** |
 | `system/library/tagdate.c` | 140 | **ported** |
 | `system/library/id3chap.c` | 207 | **ported** |
+| `system/addons/addons.c` | 178 | **ported** |
 | everything else | ~243,000 | C |
 
 ### The one module that cannot be swapped by deleting its file
@@ -92,8 +93,7 @@ Line counts are `.c` only.
 |---|---|---|
 | `system/core/` (`logging`, `lang`, `region`, `respath`, `glibc_compat`) | ~1,400 | everything includes it; pure string and formatting work (`utils` is done) |
 | `system/core/db` | 46 | thin SQLite wrapper |
-| `system/notes/` | 303 | small, self-contained |
-| `system/addons/` | 178 | plugin registry |
+| `system/notes/` (`notesstore.c`) | 303 | small and self-contained, but needs POSIX `mkdir`/`localtime_r` shims before it can be verified off the device |
 | `system/input/` | 1,143 | key mapping and gesture state, pure logic |
 | `system/playback/playlist.c` + `sleeptimer.c` | ~1,300 | queue, shuffle, repeat — completely testable |
 | `system/library/cue.c`, `vorbischap.c` | ~1,070 | parsers with fixed grammars (`tagdate` and `id3chap` are done) |
@@ -137,7 +137,7 @@ Line counts are `.c` only.
 Each module gets three levels:
 
 1. **Unit tests** in the Rust module, for the behaviour the header documents.
-   Done for everything ported so far (116 tests: 90 in `sonix-core`, 26 through
+   Done for everything ported so far (122 tests: 96 in `sonix-core`, 26 through
    the C ABI in `sonix-ffi`).
 2. **A differential harness** (`tests/differential`, run with `make
    differential`): the original `.c` files are compiled with their symbols
@@ -146,7 +146,7 @@ Each module gets three levels:
    buffers through each hash in uneven chunks, 250 generated JSON documents
    plus a hand-picked corpus walked token by token, and a settings file driven
    through both implementations. Any disagreement fails the run. **Done, and
-   passing: 1,087,782 checks, 0 failures.**
+   passing: 1,088,004 checks, 0 failures.**
 3. **Golden vectors** from the C implementation where the arithmetic is not
    self-evident — the equaliser coefficients, ReplayGain, the smart-mix
    scoring. The C build can be made to print them. Needed once the audio and

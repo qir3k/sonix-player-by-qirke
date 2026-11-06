@@ -13,5 +13,13 @@ repository.workspace = true
 # borrowed from somebody else.
 [dependencies]
 
+[features]
+# The Gearboy emulator is vendored C++ and only present in a build that carries
+# it. The C side spells this `-DGB_CORE=1`; the add-on list has to agree with
+# whichever flag the build used, or the Plugins page would offer a module that
+# is not there.
+default = ["gb-core"]
+gb-core = []
+
 [lib]
 doctest = true
