@@ -16,6 +16,7 @@ pub mod addons;
 pub mod base64;
 pub mod c_time;
 pub mod config;
+pub mod cue;
 pub mod hash;
 pub mod id3chap;
 pub mod json;

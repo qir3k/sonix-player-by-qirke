@@ -67,7 +67,10 @@ RENAMES="-Dbase64_decode=c_base64_decode
 -Dnotes_dir=c_notes_dir -Dnotes_path=c_notes_path -Dnotes_is_note_name=c_notes_is_note_name
 -Dnotes_list=c_notes_list -Dnotes_read=c_notes_read -Dnotes_fits_editor=c_notes_fits_editor
 -Dnotes_file_name=c_notes_file_name -Dnotes_write=c_notes_write -Dnotes_name_ok=c_notes_name_ok
--Dnotes_display_name=c_notes_display_name -Dnotes_default_name=c_notes_default_name"
+-Dnotes_display_name=c_notes_display_name -Dnotes_default_name=c_notes_default_name
+-Dcue_parse=c_cue_parse -Dcue_is_sheet=c_cue_is_sheet
+-Dcue_wav_has_markers=c_cue_wav_has_markers -Dcue_virtual_path=c_cue_virtual_path
+-Dcue_split_path=c_cue_split_path -Dcue_order_tracks=c_cue_order_tracks"
 
 # textfile.c flushes with POSIX `fsync`; the Windows CRT calls that `_commit`.
 # It is the same call, so the comparison stays a fair one.
@@ -83,10 +86,15 @@ notes_defs=""
 case "$(uname -s)" in
 MINGW* | MSYS* | CYGWIN*) ;;
 *)
-	notes_defs="-DHAVE_NOTESSTORE=1"
+	notes_defs="-DHAVE_NOTESSTORE=1 -DHAVE_CUE=1"
 	# shellcheck disable=SC2086
 	"$CC" -O1 -w -std=gnu99 -I"$app" $RENAMES \
 		-c "$app/src/system/notes/notesstore.c" -o "$build/notesstore.o"
+	# cue.c walks directories and asks stat() about what it finds, and its
+	# fixture comparisons need a case-sensitive filesystem to mean anything.
+	# shellcheck disable=SC2086
+	"$CC" -O1 -w -std=gnu99 -I"$library" $RENAMES \
+		-c "$library/cue.c" -o "$build/cue.o"
 	;;
 esac
 

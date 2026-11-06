@@ -22,7 +22,7 @@
 #include <string.h>
 #include <time.h>
 
-#ifdef HAVE_NOTESSTORE
+#if defined(HAVE_NOTESSTORE) || defined(HAVE_CUE)
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -2612,6 +2612,647 @@ static void test_notes(const char *workdir) {
 
 #endif /* HAVE_NOTESSTORE */
 
+/* ------------------------------------------------------------------------ */
+/* cue                                                                      */
+/* ------------------------------------------------------------------------ */
+
+/* cue.c walks directories (dirent) and stats what it finds, so like notes it
+ * is compiled only on a POSIX host. Both sides read the same fixture, so the
+ * absolute path each resolves to is comparable byte for byte. */
+#ifdef HAVE_CUE
+
+typedef struct {
+	int number;
+	char title[160];
+	char performer[160];
+	uint64_t begin_ms;
+	uint64_t end_ms;
+} cue_track_t;
+
+typedef struct {
+	char audio_path[512];
+	char album[160];
+	char performer[160];
+	char genre[96];
+	int year;
+	int disc;
+	int track_count;
+	cue_track_t tracks[99];
+} cue_sheet_t;
+
+extern bool c_cue_parse(const char *cue_path, cue_sheet_t *out);
+extern bool c_cue_is_sheet(const char *path);
+extern bool c_cue_wav_has_markers(const char *path);
+extern void c_cue_virtual_path(const char *cue_path, int track_number, char *out, size_t size);
+extern int c_cue_split_path(const char *path, char *cue_out, size_t size);
+extern bool c_cue_order_tracks(const char *a, const char *b, int *out);
+
+extern bool cue_parse(const char *cue_path, cue_sheet_t *out);
+extern bool cue_is_sheet(const char *path);
+extern bool cue_wav_has_markers(const char *path);
+extern void cue_virtual_path(const char *cue_path, int track_number, char *out, size_t size);
+extern int cue_split_path(const char *path, char *cue_out, size_t size);
+extern bool cue_order_tracks(const char *a, const char *b, int *out);
+
+static void compare_cue_parse(const char *path, const char *label) {
+	static cue_sheet_t c;
+	static cue_sheet_t r;
+	memset(&c, 0, sizeof c);
+	memset(&r, 0, sizeof r);
+
+	bool c_ok = c_cue_parse(path, &c);
+	bool r_ok = cue_parse(path, &r);
+
+	checks++;
+	if (c_ok != r_ok) {
+		char detail[400];
+		snprintf(detail, sizeof detail, "%s: C %d (%d tracks), Rust %d (%d tracks)", label,
+		         (int)c_ok, c.track_count, (int)r_ok, r.track_count);
+		fail("cue_parse", detail);
+		return;
+	}
+
+	checks++;
+	if (memcmp(&c, &r, sizeof c) != 0) {
+		const unsigned char *cb = (const unsigned char *)&c;
+		const unsigned char *rb = (const unsigned char *)&r;
+		size_t at = 0;
+		while (at < sizeof c && cb[at] == rb[at]) {
+			at++;
+		}
+		char detail[400];
+		snprintf(detail, sizeof detail,
+		         "%s: first difference at byte %lu of %lu (C %02X, Rust %02X); "
+		         "tracks %d/%d",
+		         label, (unsigned long)at, (unsigned long)sizeof c, at < sizeof c ? cb[at] : 0,
+		         at < sizeof c ? rb[at] : 0, c.track_count, r.track_count);
+		fail("cue_parse", detail);
+	}
+}
+
+/* A fixture that quietly stops parsing would make the comparison above vacuous,
+ * so the interesting ones are checked for what they are supposed to be. */
+static void expect_cue(const char *path, int tracks, const char *label) {
+	static cue_sheet_t sheet;
+	memset(&sheet, 0, sizeof sheet);
+	bool ok = c_cue_parse(path, &sheet);
+	checks++;
+	if (!ok || sheet.track_count != tracks) {
+		char detail[320];
+		snprintf(detail, sizeof detail, "%s: C parsed %d with %d tracks, wanted %d", label, (int)ok,
+		         sheet.track_count, tracks);
+		fail("cue fixture", detail);
+	}
+}
+
+static void cue_fixture(const char *dir, const char *name, const char *text) {
+	char path[900];
+	snprintf(path, sizeof path, "%s/%s", dir, name);
+	FILE *f = fopen(path, "wb");
+	if (!f) {
+		fail("cue", "could not create a fixture");
+		return;
+	}
+	fputs(text, f);
+	fclose(f);
+}
+
+static void cue_audio(const char *dir, const char *name) {
+	char path[900];
+	snprintf(path, sizeof path, "%s/%s", dir, name);
+	FILE *f = fopen(path, "wb");
+	if (!f) {
+		fail("cue", "could not create an audio file");
+		return;
+	}
+	fputs("not really audio\n", f);
+	fclose(f);
+}
+
+/* A RIFF file with `n` cue points and their labels. */
+static size_t build_wav(unsigned char *out, size_t cap, const uint32_t *frames, const char **labels,
+                        int n, uint32_t rate, uint32_t audio_frames) {
+	uint16_t channels = 2;
+	uint16_t bits = 16;
+	uint32_t data_bytes = audio_frames * channels * (bits / 8);
+
+	unsigned char *w = out;
+	size_t at = 0;
+#define PUT(p, len)                    \
+	do {                               \
+		if (at + (len) <= cap) {       \
+			memcpy(w + at, p, (len));  \
+		}                              \
+		at += (len);                   \
+	} while (0)
+
+	PUT("RIFF", 4);
+	unsigned char scratch[8];
+	memset(scratch, 0, sizeof scratch);
+	PUT(scratch, 4); // the RIFF size, patched below
+	PUT("WAVE", 4);
+
+	PUT("fmt ", 4);
+	scratch[0] = 16;
+	scratch[1] = 0;
+	scratch[2] = 0;
+	scratch[3] = 0;
+	PUT(scratch, 4);
+	scratch[0] = 1;
+	scratch[1] = 0; // PCM
+	PUT(scratch, 2);
+	scratch[0] = (unsigned char)channels;
+	scratch[1] = 0;
+	PUT(scratch, 2);
+	scratch[0] = (unsigned char)rate;
+	scratch[1] = (unsigned char)(rate >> 8);
+	scratch[2] = (unsigned char)(rate >> 16);
+	scratch[3] = (unsigned char)(rate >> 24);
+	PUT(scratch, 4);
+	uint32_t byte_rate = rate * channels * (bits / 8);
+	scratch[0] = (unsigned char)byte_rate;
+	scratch[1] = (unsigned char)(byte_rate >> 8);
+	scratch[2] = (unsigned char)(byte_rate >> 16);
+	scratch[3] = (unsigned char)(byte_rate >> 24);
+	PUT(scratch, 4);
+	uint16_t block = (uint16_t)(channels * (bits / 8));
+	scratch[0] = (unsigned char)block;
+	scratch[1] = (unsigned char)(block >> 8);
+	PUT(scratch, 2);
+	scratch[0] = (unsigned char)bits;
+	scratch[1] = 0;
+	PUT(scratch, 2);
+
+	if (n > 0) {
+		PUT("cue ", 4);
+		uint32_t cue_size = 4 + 24 * (uint32_t)n;
+		scratch[0] = (unsigned char)cue_size;
+		scratch[1] = (unsigned char)(cue_size >> 8);
+		scratch[2] = (unsigned char)(cue_size >> 16);
+		scratch[3] = (unsigned char)(cue_size >> 24);
+		PUT(scratch, 4);
+		uint32_t count = (uint32_t)n;
+		scratch[0] = (unsigned char)count;
+		scratch[1] = (unsigned char)(count >> 8);
+		scratch[2] = 0;
+		scratch[3] = 0;
+		PUT(scratch, 4);
+
+		for (int i = 0; i < n; i++) {
+			uint32_t id = (uint32_t)(i + 1);
+			scratch[0] = (unsigned char)id;
+			scratch[1] = 0;
+			scratch[2] = 0;
+			scratch[3] = 0;
+			PUT(scratch, 4); // dwName
+			memset(scratch, 0, 4);
+			PUT(scratch, 4); // dwPosition
+			PUT("data", 4);
+			memset(scratch, 0, 4);
+			PUT(scratch, 4); // dwChunkStart
+			PUT(scratch, 4); // dwBlockStart
+			uint32_t frame = frames[i];
+			scratch[0] = (unsigned char)frame;
+			scratch[1] = (unsigned char)(frame >> 8);
+			scratch[2] = (unsigned char)(frame >> 16);
+			scratch[3] = (unsigned char)(frame >> 24);
+			PUT(scratch, 4); // dwSampleOffset
+		}
+
+		/* The labels, in one LIST/adtl. */
+		unsigned char list[4096];
+		size_t list_len = 0;
+		for (int i = 0; i < n; i++) {
+			const char *text = labels[i];
+			size_t text_len = strlen(text) + 1;
+			uint32_t sub = (uint32_t)(4 + text_len);
+			uint32_t id = (uint32_t)(i + 1);
+			if (list_len + 8 + sub + 1 < sizeof list) {
+				memcpy(list + list_len, "labl", 4);
+				list_len += 4;
+				list[list_len++] = (unsigned char)sub;
+				list[list_len++] = (unsigned char)(sub >> 8);
+				list[list_len++] = (unsigned char)(sub >> 16);
+				list[list_len++] = (unsigned char)(sub >> 24);
+				list[list_len++] = (unsigned char)id;
+				list[list_len++] = 0;
+				list[list_len++] = 0;
+				list[list_len++] = 0;
+				memcpy(list + list_len, text, text_len);
+				list_len += text_len;
+				if (list_len % 2) {
+					list[list_len++] = 0;
+				}
+			}
+		}
+
+		if (at + 12 + list_len <= cap) {
+			memcpy(w + at, "LIST", 4);
+			at += 4;
+			uint32_t list_size = (uint32_t)(4 + list_len);
+			w[at++] = (unsigned char)list_size;
+			w[at++] = (unsigned char)(list_size >> 8);
+			w[at++] = (unsigned char)(list_size >> 16);
+			w[at++] = (unsigned char)(list_size >> 24);
+			memcpy(w + at, "adtl", 4);
+			at += 4;
+			memcpy(w + at, list, list_len);
+			at += list_len;
+		}
+	}
+
+	/* The audio itself is not written. The chunk header carries the length that
+	 * turns frames into time and both readers only look at headers; a fixture
+	 * of a two-minute side is a few hundred bytes because of it. */
+	PUT("data", 4);
+	scratch[0] = (unsigned char)data_bytes;
+	scratch[1] = (unsigned char)(data_bytes >> 8);
+	scratch[2] = (unsigned char)(data_bytes >> 16);
+	scratch[3] = (unsigned char)(data_bytes >> 24);
+	PUT(scratch, 4);
+
+	uint32_t riff = (uint32_t)(at - 8);
+	out[4] = (unsigned char)riff;
+	out[5] = (unsigned char)(riff >> 8);
+	out[6] = (unsigned char)(riff >> 16);
+	out[7] = (unsigned char)(riff >> 24);
+#undef PUT
+	return at < cap ? at : cap;
+}
+
+static void compare_cue_string(const char *a, const char *b, int c_number, int r_number,
+                               const char *cw, const char *rw, size_t size, const char *what) {
+	checks++;
+	if (c_number != r_number || memcmp(cw, rw, 1024) != 0) {
+		char detail[440];
+		snprintf(detail, sizeof detail, "\"%s\" / \"%s\" size=%lu: C \"%s\"(%d), Rust \"%s\"(%d)",
+		         a, b, (unsigned long)size, cw, c_number, rw, r_number);
+		fail(what, detail);
+	}
+}
+
+static void test_cue_names(void) {
+	static const char *names[] = {"a.cue", "a.CUE", "a.cuex",   "cue",   ".cue",  "",
+	                              "/x/y/b.cue", "a.cue ", "a.wav", "a.WAV", ".wav", "a.wave",
+	                              "a.wavx", "wave", "a.cue?track=2", "x.wave"};
+	for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+		checks++;
+		if (c_cue_is_sheet(names[i]) != cue_is_sheet(names[i])) {
+			char detail[200];
+			snprintf(detail, sizeof detail, "is_sheet(\"%s\") differs", names[i]);
+			fail("cue_is_sheet", detail);
+		}
+		checks++;
+		if (c_cue_wav_has_markers(names[i]) != cue_wav_has_markers(names[i])) {
+			char detail[200];
+			snprintf(detail, sizeof detail, "wav_has_markers(\"%s\") differs", names[i]);
+			fail("cue_wav_has_markers", detail);
+		}
+	}
+}
+
+static void test_cue_paths(void) {
+	static const char *paths[] = {"/mnt/sd/a.cue?track=1", "/mnt/sd/a.cue?track=99",
+	                              "/mnt/sd/a.cue?track=100", "/mnt/sd/a.cue?track=0",
+	                              "/mnt/sd/a.cue?track=-1", "/mnt/sd/a.cue?track=",
+	                              "/mnt/sd/a.cue?track=02", "/mnt/sd/a.cue?track=2x",
+	                              "/mnt/sd/a.cue?track=2?track=3", "/mnt/sd/what?.cue",
+	                              "/mnt/sd/a.cue", "", "?track=3", "plain.txt"};
+	static const size_t sizes[] = {0, 1, 2, 3, 5, 8, 16, 64, 1023};
+
+	for (size_t i = 0; i < sizeof paths / sizeof *paths; i++) {
+		for (size_t s = 0; s < sizeof sizes / sizeof *sizes; s++) {
+			char cbuf[1024];
+			char rbuf[1024];
+			memset(cbuf, 0xA5, sizeof cbuf);
+			memset(rbuf, 0xA5, sizeof rbuf);
+			cbuf[1023] = 0;
+			rbuf[1023] = 0;
+
+			int c_num = c_cue_split_path(paths[i], cbuf, sizes[s]);
+			int r_num = cue_split_path(paths[i], rbuf, sizes[s]);
+			compare_cue_string(paths[i], "", c_num, r_num, cbuf, rbuf, sizes[s], "cue_split_path");
+		}
+	}
+
+	/* The virtual path, for the same paths and every track number that matters. */
+	for (size_t i = 0; i < 6; i++) {
+		for (int track = -1; track <= 100; track++) {
+			for (size_t s = 0; s < sizeof sizes / sizeof *sizes; s++) {
+				char cbuf[1024];
+				char rbuf[1024];
+				memset(cbuf, 0xA5, sizeof cbuf);
+				memset(rbuf, 0xA5, sizeof rbuf);
+				cbuf[1023] = 0;
+				rbuf[1023] = 0;
+				c_cue_virtual_path(paths[i], track, cbuf, sizes[s]);
+				cue_virtual_path(paths[i], track, rbuf, sizes[s]);
+				compare_cue_string(paths[i], "", track, track, cbuf, rbuf, sizes[s],
+				                   "cue_virtual_path");
+			}
+		}
+	}
+
+	/* Ordering: same sheet, different sheet, ordinary paths. */
+	for (size_t i = 0; i < sizeof paths / sizeof *paths; i++) {
+		for (size_t j = 0; j < sizeof paths / sizeof *paths; j++) {
+			int c_order = 12345;
+			int r_order = 12345;
+			bool c_ok = c_cue_order_tracks(paths[i], paths[j], &c_order);
+			bool r_ok = cue_order_tracks(paths[i], paths[j], &r_order);
+			checks++;
+			if (c_ok != r_ok || (c_ok && c_order != r_order)) {
+				char detail[300];
+				snprintf(detail, sizeof detail, "\"%s\" vs \"%s\": C %d(%d), Rust %d(%d)", paths[i],
+				         paths[j], (int)c_ok, c_order, (int)r_ok, r_order);
+				fail("cue_order_tracks", detail);
+			}
+		}
+	}
+}
+
+static void test_cue_sheets(const char *dir) {
+	cue_audio(dir, "a.flac");
+	cue_audio(dir, "a.wav");
+	cue_audio(dir, "side.flac");
+	cue_audio(dir, "Mixed.FLAC");
+	cue_audio(dir, "album.APE");
+
+	cue_fixture(dir, "basic.cue",
+	            "REM GENRE Rock\r\n"
+	            "REM DATE 1973-05-01\r\n"
+	            "PERFORMER \"Some Band\"\r\n"
+	            "TITLE \"Some Album\"\r\n"
+	            "FILE \"a.flac\" WAVE\r\n"
+	            "  TRACK 01 AUDIO\r\n"
+	            "    TITLE \"First Song\"\r\n"
+	            "    PERFORMER \"A Guest\"\r\n"
+	            "    INDEX 01 00:00:00\r\n"
+	            "  TRACK 02 AUDIO\r\n"
+	            "    TITLE \"Second Song\"\r\n"
+	            "    INDEX 00 05:20:00\r\n"
+	            "    INDEX 01 05:23:40\r\n");
+
+	cue_fixture(dir, "bare.cue",
+	            "rem genre Blues\n"
+	            "rem discnumber 2\n"
+	            "rem year 1999\n"
+	            "performer Some Band\n"
+	            "title Some Album\n"
+	            "file a.flac\n"
+	            "track 1 audio\n"
+	            "title First Song\n"
+	            "index 1 00:00\n"
+	            "track 2 audio\n"
+	            "title Second Song\n"
+	            "index 01 00:30:00\n");
+
+	/* A BOM, CRLF, comments and commands this player does not need. */
+	cue_fixture(dir, "bom.cue",
+	            "\xEF\xBB\xBFREM COMMENT \"made by someone\"\r\n"
+	            "CATALOG 0000000000000\r\n"
+	            "FILE \"a.wav\" WAVE\r\n"
+	            "TRACK 01 AUDIO\r\n"
+	            "FLAGS DCP\r\n"
+	            "ISRC GBAYE0000001\r\n"
+	            "TITLE \"One\"\r\n"
+	            "INDEX 01 00:00:00\r\n"
+	            "TRACK 02 MODE1/2352\r\n"
+	            "TITLE \"Data\"\r\n"
+	            "INDEX 01 00:01:00\r\n"
+	            "TRACK 03 AUDIO\r\n"
+	            "TITLE \"Three\"\r\n"
+	            "INDEX 01 00:02:00\r\n");
+
+	/* A heading with no INDEX 01, then a second FILE that must stop parsing. */
+	cue_fixture(dir, "heading.cue",
+	            "FILE a.flac WAVE\n"
+	            "TRACK 01 AUDIO\nTITLE \"Kept\"\nINDEX 01 00:00:00\n"
+	            "TRACK 02 AUDIO\nTITLE \"Dropped\"\n"
+	            "TRACK 03 AUDIO\nTITLE \"Third\"\nINDEX 01 00:10:00\n"
+	            "FILE other.flac WAVE\n"
+	            "TRACK 04 AUDIO\nTITLE \"Never\"\nINDEX 01 00:20:00\n");
+
+	/* Out of order, and timestamps at the edges of what is allowed. */
+	cue_fixture(dir, "scrambled.cue",
+	            "FILE a.flac WAVE\n"
+	            "TRACK 01 AUDIO\nINDEX 01 00:30:00\n"
+	            "TRACK 02 AUDIO\nINDEX 01 00:10:00\n"
+	            "TRACK 03 AUDIO\nINDEX 01 100000:59:74\n"
+	            "TRACK 04 AUDIO\nINDEX 01 100001:00:00\n"
+	            "TRACK 05 AUDIO\nINDEX 01 00:60:00\n"
+	            "TRACK 06 AUDIO\nINDEX 01 00:00:75\n"
+	            "TRACK 07 AUDIO\nINDEX 02 00:05:00\n"
+	            "TRACK 2000 AUDIO\nINDEX 01 00:06:00\n"
+	            "TRACK 0 AUDIO\nINDEX 01 00:07:00\n"
+	            "TRACK x AUDIO\nINDEX 01 00:08:00\n"
+	            "TRACK 09\nINDEX 01 00:09:00\n");
+
+	/* A TITLE far past the field, and a line past the read buffer. */
+	{
+		char path[900];
+		snprintf(path, sizeof path, "%s/long.cue", dir);
+		FILE *f = fopen(path, "wb");
+		if (f) {
+			fputs("FILE a.flac WAVE\nTRACK 01 AUDIO\nTITLE \"", f);
+			for (int i = 0; i < 400; i++) {
+				fputc('A' + (i % 26), f);
+			}
+			fputs("\"\nINDEX 01 00:00:00\nREM GENRE ", f);
+			for (int i = 0; i < 2000; i++) {
+				fputc('g', f);
+			}
+			fputs("\nTRACK 02 AUDIO\nTITLE \"After the long line\"\nINDEX 01 00:01:00\n", f);
+			fclose(f);
+		}
+	}
+
+	/* The audio under another name: case, and another extension. */
+	cue_fixture(dir, "case.cue", "FILE mixed.flac WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+	cue_fixture(dir, "ext.cue", "FILE side.wav WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+	cue_fixture(dir, "stemless.cue", "FILE .flac WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+
+	/* Absolute, Windows and stale paths in FILE. */
+	{
+		char text[1200];
+		snprintf(text, sizeof text, "FILE \"%s/a.flac\" WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n",
+		         dir);
+		cue_fixture(dir, "absolute.cue", text);
+		cue_fixture(dir, "windows.cue",
+		            "FILE \"D:\\\\rips\\\\nothing\\\\a.flac\" WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+		cue_fixture(dir, "stale.cue",
+		            "FILE \"/nowhere/at/all/a.flac\" WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+	}
+
+	/* Not sheets at all. */
+	cue_fixture(dir, "no-file.cue", "TRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+	cue_fixture(dir, "no-index.cue", "FILE a.flac WAVE\nTRACK 01 AUDIO\nTITLE \"x\"\n");
+	cue_fixture(dir, "missing.cue", "FILE gone.flac WAVE\nTRACK 01 AUDIO\nINDEX 01 00:00:00\n");
+	cue_fixture(dir, "empty.cue", "");
+	cue_fixture(dir, "junk.cue", "\x00\x01\x02 this is not a sheet \xff\xfe\n");
+
+	static const char *sheets[] = {"basic.cue",  "bare.cue",     "bom.cue",     "heading.cue",
+	                               "scrambled.cue", "long.cue",   "case.cue",    "ext.cue",
+	                               "stemless.cue", "absolute.cue", "windows.cue", "stale.cue",
+	                               "no-file.cue", "no-index.cue", "missing.cue", "empty.cue",
+	                               "junk.cue",    "does-not-exist.cue"};
+	for (size_t i = 0; i < sizeof sheets / sizeof *sheets; i++) {
+		char path[900];
+		snprintf(path, sizeof path, "%s/%s", dir, sheets[i]);
+		compare_cue_parse(path, sheets[i]);
+	}
+
+	compare_cue_parse("", "an empty path");
+
+	/* What each fixture is supposed to be. */
+	{
+		static const struct {
+			const char *name;
+			int tracks;
+		} expected[] = {
+		    {"basic.cue", 2},     {"bare.cue", 2},      {"bom.cue", 2},    {"heading.cue", 2},
+		    {"scrambled.cue", 5}, {"long.cue", 2},      {"case.cue", 1},   {"ext.cue", 1},
+		    {"absolute.cue", 1},  {"windows.cue", 1},   {"stale.cue", 1},   {"no-file.cue", 0},
+		    {"no-index.cue", 0},  {"missing.cue", 0},   {"empty.cue", 0},   {"junk.cue", 0},
+		    {"stemless.cue", 0},
+		};
+		for (size_t i = 0; i < sizeof expected / sizeof *expected; i++) {
+			char path[900];
+			snprintf(path, sizeof path, "%s/%s", dir, expected[i].name);
+			if (expected[i].tracks == 0) {
+				static cue_sheet_t sheet;
+				memset(&sheet, 0, sizeof sheet);
+				checks++;
+				if (c_cue_parse(path, &sheet)) {
+					fail("cue fixture", "a file that is not a sheet was parsed as one");
+				}
+			} else {
+				expect_cue(path, expected[i].tracks, expected[i].name);
+			}
+		}
+	}
+}
+
+static void test_cue_wavs(const char *dir) {
+	unsigned char wav[262144];
+	char path[900];
+	const uint32_t rate = 44100;
+	const uint32_t audio = rate * 120; // two minutes
+
+	/* None, one, two, ten, and a first marker that leaves a track before it. */
+	{
+		static const uint32_t frames0[] = {0};
+		static const char *labels0[] = {"x"};
+		size_t len = build_wav(wav, sizeof wav, frames0, labels0, 0, rate, audio);
+		snprintf(path, sizeof path, "%s/no-markers.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV with no markers");
+
+		static const uint32_t frames1[] = {0};
+		static const char *labels1[] = {"Only"};
+		len = build_wav(wav, sizeof wav, frames1, labels1, 1, rate, audio);
+		snprintf(path, sizeof path, "%s/one-marker.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV with one marker");
+
+		static const uint32_t frames2[] = {0, rate * 20};
+		static const char *labels2[] = {"One", "Two"};
+		len = build_wav(wav, sizeof wav, frames2, labels2, 2, rate, audio);
+		snprintf(path, sizeof path, "%s/two-markers.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV with two markers");
+		expect_cue(path, 2, "a WAV with two markers");
+
+		static const uint32_t frames10[10] = {0, 0, rate * 5, rate * 5 + 10, rate * 10, rate * 30,
+		                                      rate * 60, rate * 90, rate * 110, rate * 119};
+		static const char *labels10[10] = {"A", "B",    "C",   "D", "E",
+		                                   "F", "G",    "H",   "I", "J"};
+		len = build_wav(wav, sizeof wav, frames10, labels10, 10, rate, audio);
+		snprintf(path, sizeof path, "%s/ten-markers.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV with ten markers, some too close");
+		expect_cue(path, 7, "a WAV whose markers collapse and one runs past the end");
+
+		static const uint32_t implicit[] = {rate * 10, rate * 30};
+		static const char *implicit_labels[] = {"Second", "Third"};
+		len = build_wav(wav, sizeof wav, implicit, implicit_labels, 2, rate, audio);
+		snprintf(path, sizeof path, "%s/implicit-first.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV whose first track has no marker");
+		expect_cue(path, 3, "a WAV whose first track has no marker");
+
+		/* Markers past the end of the audio. */
+		static const uint32_t past[] = {0, rate * 10, audio * 2};
+		static const char *past_labels[] = {"One", "Two", "Past"};
+		len = build_wav(wav, sizeof wav, past, past_labels, 3, rate, audio);
+		snprintf(path, sizeof path, "%s/past-end.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV with a marker past the end");
+		expect_cue(path, 2, "a WAV with a marker past the end");
+
+		/* A rate the maths still works for, and one it cannot divide by. */
+		static const uint32_t frames8[] = {0, 8000 * 20};
+		len = build_wav(wav, sizeof wav, frames8, labels2, 2, 8000, 8000 * 60);
+		snprintf(path, sizeof path, "%s/eight-khz.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "an 8 kHz WAV");
+		expect_cue(path, 2, "an 8 kHz WAV");
+
+		len = build_wav(wav, sizeof wav, frames2, labels2, 2, 0, audio);
+		snprintf(path, sizeof path, "%s/no-rate.wav", dir);
+		write_bytes(path, wav, len);
+		compare_cue_parse(path, "a WAV with no sample rate");
+	}
+
+	/* Truncated and corrupted: the walk has to stop in the same place. */
+	{
+		static const uint32_t frames[] = {0, rate * 20, rate * 40};
+		static const char *labels[] = {"One", "Two", "Three"};
+		size_t full = build_wav(wav, sizeof wav, frames, labels, 3, rate, audio);
+		for (size_t cut = 12; cut <= full; cut += 17) {
+			snprintf(path, sizeof path, "%s/truncated.wav", dir);
+			write_bytes(path, wav, cut);
+			compare_cue_parse(path, "a truncated WAV");
+		}
+		for (size_t cut = 0; cut < full; cut += 13) {
+			wav[cut] ^= (unsigned char)(1u << (cut % 8));
+			snprintf(path, sizeof path, "%s/corrupt.wav", dir);
+			write_bytes(path, wav, full);
+			compare_cue_parse(path, "a corrupted WAV");
+			wav[cut] ^= (unsigned char)(1u << (cut % 8));
+		}
+	}
+
+	/* Random bytes with a .cue and a .wav name. */
+	{
+		unsigned char random_bytes[2048];
+		for (int round = 0; round < 200; round++) {
+			size_t len = rnd_below(sizeof random_bytes);
+			for (size_t i = 0; i < len; i++) {
+				random_bytes[i] = (unsigned char)rnd();
+			}
+			snprintf(path, sizeof path, "%s/fuzz%d.cue", dir, round % 4);
+			write_bytes(path, random_bytes, len);
+			compare_cue_parse(path, "a random .cue");
+			snprintf(path, sizeof path, "%s/fuzz%d.wav", dir, round % 4);
+			write_bytes(path, random_bytes, len);
+			compare_cue_parse(path, "a random .wav");
+		}
+	}
+}
+
+static void test_cue(const char *workdir) {
+	char dir[800];
+	snprintf(dir, sizeof dir, "%s/cue_fixtures", workdir);
+	mkdir(dir, 0777);
+	test_cue_names();
+	test_cue_paths();
+	test_cue_sheets(dir);
+	test_cue_wavs(dir);
+}
+
+#endif /* HAVE_CUE */
+
 int main(int argc, char **argv) {
 	const char *workdir = argc > 1 ? argv[1] : ".";
 
@@ -2626,6 +3267,9 @@ int main(int argc, char **argv) {
 	test_addons(workdir);
 #ifdef HAVE_NOTESSTORE
 	test_notes(workdir);
+#endif
+#ifdef HAVE_CUE
+	test_cue(workdir);
 #endif
 
 	printf("\n%d checks, %d failure(s)\n", checks, failures);

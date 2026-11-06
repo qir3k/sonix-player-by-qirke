@@ -24,6 +24,7 @@ builds two crates:
 | `src/system/library/id3chap.c` | `sonix-core/src/id3chap.rs` | ported (ID3v2.3/2.4 CHAP frames), tested |
 | `src/system/addons/addons.c` | `sonix-core/src/addons.rs` | ported (the module list and its gates), tested |
 | `src/system/notes/notesstore.c` | `sonix-core/src/notes.rs` | ported (the folder rules, the listing order, read/write, the next free name), tested |
+| `src/system/library/cue.c` | `sonix-core/src/cue.rs` | ported (sheet parsing, audio resolution, RIFF markers, virtual track paths), tested |
 
 `sonix-core/src/c_time.rs` is shared support rather than a port of one file: C's
 `time_t` and the real glibc `struct tm` layout, so `mktime` and `localtime_r`
@@ -37,7 +38,7 @@ order, with the real line counts.
 
 ```bash
 cd sonix-player/rust
-make test          # cargo test --workspace, 138 tests
+make test          # cargo test --workspace, 151 tests
 make differential  # the C originals beside the Rust port, same inputs
 make staticlib     # libsonix_player_core.a for the firmware to link
 ```
@@ -71,14 +72,22 @@ default, every `addons_set` and the settings file each one writes, and the note
 folder driven through both sides: the same names built in two directories, the
 listing compared in full and at every limit, reads of plain, encoded and
 over-length files, writes compared byte for byte (including the folder a first
-write has to make), and the "next free name" claimed one note at a time.
+write has to make), and the "next free name" claimed one note at a time. CUE
+work is compared as the whole `cue_sheet_t`, byte for byte: sheets with every
+shape of FILE and REM, a BOM, CRLF, headings with no INDEX, tracks out of order,
+timestamps at the edges, a title past its field and a line past the read buffer,
+audio found through case and through another extension, and WAVs whose RIFF
+markers leave zero, one, two or ten tracks — built, truncated at every step and
+corrupted byte by byte.
 
 It runs on Windows (`CC=` a MinGW gcc) and on Linux, and does: **1,088,004
-checks on Windows, 1,088,656 on Linux, 0 failures on both**. The difference is
-the 650 notes checks plus the two settings-file comparisons that Windows has to
-relax because the C original opens the file in text mode: `notesstore.c` needs
-the two-argument `mkdir` and `localtime_r`, which MinGW has neither of, so that
-section is compiled only on a POSIX host. Running it in both places is not
+checks on Windows, 1,095,446 on Linux, 0 failures on both**. The difference is
+the 650 notes checks, the 6,790 CUE checks and the two settings-file
+comparisons that Windows has to relax because the C original opens the file in
+text mode: `notesstore.c` needs the two-argument `mkdir` and `localtime_r`,
+which MinGW has neither, and `cue.c` walks directories and needs a
+case-sensitive filesystem for its fixtures to mean anything, so both sections
+are compiled only on a POSIX host. Running it in both places is not
 ceremony: the Linux run found a `struct tm` that was twenty bytes too small for
 `mktime` to write into, which the Windows run could not see.
 

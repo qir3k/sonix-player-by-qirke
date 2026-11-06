@@ -60,7 +60,7 @@ use std::ffi::CStr;
 use std::io::Read as _;
 use std::sync::{Mutex, OnceLock};
 
-use sonix_core::{addons, base64, config, hash, id3chap, json, notes, tagdate, text, utils};
+use sonix_core::{addons, base64, config, cue, hash, id3chap, json, notes, tagdate, text, utils};
 
 /// C's `long`.
 ///
@@ -1424,6 +1424,89 @@ pub unsafe extern "C" fn notes_default_name(dir: *const c_char, out: *mut c_char
         Some(path_from_bytes(c_bytes(dir)))
     };
     write_c_string(&notes::default_name(folder.as_deref()), out, size);
+}
+
+// ---------------------------------------------------------------------------
+// cue
+// ---------------------------------------------------------------------------
+
+/// Parses a `.cue` sheet, or a WAV carrying its own markers.
+///
+/// The sheet is written straight into the caller's struct: the two layouts are
+/// the same `#[repr(C)]` one, field for field, so a module can drop its `.c`
+/// and link this instead.
+#[no_mangle]
+pub unsafe extern "C" fn cue_parse(cue_path: *const c_char, out: *mut cue::Sheet) -> bool {
+    if cue_path.is_null() || out.is_null() {
+        return false;
+    }
+    cue::parse(c_bytes(cue_path), &mut *out)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cue_is_sheet(path: *const c_char) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    cue::is_sheet(c_bytes(path))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cue_wav_has_markers(path: *const c_char) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    cue::wav_has_markers(c_bytes(path))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cue_virtual_path(
+    cue_path: *const c_char,
+    track_number: c_int,
+    out: *mut c_char,
+    size: size_t,
+) {
+    if out.is_null() || size == 0 {
+        return;
+    }
+    let buf = slice::from_raw_parts_mut(out as *mut u8, size);
+    let path = if cue_path.is_null() {
+        None
+    } else {
+        Some(c_bytes(cue_path))
+    };
+    cue::virtual_path(path, track_number, buf);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cue_split_path(
+    path: *const c_char,
+    cue_out: *mut c_char,
+    size: size_t,
+) -> c_int {
+    if cue_out.is_null() || size == 0 {
+        let mut none: [u8; 0] = [];
+        return cue::split_path(c_bytes(path), &mut none) as c_int;
+    }
+    let buf = slice::from_raw_parts_mut(cue_out as *mut u8, size);
+    cue::split_path(c_bytes(path), buf) as c_int
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cue_order_tracks(
+    a: *const c_char,
+    b: *const c_char,
+    out: *mut c_int,
+) -> bool {
+    if a.is_null() || b.is_null() || out.is_null() {
+        return false;
+    }
+    let mut order: i32 = 0;
+    let ok = cue::order_tracks(c_bytes(a), c_bytes(b), &mut order);
+    if ok {
+        *out = order;
+    }
+    ok
 }
 
 // ---------------------------------------------------------------------------
