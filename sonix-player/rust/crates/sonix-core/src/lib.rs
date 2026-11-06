@@ -15,6 +15,7 @@
 pub mod base64;
 pub mod config;
 pub mod hash;
+pub mod id3chap;
 pub mod json;
 pub mod tagdate;
 pub mod text;
@@ -24,6 +25,7 @@ pub mod utils;
 /// the one it replaced: `md5_hex(data)` in C becomes `md5_hex(data)` here.
 pub use base64::decode as base64_decode;
 pub use hash::{md5, md5_hex, sha1, sha1_hex, Sha256};
+pub use id3chap::Chapter as Id3Chapter;
 pub use json::Doc as JsonDoc;
 pub use tagdate::Date as TagDate;
 pub use text::decode as textfile_decode;

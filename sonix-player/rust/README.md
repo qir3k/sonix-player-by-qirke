@@ -21,6 +21,7 @@ builds two crates:
 | `src/system/core/utils.c` | `sonix-core/src/utils.rs` | pure half ported (integer roots, duration formatters, extension check); the thread/heap/breadcrumb half stays C — see [PORTING.md](PORTING.md) |
 | `src/system/text/textfile.c` | `sonix-core/src/text.rs` | ported (UTF-8 / UTF-16 / Windows-1252 decode, atomic write), tested |
 | `src/system/library/tagdate.c` | `sonix-core/src/tagdate.rs` | ported (parse, precision), tested; `to_time` goes through libc `mktime` |
+| `src/system/library/id3chap.c` | `sonix-core/src/id3chap.rs` | ported (ID3v2.3/2.4 CHAP frames), tested |
 
 Everything else — the GUI, the decoders, streaming, Bluetooth, the audio path —
 is still C. [PORTING.md](PORTING.md) is the map of what is left and in what
@@ -30,7 +31,7 @@ order, with the real line counts.
 
 ```bash
 cd sonix-player/rust
-make test          # cargo test --workspace, 108 tests
+make test          # cargo test --workspace, 116 tests
 make differential  # the C originals beside the Rust port, same inputs
 make staticlib     # libsonix_player_core.a for the firmware to link
 ```
@@ -56,10 +57,12 @@ compared on the whole buffer at every capacity from 0 to 63 (so a terminator
 written one byte too far fails), 3,000 generated text files of four kinds
 (raw bytes, ASCII, UTF-8, UTF-16 with and without a BOM) decoded on both sides,
 reads at ten different limits including exactly past the end, writes compared
-byte for byte, and the date parser over a corpus plus every pair through the
-precision rule.
+byte for byte, the date parser over a corpus plus every pair through the
+precision rule, and generated MP3 tags — both tag versions, with and without an extended header
+and padding, at every chapter count from none to six, then truncated byte by
+byte and corrupted at random — read by both chapter readers.
 
-It currently runs **1,084,531 checks with 0 failures**, and it is how the two
+It currently runs **1,087,782 checks with 0 failures**, and it is how the two
 bugs listed at the end of [PORTING.md](PORTING.md) were found — neither was
 visible to the unit tests.
 

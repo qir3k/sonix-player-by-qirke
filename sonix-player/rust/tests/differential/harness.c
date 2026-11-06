@@ -165,6 +165,18 @@ extern bool tagdate_parse(const char *text, date_fields *out);
 extern bool tagdate_better(const date_fields *a, const date_fields *b);
 extern time_t tagdate_to_time(const date_fields *d);
 
+/* id3chap */
+typedef struct {
+	double start;
+	char title[128];
+} id3chap_fields;
+
+extern int c_id3chap_read(const char *path, id3chap_fields *out, int max);
+extern bool c_id3chap_present(const char *path);
+
+extern int id3chap_read(const char *path, id3chap_fields *out, int max);
+extern bool id3chap_present(const char *path);
+
 /* ------------------------------------------------------------------------ */
 /* Reporting                                                                 */
 /* ------------------------------------------------------------------------ */
@@ -1505,6 +1517,257 @@ static void test_tagdate(void) {
 	}
 }
 
+/* ------------------------------------------------------------------------ */
+/* id3chap                                                                  */
+/* ------------------------------------------------------------------------ */
+
+static void syncsafe_into(uint32_t v, unsigned char *out) {
+	out[0] = (unsigned char)((v >> 21) & 0x7F);
+	out[1] = (unsigned char)((v >> 14) & 0x7F);
+	out[2] = (unsigned char)((v >> 7) & 0x7F);
+	out[3] = (unsigned char)(v & 0x7F);
+}
+
+static void be32_into(uint32_t v, unsigned char *out) {
+	out[0] = (unsigned char)(v >> 24);
+	out[1] = (unsigned char)(v >> 16);
+	out[2] = (unsigned char)(v >> 8);
+	out[3] = (unsigned char)v;
+}
+
+static size_t put_frame(unsigned char *buf, bool syncsafe_frames, const char *id,
+                        const unsigned char *payload, size_t payload_len) {
+	memcpy(buf, id, 4);
+	if (syncsafe_frames) {
+		syncsafe_into((uint32_t)payload_len, buf + 4);
+	} else {
+		be32_into((uint32_t)payload_len, buf + 4);
+	}
+	buf[8] = 0;
+	buf[9] = 0;
+	memcpy(buf + 10, payload, payload_len);
+	return 10 + payload_len;
+}
+
+/* A CHAP payload: element id, four 32-bit fields, then a TIT2 sub-frame. */
+static size_t build_chap(unsigned char *out, bool syncsafe_frames, int index, uint32_t start_ms,
+                         const char *title) {
+	unsigned char payload[1024];
+	size_t p = 0;
+
+	p += (size_t)snprintf((char *)payload, sizeof payload, "ch%03d", index) + 1; /* the NUL */
+	be32_into(start_ms, payload + p);
+	p += 4;
+	be32_into(start_ms + 60000, payload + p);
+	p += 4;
+	be32_into(0xFFFFFFFFu, payload + p);
+	p += 4;
+	be32_into(0xFFFFFFFFu, payload + p);
+	p += 4;
+
+	unsigned char text[256];
+	size_t n = strlen(title);
+	if (n > sizeof text - 2) {
+		n = sizeof text - 2;
+	}
+	text[0] = 0; /* encoding 0 */
+	memcpy(text + 1, title, n);
+	p += put_frame(payload + p, syncsafe_frames, "TIT2", text, n + 1);
+
+	return put_frame(out, syncsafe_frames, "CHAP", payload, p);
+}
+
+/* Returns the tag length. `extended` adds a header, `padding` zeroes after the
+ * frames (which is how a tag written once and edited later looks). */
+static size_t build_id3_tag(unsigned char *out, size_t cap, int version, int chapters, bool extended,
+                            bool padding) {
+	unsigned char frames[16384];
+	size_t f = 0;
+	bool syncsafe_frames = version >= 4;
+
+	/* A frame that is not a chapter, to make sure it is skipped by size. */
+	{
+		unsigned char text[8] = {0, 'A', 'l', 'b', 'u', 'm', 0, 0};
+		f += put_frame(frames + f, syncsafe_frames, "TIT2", text, 6);
+	}
+
+	for (int i = 0; i < chapters; i++) {
+		char title[300];
+		if (i == 0) {
+			snprintf(title, sizeof title, "Opening");
+		} else if (i == 1) {
+			/* Longer than the 128-byte field, so the truncation is compared. */
+			snprintf(title, sizeof title,
+			         "A Very Long Chapter Title That Will Not Fit In One Hundred And Twenty Eight "
+			         "Bytes Because It Keeps Going On And On And On And On And On");
+		} else if (i == 2) {
+			snprintf(title, sizeof title, "Trailing space   ");
+		} else if (i == 3) {
+			snprintf(title, sizeof title, "");
+		} else {
+			snprintf(title, sizeof title, "Chapter %d", i + 1);
+		}
+
+		unsigned char chap[1600];
+		size_t cl = build_chap(chap, syncsafe_frames, i, (uint32_t)i * 60000u, title);
+		if (f + cl + 10 > sizeof frames) {
+			break;
+		}
+		f += put_frame(frames + f, syncsafe_frames, "CHAP", chap, cl);
+	}
+
+	if (padding) {
+		memset(frames + f, 0, 32);
+		f += 32;
+	}
+
+	unsigned char ext[16];
+	size_t ext_len = 0;
+	if (extended) {
+		if (version >= 4) {
+			syncsafe_into(6, ext);
+			memset(ext + 4, 0, 2);
+			ext_len = 6;
+		} else {
+			be32_into(6, ext);
+			memset(ext + 4, 0, 6);
+			ext_len = 10;
+		}
+	}
+
+	size_t at = 0;
+	memcpy(out, "ID3", 3);
+	at = 3;
+	out[at++] = (unsigned char)version;
+	out[at++] = 0;
+	out[at++] = extended ? 0x40 : 0;
+	syncsafe_into((uint32_t)(ext_len + f), out + at);
+	at += 4;
+	if (ext_len) {
+		memcpy(out + at, ext, ext_len);
+		at += ext_len;
+	}
+	memcpy(out + at, frames, f);
+	at += f;
+
+	return at < cap ? at : cap;
+}
+
+static void write_bytes(const char *path, const unsigned char *bytes, size_t len) {
+	FILE *f = fopen(path, "wb");
+	if (!f) {
+		fail("id3chap", "could not write the test file");
+		return;
+	}
+	fwrite(bytes, 1, len, f);
+	fclose(f);
+}
+
+static void compare_id3chap(const char *path, int max, const char *label) {
+	id3chap_fields c[16];
+	id3chap_fields r[16];
+	memset(c, 0x5A, sizeof c);
+	memset(r, 0x5A, sizeof r);
+
+	int cc = c_id3chap_read(path, c, max);
+	int rc = id3chap_read(path, r, max);
+
+	checks++;
+	if (cc != rc) {
+		char detail[200];
+		snprintf(detail, sizeof detail, "%s: C found %d, Rust found %d", label, cc, rc);
+		fail("id3chap_read", detail);
+	} else {
+		int shown_here = cc < max ? cc : max;
+		for (int i = 0; i < shown_here && i < 16; i++) {
+			checks++;
+			if (c[i].start != r[i].start || strcmp(c[i].title, r[i].title) != 0) {
+				char detail[320];
+				snprintf(detail, sizeof detail, "%s chapter %d: C %.3f \"%s\", Rust %.3f \"%s\"",
+				         label, i, c[i].start, c[i].title, r[i].start, r[i].title);
+				fail("id3chap_read", detail);
+			}
+		}
+	}
+
+	checks++;
+	if (c_id3chap_present(path) != id3chap_present(path)) {
+		char detail[200];
+		snprintf(detail, sizeof detail, "%s: the two disagree on whether chapters are present", label);
+		fail("id3chap_present", detail);
+	}
+}
+
+static void test_id3chap(const char *workdir) {
+	unsigned char tag[16384];
+	char path[600];
+	snprintf(path, sizeof path, "%s/diff_id3chap.mp3", workdir);
+
+	for (int version = 3; version <= 4; version++) {
+		for (int chapters = 0; chapters <= 6; chapters++) {
+			for (int variant = 0; variant < 4; variant++) {
+				bool extended = (variant & 1) != 0;
+				bool padding = (variant & 2) != 0;
+				size_t len = build_id3_tag(tag, sizeof tag, version, chapters, extended, padding);
+				write_bytes(path, tag, len);
+
+				char label[96];
+				snprintf(label, sizeof label, "v2.%d, %d chapters, ext=%d pad=%d", version, chapters,
+				         (int)extended, (int)padding);
+
+				/* Every limit matters: a caller asking for fewer than there are
+				 * must still be told the real count. */
+				static const int limits[] = {0, 1, 2, 4, 8, 16};
+				for (size_t i = 0; i < sizeof limits / sizeof limits[0]; i++) {
+					compare_id3chap(path, limits[i], label);
+				}
+			}
+		}
+	}
+
+	/* Truncations of a valid tag: the reader must stop at the same place on
+	 * both sides rather than reading past what it got. */
+	{
+		size_t full = build_id3_tag(tag, sizeof tag, 4, 4, false, true);
+		for (size_t cut = 0; cut <= full; cut += 7) {
+			write_bytes(path, tag, cut);
+			compare_id3chap(path, 8, "truncated tag");
+		}
+	}
+
+	/* Corrupted frame sizes, which is what a half-written file looks like. */
+	for (int round = 0; round < 300; round++) {
+		size_t full = build_id3_tag(tag, sizeof tag, 3 + (int)rnd_below(2), 4, (rnd() & 1) != 0, true);
+		/* Corrupt one byte somewhere in the frames, skipping the tag header. */
+		size_t at = 10 + rnd_below((uint32_t)(full > 10 ? full - 10 : 1));
+		if (at < full) {
+			tag[at] = (unsigned char)rnd();
+		}
+		write_bytes(path, tag, full);
+		compare_id3chap(path, 8, "corrupted tag");
+	}
+
+	/* Not a tag at all, and a tag that says it is enormous. */
+	{
+		static const unsigned char junk[] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E'};
+		write_bytes(path, junk, sizeof junk);
+		compare_id3chap(path, 8, "not an ID3 file");
+
+		unsigned char huge[10] = {'I', 'D', '3', 4, 0, 0, 0x7F, 0x7F, 0x7F, 0x7F};
+		write_bytes(path, huge, sizeof huge);
+		compare_id3chap(path, 8, "a tag bigger than MAX_TAG");
+
+		write_bytes(path, tag, 0);
+		compare_id3chap(path, 8, "an empty file");
+	}
+
+	remove(path);
+
+	/* A missing file. */
+	snprintf(path, sizeof path, "%s/diff_id3chap_missing.mp3", workdir);
+	compare_id3chap(path, 8, "a missing file");
+}
+
 int main(int argc, char **argv) {
 	const char *workdir = argc > 1 ? argv[1] : ".";
 
@@ -1515,6 +1778,7 @@ int main(int argc, char **argv) {
 	test_utils();
 	test_textfile(workdir);
 	test_tagdate();
+	test_id3chap(workdir);
 
 	printf("\n%d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

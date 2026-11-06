@@ -59,7 +59,8 @@ RENAMES="-Dbase64_decode=c_base64_decode
 -DformatDoubleSeconds=c_formatDoubleSeconds -DformatDoubleProgress=c_formatDoubleProgress
 -Dformat_row_duration=c_format_row_duration
 -Dtextfile_decode=c_textfile_decode -Dtextfile_read=c_textfile_read -Dtextfile_write=c_textfile_write
--Dtagdate_parse=c_tagdate_parse -Dtagdate_better=c_tagdate_better -Dtagdate_to_time=c_tagdate_to_time"
+-Dtagdate_parse=c_tagdate_parse -Dtagdate_better=c_tagdate_better -Dtagdate_to_time=c_tagdate_to_time
+-Did3chap_read=c_id3chap_read -Did3chap_present=c_id3chap_present"
 
 # textfile.c flushes with POSIX `fsync`; the Windows CRT calls that `_commit`.
 # It is the same call, so the comparison stays a fair one.
@@ -80,6 +81,8 @@ done
 	-c "$text/textfile.c" -o "$build/textfile.o"
 "$CC" -O1 -w -std=gnu99 -I"$library" $RENAMES \
 	-c "$library/tagdate.c" -o "$build/tagdate.o"
+"$CC" -O1 -w -std=gnu99 -I"$app" -I"$library" $RENAMES \
+	-c "$library/id3chap.c" -o "$build/id3chap.o"
 
 # utils.c is a mixed file: the pure half can be compiled here, the other half
 # (pthreads, mmap, sched, prctl) cannot leave the device. Taking the prefix of

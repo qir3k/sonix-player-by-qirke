@@ -30,6 +30,7 @@
 //! | `core/utils.c`    | `utils_isqrt32`, `utils_isqrt64`, `has_extension`, `formatDoubleSeconds`, `formatDoubleProgress`, `format_row_duration` |
 //! | `text/textfile.c` | `textfile_decode`, `textfile_read`, `textfile_write` |
 //! | `library/tagdate.c` | `tagdate_parse`, `tagdate_better`, `tagdate_to_time` |
+//! | `library/id3chap.c` | `id3chap_read`, `id3chap_present` |
 //!
 //! `utils.c` is the one exception to "delete the file and link": it is a mixed
 //! file, and the half below `format_row_duration` is pthreads, `mmap`,
@@ -57,7 +58,7 @@ use std::ffi::CStr;
 use std::io::Read as _;
 use std::sync::{Mutex, OnceLock};
 
-use sonix_core::{base64, config, hash, json, tagdate, text, utils};
+use sonix_core::{base64, config, hash, id3chap, json, tagdate, text, utils};
 
 /// C's `long`.
 ///
@@ -1151,6 +1152,61 @@ pub unsafe extern "C" fn tagdate_to_time(d: *const tagdate_t) -> c_time_t {
     } else {
         when
     }
+}
+
+// ---------------------------------------------------------------------------
+// id3chap
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct id3chap_t {
+    pub start: f64,
+    pub title: [u8; 128],
+}
+
+impl Default for id3chap_t {
+    fn default() -> Self {
+        id3chap_t {
+            start: 0.0,
+            title: [0; 128],
+        }
+    }
+}
+
+/// Reads up to `max` chapters into `out`. A null `out` only asks whether the
+/// file has any, and stops at the first one.
+#[no_mangle]
+pub unsafe extern "C" fn id3chap_read(
+    path: *const c_char,
+    out: *mut id3chap_t,
+    max: c_int,
+) -> c_int {
+    if path.is_null() {
+        return 0;
+    }
+    let path = path_from_bytes(c_bytes(path));
+
+    let sink = if out.is_null() {
+        None
+    } else {
+        // A non-null pointer with max <= 0 still counts every chapter — the C
+        // only stops early when there is nowhere to write at all.
+        Some(slice::from_raw_parts_mut(
+            out as *mut id3chap::Chapter,
+            if max > 0 { max as usize } else { 0 },
+        ))
+    };
+
+    id3chap::read_file(&path, sink) as c_int
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn id3chap_present(path: *const c_char) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    id3chap::present(&path_from_bytes(c_bytes(path)))
 }
 
 // ---------------------------------------------------------------------------
