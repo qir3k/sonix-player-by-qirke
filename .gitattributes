@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# The differential harness is run with sh (and bash on Windows); a CRLF script
+# is a syntax error to both, so these keep LF however they are checked out.
+sonix-player/rust/**/*.sh text eol=lf
