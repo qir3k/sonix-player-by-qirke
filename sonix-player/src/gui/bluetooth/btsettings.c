@@ -203,10 +203,19 @@ static void refresh_status_label(void) {
 		return;
 	}
 
-	// Once the radio is up the lists already say which devices exist and which
-	// one is connected, so this line only reports the local visible name.
+	// Searching is a two-way pairing window: the player answers inquiry while
+	// it looks for headphones or a car. Say so, rather than leaving the user
+	// wondering which side should press Search first. Outside a scan, only
+	// SonixLink's explicit visibility request is advertised on this screen.
 	if (bluetooth_get_enabled()) {
-		lv_label_set_text_fmt(status_label, tr("bt_visible_as"), bluetooth_local_name());
+		if (bluetooth_scan_running() || sonixlink_get_enabled()) {
+			char visible[BT_NAME_MAX + 64];
+			snprintf(visible, sizeof(visible), tr("bt_visible_as"), bluetooth_local_name());
+			lv_label_set_text_fmt(status_label, "%s · %s",
+								  bluetooth_scan_running() ? tr("searching") : tr("bt_mode_tx_status"), visible);
+		} else {
+			lv_label_set_text(status_label, tr("bt_mode_tx_status"));
+		}
 	} else {
 		lv_label_set_text(status_label, tr("bt_bluetooth_off"));
 	}
