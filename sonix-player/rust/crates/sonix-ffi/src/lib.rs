@@ -1760,8 +1760,20 @@ mod tests {
         }
     }
 
+    /// The main and ebook stores belong to the process, so two tests pointing
+    /// them at different files race: one resets the entries the other is in the
+    /// middle of reading. Nothing on the device does that -- the player reads
+    /// its settings from one thread -- so the tests take turns instead of
+    /// pretending the store is per-test.
+    static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn config_guard() -> std::sync::MutexGuard<'static, ()> {
+        CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn config_round_trips_through_a_file() {
+        let _config = config_guard();
         let dir = std::env::temp_dir().join(format!("sonix-cfg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("device_config.ini");
@@ -1823,6 +1835,7 @@ mod tests {
 
     #[test]
     fn config_moves_a_section_between_files() {
+        let _config = config_guard();
         unsafe {
             let main = config_main_store();
             let ebook = config_ebook_store();

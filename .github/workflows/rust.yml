@@ -61,6 +61,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          set +e
           cargo test --workspace --no-fail-fast 2>&1 | tee test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -78,6 +79,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          set +e
           CC=gcc sh tests/differential/run.sh 2>&1 | tee differential.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -115,6 +117,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          set +e
           export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
           gcc --version
           CC=gcc sh tests/differential/run.sh 2>&1 | tee differential.log
