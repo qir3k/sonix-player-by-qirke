@@ -105,6 +105,15 @@ jobs:
       - name: Install MinGW
         run: choco install mingw --no-progress -y
 
+      # and the Rust half has to be built for the same C library. The default
+      # Windows toolchain targets MSVC, whose staticlib is a .lib that MinGW
+      # gcc cannot link, so the differential would find no archive at all.
+      - name: Build against MinGW's C library
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
+          rustc --version
+
       - name: Unit tests
         working-directory: sonix-player/rust
         run: cargo test --workspace
