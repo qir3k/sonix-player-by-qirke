@@ -28,7 +28,12 @@ static lv_obj_t *device_label;
 static lv_obj_t *status_label;
 static lv_obj_t *title_label;
 static lv_timer_t *poll_timer;
-static unsigned last_serial = (unsigned)-1;
+typedef struct {
+	unsigned receiver, devices, stream, track;
+	bool streaming, busy, enabled;
+} receiver_snapshot_t;
+static receiver_snapshot_t last_snapshot;
+static bool have_snapshot;
 static lv_color_t status_normal_color;
 static lv_obj_t *eq_pill;
 static lv_obj_t *peq_pill;
@@ -225,21 +230,21 @@ static void poll_cb(lv_timer_t *timer) {
 	if (!power_screen_is_on()) {
 		return;
 	}
-	// The codec can be renegotiated mid-stream and the Bluetooth serial moves
-	// when it is, so both serials count. The stream falling silent counts too
-	// and has no serial of its own: nothing runs when frames stop arriving, so
-	// there is nobody to bump one. It is read here instead.
+	// Compare fields separately: adding counters and flags permits changes in
+	// opposite directions to cancel, leaving old metadata or status on screen.
 	btreceiver_state_t st;
 	btreceiver_get_state(&st);
-	// The metadata has its own counter, bumped by the sender's announcement
-	// rather than by anything here, and it is carried in the receiver's stream
-	// serial: without it a track change on the phone would not redraw the page.
-	unsigned now = btreceiver_serial() + bluetooth_devices_serial() + bluetooth_receiver_stream_serial() +
-				   (st.streaming ? 1u : 0u);
-	if (now == last_serial) {
-		return;
-	}
-	last_serial = now;
+	receiver_snapshot_t now = {
+		.receiver = btreceiver_serial(), .devices = bluetooth_devices_serial(),
+		.stream = bluetooth_receiver_stream_serial(), .track = bluetooth_receiver_track_serial(),
+		.streaming = st.streaming, .busy = bluetooth_busy(), .enabled = bluetooth_get_enabled(),
+	};
+	if (have_snapshot && now.receiver == last_snapshot.receiver && now.devices == last_snapshot.devices &&
+	    now.stream == last_snapshot.stream && now.track == last_snapshot.track &&
+	    now.streaming == last_snapshot.streaming && now.busy == last_snapshot.busy &&
+	    now.enabled == last_snapshot.enabled) return;
+	last_snapshot = now;
+	have_snapshot = true;
 	refresh();
 }
 
@@ -298,6 +303,7 @@ static void codec_btn_cb(lv_event_t *e) {
 		codec_items[i].action = codec_chosen;
 		codec_items[i].user = codec_targets[i];
 		codec_items[i].checked = selected[0] && strcasecmp(selected, offered[i]) == 0;
+		codec_items[i].verbatim = true;
 	}
 
 	popover_show(lv_event_get_current_target(e), codec_items, count);
@@ -317,7 +323,7 @@ static void leave_async(void *user) {
 static void really_leave(void *user) {
 	(void)user;
 	btreceiver_stop();
-	last_serial = (unsigned)-1;
+	have_snapshot = false;
 	refresh();
 	leaving = true;
 	lv_async_call(leave_async, NULL);
@@ -340,7 +346,10 @@ static void loaded_cb(lv_event_t *e) {
 	// The A2DP sink exists only while this page is open (bluetooth.h): a phone
 	// connects to it from here on.
 	bluetooth_set_receiver_profile(true);
-	last_serial = (unsigned)-1;
+	if (!bluetooth_get_enabled() && bluetooth_available()) {
+		bluetooth_set_enabled(true);
+	}
+	have_snapshot = false;
 	// Arriving is the switch: there is nothing else this page does, so a toggle
 	// on it would only repeat what opening it already said.
 	started_for[0] = '\0';
