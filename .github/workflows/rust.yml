@@ -16,11 +16,13 @@ on:
       - rust
     paths:
       - .github/workflows/rust.yml
+      - .gitattributes
       - sonix-player/rust/**
       - sonix-player/src/system/**
   pull_request:
     paths:
       - .github/workflows/rust.yml
+      - .gitattributes
       - sonix-player/rust/**
       - sonix-player/src/system/**
 
