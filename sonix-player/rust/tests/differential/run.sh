@@ -70,7 +70,12 @@ RENAMES="-Dbase64_decode=c_base64_decode
 -Dnotes_display_name=c_notes_display_name -Dnotes_default_name=c_notes_default_name
 -Dcue_parse=c_cue_parse -Dcue_is_sheet=c_cue_is_sheet
 -Dcue_wav_has_markers=c_cue_wav_has_markers -Dcue_virtual_path=c_cue_virtual_path
--Dcue_split_path=c_cue_split_path -Dcue_order_tracks=c_cue_order_tracks"
+-Dcue_split_path=c_cue_split_path -Dcue_order_tracks=c_cue_order_tracks
+-Dsleeptimer_init=c_sleeptimer_init -Dsleeptimer_enabled=c_sleeptimer_enabled
+-Dsleeptimer_set_enabled=c_sleeptimer_set_enabled -Dsleeptimer_minutes=c_sleeptimer_minutes
+-Dsleeptimer_set_minutes=c_sleeptimer_set_minutes -Dsleeptimer_note_playing=c_sleeptimer_note_playing
+-Dsleeptimer_running=c_sleeptimer_running -Dsleeptimer_any_running=c_sleeptimer_any_running
+-Dsleeptimer_expired=c_sleeptimer_expired -Dsleeptimer_remaining=c_sleeptimer_remaining"
 
 # textfile.c flushes with POSIX `fsync`; the Windows CRT calls that `_commit`.
 # It is the same call, so the comparison stays a fair one.
@@ -86,7 +91,7 @@ notes_defs=""
 case "$(uname -s)" in
 MINGW* | MSYS* | CYGWIN*) ;;
 *)
-	notes_defs="-DHAVE_NOTESSTORE=1 -DHAVE_CUE=1"
+	notes_defs="-DHAVE_NOTESSTORE=1 -DHAVE_CUE=1 -DHAVE_SLEEPTIMER=1"
 	# shellcheck disable=SC2086
 	"$CC" -O1 -w -std=gnu99 -I"$app" $RENAMES \
 		-c "$app/src/system/notes/notesstore.c" -o "$build/notesstore.o"
@@ -95,6 +100,11 @@ MINGW* | MSYS* | CYGWIN*) ;;
 	# shellcheck disable=SC2086
 	"$CC" -O1 -w -std=gnu99 -I"$library" $RENAMES \
 		-c "$library/cue.c" -o "$build/cue.o"
+	# The sleep timer asks clock_gettime for the monotonic clock, which MinGW
+	# does not always declare; the Rust side uses std's Instant there.
+	# shellcheck disable=SC2086
+	"$CC" -O1 -w -std=gnu99 -I"$app" $RENAMES \
+		-c "$app/src/system/playback/sleeptimer.c" -o "$build/sleeptimer.o"
 	;;
 esac
 

@@ -3253,6 +3253,226 @@ static void test_cue(const char *workdir) {
 
 #endif /* HAVE_CUE */
 
+/* ------------------------------------------------------------------------ */
+/* sleeptimer                                                               */
+/* ------------------------------------------------------------------------ */
+
+/* The C asks clock_gettime for the monotonic clock; the Rust port asks Instant.
+ * Neither can be driven from here, so what is compared exactly is everything
+ * read from the settings and every state flag, and what is left of a stretch is
+ * allowed to differ by the second that could tick between two calls. */
+#ifdef HAVE_SLEEPTIMER
+
+extern void c_sleeptimer_init(void);
+extern bool c_sleeptimer_enabled(int kind);
+extern void c_sleeptimer_set_enabled(int kind, bool on);
+extern int c_sleeptimer_minutes(int kind);
+extern void c_sleeptimer_set_minutes(int kind, int minutes);
+extern void c_sleeptimer_note_playing(int kind);
+extern bool c_sleeptimer_running(int kind);
+extern bool c_sleeptimer_any_running(void);
+extern bool c_sleeptimer_expired(int kind);
+extern int c_sleeptimer_remaining(int kind);
+
+extern void sleeptimer_init(void);
+extern bool sleeptimer_enabled(int kind);
+extern void sleeptimer_set_enabled(int kind, bool on);
+extern int sleeptimer_minutes(int kind);
+extern void sleeptimer_set_minutes(int kind, int minutes);
+extern void sleeptimer_note_playing(int kind);
+extern bool sleeptimer_running(int kind);
+extern bool sleeptimer_any_running(void);
+extern bool sleeptimer_expired(int kind);
+extern int sleeptimer_remaining(int kind);
+
+static void compare_sleeptimer(const char *label) {
+	checks++;
+	if (c_sleeptimer_enabled(0) != sleeptimer_enabled(0) ||
+	    c_sleeptimer_minutes(0) != sleeptimer_minutes(0)) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "%s: C on=%d %d min, Rust on=%d %d min", label,
+		         (int)c_sleeptimer_enabled(0), c_sleeptimer_minutes(0),
+		         (int)sleeptimer_enabled(0), sleeptimer_minutes(0));
+		fail("sleeptimer settings", detail);
+	}
+
+	checks++;
+	if (c_sleeptimer_running(0) != sleeptimer_running(0) ||
+	    c_sleeptimer_any_running() != sleeptimer_any_running()) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "%s: C running=%d any=%d, Rust running=%d any=%d", label,
+		         (int)c_sleeptimer_running(0), (int)c_sleeptimer_any_running(),
+		         (int)sleeptimer_running(0), (int)sleeptimer_any_running());
+		fail("sleeptimer running", detail);
+	}
+
+	/* Two calls a microsecond apart can straddle a second boundary. */
+	int c_left = c_sleeptimer_remaining(0);
+	int r_left = sleeptimer_remaining(0);
+	checks++;
+	if (c_left - r_left > 1 || r_left - c_left > 1) {
+		char detail[260];
+		snprintf(detail, sizeof detail, "%s: C has %d s left, Rust %d s", label, c_left, r_left);
+		fail("sleeptimer remaining", detail);
+	}
+}
+
+static void sleeptimer_config(const char *c_path, const char *r_path, const char *ini) {
+	char tmp[700];
+	remove(c_path);
+	remove(r_path);
+	FILE *f = fopen(c_path, "wb");
+	if (f) {
+		fputs(ini, f);
+		fclose(f);
+	}
+	f = fopen(r_path, "wb");
+	if (f) {
+		fputs(ini, f);
+		fclose(f);
+	}
+	c_config_init(c_path);
+	config_init(r_path);
+	c_sleeptimer_init();
+	sleeptimer_init();
+	snprintf(tmp, sizeof tmp, "%s.tmp", c_path);
+	remove(tmp);
+	snprintf(tmp, sizeof tmp, "%s.tmp", r_path);
+	remove(tmp);
+}
+
+static void test_sleeptimer(const char *workdir) {
+	char c_path[700];
+	char r_path[700];
+	snprintf(c_path, sizeof c_path, "%s/diff_sleep_c.ini", workdir);
+	snprintf(r_path, sizeof r_path, "%s/diff_sleep_r.ini", workdir);
+
+	/* A player that has never been asked. */
+	sleeptimer_config(c_path, r_path, "");
+	compare_sleeptimer("fresh install");
+	compare_config_files(c_path, r_path, "fresh install file");
+
+	/* Only the audiobook page ever configured a timer: that choice becomes the
+	 * shared one, and the settings file is written to say so. */
+	sleeptimer_config(c_path, r_path, "[audiobook]\nsleep_timer = 1\nsleep_minutes = 45\n");
+	compare_sleeptimer("audiobook migration");
+	compare_config_files(c_path, r_path, "audiobook migration file");
+
+	/* A time with no switch, and a switch with no time. */
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_minutes = 20\n");
+	compare_sleeptimer("minutes without the switch");
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_timer = 1\n");
+	compare_sleeptimer("switch without minutes");
+
+	/* A hand-edited value past the wheels is clamped, not trusted. */
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_timer = 1\nsleep_minutes = 5000\n");
+	compare_sleeptimer("minutes past a day");
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_timer = 1\nsleep_minutes = -3\n");
+	compare_sleeptimer("negative minutes");
+
+	/* A switch on with a time, and something playing. */
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_timer = 1\nsleep_minutes = 30\n");
+	compare_sleeptimer("armed but nothing playing");
+	c_sleeptimer_note_playing(0);
+	sleeptimer_note_playing(0);
+	compare_sleeptimer("playing with a full stretch");
+
+	checks++;
+	if (c_sleeptimer_expired(0) || sleeptimer_expired(0)) {
+		fail("sleeptimer expired", "a stretch of thirty minutes expired immediately");
+	}
+	compare_sleeptimer("after a tick");
+
+	/* The player says nothing is playing any more. */
+	c_sleeptimer_note_playing(1);
+	sleeptimer_note_playing(1);
+	compare_sleeptimer("nothing playing");
+	checks++;
+	if (c_sleeptimer_running(0) || sleeptimer_running(0)) {
+		fail("sleeptimer running", "a countdown survived the source stopping");
+	}
+
+	/* Out-of-range kinds answer nothing, on both sides. */
+	{
+		static const int kinds[] = {-5, -1, 1, 2, 100};
+		for (size_t i = 0; i < sizeof kinds / sizeof *kinds; i++) {
+			int kind = kinds[i];
+			checks++;
+			if (c_sleeptimer_enabled(kind) != sleeptimer_enabled(kind) ||
+			    c_sleeptimer_minutes(kind) != sleeptimer_minutes(kind) ||
+			    c_sleeptimer_running(kind) != sleeptimer_running(kind) ||
+			    c_sleeptimer_remaining(kind) != sleeptimer_remaining(kind) ||
+			    c_sleeptimer_expired(kind) != sleeptimer_expired(kind)) {
+				fail("sleeptimer kind", "an out-of-range kind was answered differently");
+			}
+			c_sleeptimer_set_enabled(kind, true);
+			sleeptimer_set_enabled(kind, true);
+			c_sleeptimer_set_minutes(kind, 10);
+			sleeptimer_set_minutes(kind, 10);
+			compare_sleeptimer("out-of-range kind");
+		}
+	}
+
+	/* Setting the same value again writes nothing; changing it does. */
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_timer = 1\nsleep_minutes = 30\n");
+	c_sleeptimer_set_minutes(0, 30);
+	sleeptimer_set_minutes(0, 30);
+	compare_sleeptimer("minutes set to what they were");
+	compare_config_files(c_path, r_path, "minutes set to what they were, file");
+
+	c_sleeptimer_set_enabled(0, true);
+	sleeptimer_set_enabled(0, true);
+	compare_sleeptimer("switch set to what it was");
+	compare_config_files(c_path, r_path, "switch set to what it was, file");
+
+	/* Every wheel position, including the ones the clamp has to catch. */
+	{
+		static const int positions[] = {0, 1, 5, 30, 59, 60, 1439, 1440, 100000, -1, -100};
+		for (size_t i = 0; i < sizeof positions / sizeof *positions; i++) {
+			c_sleeptimer_set_minutes(0, positions[i]);
+			sleeptimer_set_minutes(0, positions[i]);
+			compare_sleeptimer("moving the wheel");
+			compare_config_files(c_path, r_path, "moving the wheel, file");
+		}
+	}
+
+	/* Off and on again while something is playing: the switch alone decides. */
+	sleeptimer_config(c_path, r_path, "[player]\nsleep_timer = 1\nsleep_minutes = 10\n");
+	c_sleeptimer_note_playing(0);
+	sleeptimer_note_playing(0);
+	c_sleeptimer_set_enabled(0, false);
+	sleeptimer_set_enabled(0, false);
+	compare_sleeptimer("switched off while playing");
+	c_sleeptimer_set_enabled(0, true);
+	sleeptimer_set_enabled(0, true);
+	compare_sleeptimer("switched back on while playing");
+	checks++;
+	if (!c_sleeptimer_running(0) || !sleeptimer_running(0)) {
+		fail("sleeptimer running", "turning the switch back on did not arm a stretch");
+	}
+	compare_config_files(c_path, r_path, "switch off and on, file");
+
+	/* A hundred ticks in quick succession must not expire anything. */
+	for (int i = 0; i < 100; i++) {
+		checks++;
+		if (c_sleeptimer_expired(0) || sleeptimer_expired(0)) {
+			fail("sleeptimer expired", "a ten-minute stretch expired in a moment");
+		}
+	}
+	compare_sleeptimer("after a hundred ticks");
+	compare_config_files(c_path, r_path, "after a hundred ticks, file");
+
+	remove(c_path);
+	remove(r_path);
+	char tmp[800];
+	snprintf(tmp, sizeof tmp, "%s.tmp", c_path);
+	remove(tmp);
+	snprintf(tmp, sizeof tmp, "%s.tmp", r_path);
+	remove(tmp);
+}
+
+#endif /* HAVE_SLEEPTIMER */
+
 int main(int argc, char **argv) {
 	const char *workdir = argc > 1 ? argv[1] : ".";
 
@@ -3270,6 +3490,9 @@ int main(int argc, char **argv) {
 #endif
 #ifdef HAVE_CUE
 	test_cue(workdir);
+#endif
+#ifdef HAVE_SLEEPTIMER
+	test_sleeptimer(workdir);
 #endif
 
 	printf("\n%d checks, %d failure(s)\n", checks, failures);

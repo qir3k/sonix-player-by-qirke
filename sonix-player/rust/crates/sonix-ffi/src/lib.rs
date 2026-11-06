@@ -60,7 +60,9 @@ use std::ffi::CStr;
 use std::io::Read as _;
 use std::sync::{Mutex, OnceLock};
 
-use sonix_core::{addons, base64, config, cue, hash, id3chap, json, notes, tagdate, text, utils};
+use sonix_core::{
+    addons, base64, config, cue, hash, id3chap, json, notes, sleeptimer, tagdate, text, utils,
+};
 
 /// C's `long`.
 ///
@@ -1424,6 +1426,101 @@ pub unsafe extern "C" fn notes_default_name(dir: *const c_char, out: *mut c_char
         Some(path_from_bytes(c_bytes(dir)))
     };
     write_c_string(&notes::default_name(folder.as_deref()), out, size);
+}
+
+// ---------------------------------------------------------------------------
+// sleeptimer
+// ---------------------------------------------------------------------------
+
+/// Reads the shared timer out of the settings.
+///
+/// The config glue is here rather than in `sonix-core` for the same reason
+/// `addons_set` does its own reading: the core keeps the countdown, the ABI
+/// layer owns the settings file.
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_init() {
+    // Before the timers were shared, the audiobook page stored a separate
+    // switch and duration. Preserve that choice on an install that has never
+    // configured the shared music timer.
+    let music_configured = config_get_bool(c"player".as_ptr(), c"sleep_timer".as_ptr(), false)
+        || config_get_int(c"player".as_ptr(), c"sleep_minutes".as_ptr(), 0) > 0;
+    let book_enabled = config_get_bool(c"audiobook".as_ptr(), c"sleep_timer".as_ptr(), false);
+    let book_minutes =
+        sleeptimer::clamp(
+            config_get_int(c"audiobook".as_ptr(), c"sleep_minutes".as_ptr(), 0) as i32,
+        );
+    if !music_configured && (book_enabled || book_minutes > 0) {
+        config_set_bool(c"player".as_ptr(), c"sleep_timer".as_ptr(), book_enabled);
+        config_set_int(
+            c"player".as_ptr(),
+            c"sleep_minutes".as_ptr(),
+            c_long::from(book_minutes),
+        );
+        config_save();
+    }
+
+    let enabled = config_get_int(c"player".as_ptr(), c"sleep_timer".as_ptr(), 0) != 0;
+    let minutes = config_get_int(c"player".as_ptr(), c"sleep_minutes".as_ptr(), 0) as i32;
+    sleeptimer::init(enabled, minutes);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_enabled(kind: c_int) -> bool {
+    sleeptimer::enabled(kind)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_set_enabled(kind: c_int, on: bool) {
+    if sleeptimer::set_enabled(kind, on) {
+        config_set_int(
+            c"player".as_ptr(),
+            c"sleep_timer".as_ptr(),
+            c_long::from(if on { 1 } else { 0 }),
+        );
+        config_save();
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_minutes(kind: c_int) -> c_int {
+    sleeptimer::minutes(kind)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_set_minutes(kind: c_int, minutes: c_int) {
+    if let Some(minutes) = sleeptimer::set_minutes(kind, minutes) {
+        config_set_int(
+            c"player".as_ptr(),
+            c"sleep_minutes".as_ptr(),
+            c_long::from(minutes),
+        );
+        config_save();
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_note_playing(kind: c_int) {
+    sleeptimer::note_playing(kind);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_running(kind: c_int) -> bool {
+    sleeptimer::running(kind)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_any_running() -> bool {
+    sleeptimer::any_running()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_expired(kind: c_int) -> bool {
+    sleeptimer::expired(kind)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sleeptimer_remaining(kind: c_int) -> c_int {
+    sleeptimer::remaining(kind)
 }
 
 // ---------------------------------------------------------------------------

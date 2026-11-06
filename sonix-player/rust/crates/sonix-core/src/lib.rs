@@ -21,6 +21,7 @@ pub mod hash;
 pub mod id3chap;
 pub mod json;
 pub mod notes;
+pub mod sleeptimer;
 pub mod tagdate;
 pub mod text;
 pub mod utils;
