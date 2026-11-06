@@ -80,8 +80,13 @@ type size_t = usize;
 extern "C" {
     // The C heap, deliberately: `base64_decode` hands back a buffer that C
     // frees, and `json_tok_t` arrays live where a C `json_free` expects them.
-    fn malloc(size: size_t) -> *mut u8;
-    fn free(ptr: *mut u8);
+    //
+    // Declared with `c_void`, the way libc declares them: declaring them with
+    // `*mut u8` is ABI-identical but makes the compiler warn that the runtime's
+    // own `malloc`/`free` are being redeclared with a different signature, and a
+    // staticlib links against libc's.
+    fn malloc(size: size_t) -> *mut c_void;
+    fn free(ptr: *mut c_void);
 }
 
 /// C's `time_t`.
@@ -95,9 +100,21 @@ pub type c_time_t = i64;
 #[cfg(all(not(target_os = "windows"), target_pointer_width = "32"))]
 pub type c_time_t = i32;
 
-/// `struct tm`, as libc lays it out. The first nine fields are in the same order
-/// in glibc, musl and MinGW; the extra members glibc and MinGW append are the
-/// timezone's, which `mktime` fills in and no caller here reads.
+/// `struct tm`, as libc lays it out.
+///
+/// The first nine fields are in the same order everywhere. What follows them is
+/// not the same size: glibc and musl add `tm_gmtoff` (a `long`) and `tm_zone` (a
+/// pointer), which makes the struct 56 bytes on x86-64 Linux against the 36 that
+/// nine ints add up to — and `mktime` **writes those two fields back**.
+///
+/// Declaring only the nine put twenty bytes of glibc's answer into this frame,
+/// past the end of the struct: a segfault, and one that only happened on Linux,
+/// because MinGW's `struct tm` really is the nine fields. That is exactly the
+/// kind of bug a Windows-only test cannot see.
+///
+/// The tail is declared generously rather than exactly: it only has to be big
+/// enough and correctly aligned, and `usize` gives both. Every libc this targets
+/// puts the extra members at the end.
 #[repr(C)]
 struct tm_t {
     tm_sec: c_int,
@@ -109,6 +126,8 @@ struct tm_t {
     tm_wday: c_int,
     tm_yday: c_int,
     tm_isdst: c_int,
+    /// Room for `tm_gmtoff` and `tm_zone`. See above.
+    tail: [usize; 4],
 }
 
 extern "C" {
@@ -177,7 +196,7 @@ pub unsafe extern "C" fn base64_decode(
         return ptr::null_mut();
     };
 
-    let out = malloc(decoded.len() + 1);
+    let out = malloc(decoded.len() + 1) as *mut u8;
     if out.is_null() {
         return ptr::null_mut();
     }
@@ -708,7 +727,7 @@ pub unsafe extern "C" fn json_free(doc: *mut json_doc_t) {
     }
     let d = &mut *doc;
     if !d.toks.is_null() {
-        free(d.toks as *mut u8);
+        free(d.toks as *mut c_void);
     }
     *d = json_doc_t::EMPTY;
 }
@@ -807,10 +826,29 @@ unsafe fn json_string(
     }
 }
 
+/// Clamps a parsed integer to this target's `long`, which is what `strtol`
+/// would have done.
+///
+/// The device's `long` is 32 bits, so an id past `i32` saturates there; on an
+/// LP64 host `long` is the whole 64 and nothing saturates. Hard-coding 32 was
+/// wrong: the differential harness found it the first time it ran on Linux,
+/// where C's `json_long` was returning five-billion values that Rust had
+/// clamped to `i32::MAX`.
+#[cfg(any(target_os = "windows", target_pointer_width = "32"))]
+fn clamp_to_c_long(v: i64) -> c_long {
+    v.clamp(i64::from(c_long::MIN), i64::from(c_long::MAX)) as c_long
+}
+
+/// On an LP64 target `long` is already 64 bits wide.
+#[cfg(all(not(target_os = "windows"), target_pointer_width = "64"))]
+fn clamp_to_c_long(v: i64) -> c_long {
+    v
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn json_long(doc: *const json_doc_t, tok: c_int, fallback: c_long) -> c_long {
     match view(doc) {
-        Some(v) => v.long(tok, fallback as i32) as c_long,
+        Some(v) => clamp_to_c_long(v.llong(tok, i64::from(fallback))),
         None => fallback,
     }
 }
@@ -866,7 +904,7 @@ pub unsafe extern "C" fn json_obj_long(
     fallback: c_long,
 ) -> c_long {
     match view(doc) {
-        Some(v) => v.obj_long(obj, c_str(key), fallback as i32) as c_long,
+        Some(v) => clamp_to_c_long(v.obj_llong(obj, c_str(key), i64::from(fallback))),
         None => fallback,
     }
 }
@@ -972,7 +1010,7 @@ pub unsafe extern "C" fn textfile_decode(raw: *const u8, len: size_t) -> *mut c_
     };
 
     let decoded = text::decode(input);
-    let out = malloc(decoded.len() + 1);
+    let out = malloc(decoded.len() + 1) as *mut u8;
     if out.is_null() {
         return ptr::null_mut();
     }
@@ -1023,7 +1061,7 @@ pub unsafe extern "C" fn textfile_read(
     let mut probe = [0u8; 1];
     let more = matches!(file.read(&mut probe), Ok(1));
 
-    let buffer = malloc(cap);
+    let buffer = malloc(cap) as *mut u8;
     if buffer.is_null() {
         return false;
     }
@@ -1146,6 +1184,7 @@ pub unsafe extern "C" fn tagdate_to_time(d: *const tagdate_t) -> c_time_t {
         tm_wday: 0,
         tm_yday: 0,
         tm_isdst: -1,
+        tail: [0; 4],
     };
     let when = mktime(&mut tm);
     if when == -1 {
@@ -1331,7 +1370,7 @@ mod tests {
             assert_eq!(size, 5);
             assert_eq!(slice::from_raw_parts(out, size), b"hello");
             assert_eq!(*out.add(size), 0, "the caller relies on the terminator");
-            free(out);
+            free(out as *mut c_void);
         }
     }
 
@@ -1666,7 +1705,7 @@ mod tests {
         let out = unsafe { textfile_decode(raw.as_ptr(), raw.len()) };
         assert!(!out.is_null());
         let text = unsafe { CStr::from_ptr(out) }.to_bytes().to_vec();
-        unsafe { free(out as *mut u8) };
+        unsafe { free(out as *mut c_void) };
         assert_eq!(text, "café x".as_bytes());
     }
 
@@ -1675,7 +1714,7 @@ mod tests {
         let out = unsafe { textfile_decode(ptr::null(), 0) };
         assert!(!out.is_null());
         assert_eq!(unsafe { CStr::from_ptr(out) }.to_bytes(), b"");
-        unsafe { free(out as *mut u8) };
+        unsafe { free(out as *mut c_void) };
     }
 
     #[test]
@@ -1702,7 +1741,7 @@ mod tests {
         assert_eq!(bytes, 6);
         assert!(!truncated);
         let read = unsafe { slice::from_raw_parts(raw, bytes).to_vec() };
-        unsafe { free(raw) };
+        unsafe { free(raw as *mut c_void) };
         assert_eq!(read, b"hello\n");
 
         // A short limit reports the cut.
@@ -1714,7 +1753,7 @@ mod tests {
         });
         assert_eq!(bytes2, 3);
         assert!(truncated2, "there was more in the file");
-        unsafe { free(raw2) };
+        unsafe { free(raw2 as *mut c_void) };
 
         // Exactly the whole file is not a truncation.
         let mut raw3: *mut u8 = ptr::null_mut();
@@ -1725,7 +1764,7 @@ mod tests {
         });
         assert_eq!(bytes3, 6);
         assert!(!truncated3);
-        unsafe { free(raw3) };
+        unsafe { free(raw3 as *mut c_void) };
 
         // And a file that is not there is a failure, not an empty read.
         let mut raw4: *mut u8 = ptr::null_mut();
@@ -1812,6 +1851,18 @@ mod tests {
             let none = tagdate_t::default();
             assert_eq!(tagdate_to_time(&none), 0, "no year, no moment");
         }
+    }
+
+    #[test]
+    fn struct_tm_has_room_for_what_mktime_writes() {
+        // glibc's is 56 bytes on LP64: nine ints, then tm_gmtoff and tm_zone.
+        // Anything at or above that is safe; below it, mktime writes into the
+        // caller's frame. This is the check that the Linux crash was made of.
+        assert!(core::mem::size_of::<tm_t>() >= 56, "too small for glibc");
+        assert_eq!(
+            core::mem::align_of::<tm_t>(),
+            core::mem::align_of::<usize>()
+        );
     }
 
     #[test]

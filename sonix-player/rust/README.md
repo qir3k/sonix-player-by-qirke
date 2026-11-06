@@ -53,21 +53,26 @@ hash (SHA-256 fed in uneven chunks), 250 generated JSON documents plus a
 hand-picked corpus walked token by token, a settings file driven through both
 implementations and compared byte for byte, 40,000 random integers (and 40,000
 64-bit ones) plus every power of two on either side of itself through the square
-roots, the formatters
-compared on the whole buffer at every capacity from 0 to 63 (so a terminator
-written one byte too far fails), 3,000 generated text files of four kinds
-(raw bytes, ASCII, UTF-8, UTF-16 with and without a BOM) decoded on both sides,
-reads at ten different limits including exactly past the end, writes compared
-byte for byte, the date parser over a corpus plus every pair through the
-precision rule, and generated MP3 tags — both tag versions, with and without an extended header
-and padding, at every chapter count from none to six, then truncated byte by
-byte and corrupted at random — read by both chapter readers, and the add-on list
-compared row by row along with every switch's default, every `addons_set` and
-the settings file each one writes.
+roots, the formatters compared on the whole buffer at every capacity from 0 to
+63 (so a terminator written one byte too far fails), 3,000 generated text files
+of four kinds (raw bytes, ASCII, UTF-8, UTF-16 with and without a BOM) decoded
+on both sides, reads at ten different limits including exactly past the end,
+writes compared byte for byte, the date parser over a corpus plus every pair
+through the precision rule, generated MP3 tags — both tag versions, with and
+without an extended header and padding, at every chapter count from none to six,
+then truncated byte by byte and corrupted at random — read by both chapter
+readers, and the add-on list compared row by row along with every switch's
+default, every `addons_set` and the settings file each one writes.
 
-It currently runs **1,088,004 checks with 0 failures**, and it is how the two
-bugs listed at the end of [PORTING.md](PORTING.md) were found — neither was
-visible to the unit tests.
+It runs on Windows (`CC=` a MinGW gcc) and on Linux, and does: **1,088,004
+checks on Windows, 1,088,006 on Linux, 0 failures on both** — the two extra
+checks are the settings-file comparison, which Windows has to relax because the
+C original opens the file in text mode. Running it in both places is not
+ceremony: the Linux run found a `struct tm` that was twenty bytes too small for
+`mktime` to write into, which the Windows run could not see.
+
+It is also how every bug listed at the end of [PORTING.md](PORTING.md) was
+found, and none of them was visible to the unit tests.
 
 `utils.c` is compiled for that test as the *prefix of the real file* (everything
 above its platform section, includes unchanged), so there is no second copy of
@@ -156,5 +161,22 @@ archive against the C objects before trusting it (`make check-abi` in
 `sonix-player/` reads the dynamic symbols out of the target binary for exactly
 this kind of drift).
 
-This has not been run on hardware from this branch. Treat the cross build as
+What *has* been verified is that the workspace compiles for the device's
+architecture. No released toolchain ships a prebuilt `std` for any `mipsel`
+target, so it takes nightly plus `-Z build-std`:
+
+```bash
+rustup toolchain install nightly --component rust-src
+cargo +nightly build --release -p sonix-ffi \
+    --target mipsel-unknown-linux-musl -Z build-std=std
+```
+
+That produces an 11.9 MB `libsonix_player_core.a` whose members are `ELF32`,
+`2's complement, little endian`, `MIPS R3000` — the right shape for the X1600.
+It is a compile check and not the shipping artifact: the device is glibc, and a
+musl staticlib could not be linked into it. So the 32-bit-pointer assumptions
+(`c_long`, `size_t`, every struct layout) are checked, and the glibc target is
+still unbuilt until the real toolchain is pointed at it.
+
+None of this has run on hardware from this branch. Treat the cross build as
 unverified until it boots.

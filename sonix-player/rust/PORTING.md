@@ -154,7 +154,7 @@ Each module gets three levels:
 
 ### What the harness found
 
-It is worth recording, because both were invisible to the unit tests:
+It is worth recording, because none of them was visible to the unit tests:
 
 * `json_str_exact` left the partial bytes it had written in the caller's buffer
   when it rejected a truncation, where C's `invalid:` label clears it. A caller
@@ -163,6 +163,21 @@ It is worth recording, because both were invisible to the unit tests:
   has a 32-bit `long`, so `config_set_int` read 64 bits of register for a
   32-bit argument and landed on `i32::MAX`. The target is ILP32 and never hit
   it, which is exactly why desktop tests matter.
+* `struct tm` was declared as its nine `int` fields. glibc's is 56 bytes, not
+  36, because it appends `tm_gmtoff` and `tm_zone` — and `mktime` writes those
+  two back. `tagdate_to_time` therefore wrote twenty bytes past its own struct
+  into the caller's frame: a segfault, and one that happened *only on Linux*,
+  because MinGW's `struct tm` really is the nine fields. Running the harness on
+  Windows alone had said it was fine.
+* `json_long` clamped to 32 bits unconditionally. That is right for the device
+  (`long` is 32 there) and for Windows, and wrong on LP64, where C's `strtol`
+  returns the whole 64 and Rust was handing back `i32::MAX`. It now clamps to
+  whatever width `c_long` has on the target being built.
+
+The last two were both found by running the differential harness on Linux as
+well as on Windows — the first time it had been tried anywhere but the host it
+was written on. Neither is reachable on the device by the Windows build alone,
+which is the argument for running it in both places from now on.
 
 One difference is expected and stays: the C settings save uses `rename()`, which
 replaces the destination on POSIX but not on Windows, so on a Windows host the
