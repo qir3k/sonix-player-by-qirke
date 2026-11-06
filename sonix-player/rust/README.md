@@ -45,7 +45,10 @@ make staticlib     # libsonix_player_core.a for the firmware to link
 ```
 
 No dependencies, so this needs nothing but a Rust toolchain; `make
-differential` also needs a C compiler (`CC=` to point at one). The release
+differential` also needs a C compiler (`CC=` to point at one). Both run in CI
+(`.github/workflows/rust.yml`) on Linux and Windows for every push to `rust`,
+and the Windows job exists on purpose: its 64-bit `long` has already caught an
+ABI bug that Linux could not see. The release
 profile is `opt-level = "s"`, LTO, `panic = "abort"` and stripped symbols,
 because the device has 55.6 MB of RAM and a read-only rootfs updated as one
 image — size beats the last few percent of speed everywhere.

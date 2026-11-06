@@ -1,0 +1,97 @@
+name: Rust port
+
+# The Rust port of the player is verified by running it against the C it
+# replaces: both are linked into one program, fed identical inputs, and their
+# answers compared. That harness is the only thing that can catch a port that
+# compiles and passes its own tests but disagrees with the player, so it runs on
+# both hosts the port is built on -- Linux, where every section compiles, and
+# Windows, whose 64-bit `long` has already caught a signature bug Linux could
+# not.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+      - rust
+    paths:
+      - .github/workflows/rust.yml
+      - sonix-player/rust/**
+      - sonix-player/src/system/**
+  pull_request:
+    paths:
+      - .github/workflows/rust.yml
+      - sonix-player/rust/**
+      - sonix-player/src/system/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Unit tests and differential (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: The port is formatted
+        working-directory: sonix-player/rust
+        run: cargo fmt --all --check
+
+      - name: Unit tests
+        working-directory: sonix-player/rust
+        run: cargo test --workspace
+
+      # Every ported module is in this harness beside the C original it
+      # replaces. A section that quietly stops testing anything is itself a
+      # failure: each fixture is expected to parse into a known number of
+      # tracks, notes or timers.
+      - name: Differential against the C
+        working-directory: sonix-player/rust
+        env:
+          CC: gcc
+        run: sh tests/differential/run.sh
+
+  windows:
+    name: Unit tests and differential (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The harness compiles the C originals, so it needs a C compiler: MinGW
+      # gcc, the same one the port is developed against.
+      - name: Install MinGW
+        run: choco install mingw --no-progress -y
+
+      - name: Unit tests
+        working-directory: sonix-player/rust
+        run: cargo test --workspace
+
+      # The sections that need a POSIX host -- the note folder's two-argument
+      # mkdir, the CUE walker, clock_gettime -- are compiled out here, and the
+      # settings-file comparison is relaxed because the C opens it in text mode.
+      - name: Differential against the C
+        working-directory: sonix-player/rust
+        shell: bash
+        run: |
+          export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
+          gcc --version
+          CC=gcc sh tests/differential/run.sh
