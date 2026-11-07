@@ -112,7 +112,27 @@ static bool pairing_device_audio_connected(void) {
 		return true;
 	}
 	char source[BT_MAC_MAX];
+static bool pairing_device_audio_connected(void) {
+	if (bluetooth_device_audio_connected(pairing_mac)) {
+		return true;
+	}
+	char source[BT_MAC_MAX];
 	return bluetooth_receiver_device(source, sizeof(source), NULL, 0) && strcasecmp(source, pairing_mac) == 0;
+}
+
+static void open_receiver_mode(void) {
+	if (lv_screen_active() == btreceiverpage_screen) {
+		return; // already there; switching again would only rebuild the page
+	}
+	if (bluetooth_audio_active()) {
+		gui_notify_popup("bt_disconnect_headphones_first");
+		return;
+	}
+	if (!bluetooth_get_enabled() && bluetooth_available()) {
+		bluetooth_set_receiver_profile(true);
+		bluetooth_set_enabled(true);
+	}
+	switch_screen(btreceiverpage_screen);
 }
 
 static void pairing_watch_cb(lv_timer_t *timer) {
