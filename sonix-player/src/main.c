@@ -34,6 +34,7 @@
 #include "src/gui/shell/gui.h"
 #include "src/gui/shell/chargescreen.h"
 #include "src/gui/nowplaying/player.h"
+#include "src/gui/library/libraryscan.h"
 #include "src/gui/settings/powersettings.h"
 #include "src/gui/settings/settings.h"
 #include "src/system/device/adb.h"
@@ -110,8 +111,11 @@ static void host_shot_poll_cb(lv_timer_t *timer) {
 static bool restore_saved_track(void) {
 	char saved_track[512];
 	double saved_pos = 0;
-	if (!library_playback_state_load(saved_track, sizeof(saved_track), &saved_pos) ||
-		access(saved_track, R_OK) != 0) {
+	if (!library_playback_state_load(saved_track, sizeof(saved_track), &saved_pos)) {
+		return false;
+	}
+	if (!library_playback_track_readable(saved_track)) {
+		fprintf(stderr, "remember track: saved track is not readable: %s\n", saved_track);
 		return false;
 	}
 
@@ -165,6 +169,9 @@ static bool restore_saved_track(void) {
 static void restore_track_timer_cb(lv_timer_t *timer) {
 	lv_timer_delete(timer);
 	restore_saved_track();
+	// Only now may automatic library work start: the restore timer and the
+	// old independent boot timer could otherwise become due in the wrong order.
+	libraryscan_boot_check_schedule();
 }
 
 // The heap back to the kernel, once a minute, and only while the player is
@@ -2830,9 +2837,13 @@ int main(int argc, char **argv) {
 			if (restore_saved_track()) {
 				player_sheet_open(false);
 			}
+			libraryscan_boot_check_schedule();
 		} else {
+			// The restore callback schedules the boot check after it finishes.
 			lv_timer_create(restore_track_timer_cb, 600, NULL);
 		}
+	} else {
+		libraryscan_boot_check_schedule();
 	}
 
 
