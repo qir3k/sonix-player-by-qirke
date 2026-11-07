@@ -442,14 +442,46 @@ static bool conn_open(conn_t *c, const url_t *u, int timeout_secs, char *err, si
 // body and is handed back in `body`/`body_len` -- with a stream there is no
 // way to put it back on the socket.
 //
+// `deadline_secs` bounds the whole header phase, not just each recv: a server
+// that accepts the connection and then trickles headers forever, or never
+// finishes them at all, must not be able to hold the read thread past it.
+// Each recv is trimmed to what remains of the deadline, and the socket's
+// receive timeout is restored to the full value before a successful return so
+// the body read keeps its own timeout.
+//
 // Returns the status code, or -1.
-static int read_headers(conn_t *c, char *headers, size_t headers_size, char *body, size_t body_size,
-						int *body_len) {
-	size_t used = 0;
-	*body_len = 0;
+//
+// How much of the header-reading deadline is left, measured from `started`,
+// trimmed onto the socket's receive timeout so no single recv can outlast the
+// overall deadline. Returns <= 0 once the deadline has passed.
+static long header_time_left_ms(const struct timespec *started, int deadline_secs, int fd) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long left_ms = (long)deadline_secs * 1000 -
+                   (long)(now.tv_sec - started->tv_sec) * 1000 -
+                   (now.tv_nsec - started->tv_nsec) / 1000000;
+    if (left_ms > 0) {
+        struct timeval tv = { .tv_sec = left_ms / 1000, .tv_usec = (left_ms % 1000) * 1000 };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+    return left_ms;
+}
 
-	while (used + 1 < headers_size) {
-		int n = conn_read(c, headers + used, headers_size - used - 1);
+static int read_headers(conn_t *c, char *headers, size_t headers_size, char *body, size_t body_size,
+                        int *body_len, int deadline_secs) {
+    size_t used = 0;
+    bool found = false;
+    *body_len = 0;
+
+    struct timespec started;
+    clock_gettime(CLOCK_MONOTONIC, &started);
+
+    while (used + 1 < headers_size) {
+        if (header_time_left_ms(&started, deadline_secs, c->fd) <= 0) {
+            return -1; // the headers never arrived: give up instead of waiting for ever
+        }
+
+        int n = conn_read(c, headers + used, headers_size - used - 1);
 		if (n <= 0) {
 			return -1;
 		}
@@ -478,14 +510,63 @@ static int read_headers(conn_t *c, char *headers, size_t headers_size, char *bod
 		memcpy(body, headers + header_len, extra);
 		*body_len = (int)extra;
 		headers[header_len] = '\0';
+		found = true;
 		break;
 	}
 
+	// If a CDN or reverse proxy sent more than HTTP_HEADER_BUFFER bytes of
+	// Set-Cookie / CSP headers, drain up to the blank line so leftover header
+	// lines never spill into the response body.
+	if (!found && used > 0) {
+		char w0 = used >= 3 ? headers[used - 3] : '\0';
+		char w1 = used >= 2 ? headers[used - 2] : '\0';
+		char w2 = headers[used - 1];
+		size_t drained = 0;
+		char drain[4096];
+
+		while (!found && drained < 64 * 1024) {
+			if (header_time_left_ms(&started, deadline_secs, c->fd) <= 0) {
+				return -1;
+			}
+			int n = conn_read(c, drain, sizeof(drain));
+			if (n <= 0) {
+				return -1;
+			}
+			drained += (size_t)n;
+			for (int i = 0; i < n; i++) {
+				char ch = drain[i];
+				if ((w0 == '\r' && w1 == '\n' && w2 == '\r' && ch == '\n') || (w2 == '\n' && ch == '\n')) {
+					size_t extra = (size_t)(n - (i + 1));
+					if (extra > body_size) {
+						return -1;
+					}
+					if (extra > 0) {
+						memcpy(body, drain + i + 1, extra);
+					}
+					*body_len = (int)extra;
+					found = true;
+					break;
+				}
+				w0 = w1;
+				w1 = w2;
+				w2 = ch;
+			}
+		}
+	}
+
+	if (!found) {
+		return -1;
+	}
 	// "HTTP/1.1 200 OK", or shoutcast's own "ICY 200 OK".
 	const char *space = strchr(headers, ' ');
 	if (!space) {
 		return -1;
 	}
+
+	// The body read reuses this socket: give it back the full receive timeout
+	// rather than what was left of the header deadline.
+	struct timeval tv = { .tv_sec = deadline_secs, .tv_usec = 0 };
+	setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	return atoi(space + 1);
 }
 
@@ -807,7 +888,7 @@ static bool get_once(const url_t *u, const http_req_t *req, char **out, size_t *
 	char lead[HTTP_HEADER_BUFFER];
 	int lead_len = 0;
 	last_range_total = 0;
-	int status = read_headers(&conn, headers, sizeof(headers), lead, sizeof(lead), &lead_len);
+	int status = read_headers(&conn, headers, sizeof(headers), lead, sizeof(lead), &lead_len, timeout_secs);
 	*status_out = status;
 	last_range_total = content_range_total(headers);
 
@@ -1088,31 +1169,59 @@ static bool stream_open_once(http_stream_t *st, const char *url, int timeout_sec
 		return false;
 	}
 
+	// Publish the socket on the stream before reading the headers: read_headers()
+	// above has no cancellation point other than the socket itself, so
+	// http_stream_wake() from transport_stop() must be able to shut this fd
+	// down while we are still waiting for the header block. From here on the
+	// socket belongs to st: failure paths close it themselves and conn_close()
+	// is not used again (it would also free the TLS session st references).
+	st->fd = conn.fd;
+	st->tls = conn.tls;
+
 	char headers[HTTP_HEADER_BUFFER];
-	int status = read_headers(&conn, headers, sizeof(headers), st->lead, sizeof(st->lead), &st->lead_len);
+	int status = read_headers(&conn, headers, sizeof(headers), st->lead, sizeof(st->lead), &st->lead_len,
+	                          timeout_secs);
 	*status_out = status;
 
-	if (status >= 300 && status < 400) {
-		location[0] = '\0';
-		header_value(headers, "Location", location, location_size);
-		conn_close(&conn);
+	if (status < 0 || status >= 300) {
+		// Give up on this connection: close the socket that now belongs to st.
+		// tls_free() first -- its shutdown writes to the socket that close()
+		// is about to drop.
+		if (st->tls) {
+			tls_free(st->tls);
+			st->tls = NULL;
+		}
+		if (st->fd >= 0) {
+			close(st->fd);
+			st->fd = -1;
+		}
+		if (status >= 300 && status < 400) {
+			location[0] = '\0';
+			header_value(headers, "Location", location, location_size);
+		} else if (status > 0) {
+			fprintf(stderr, "http: %s%.*s -> status %d\n", u.host, (int)strcspn(u.path, "?"), u.path, status);
+			if (!last_error[0]) {
+				set_last_error(tr("http_server_answered"), status);
+			}
+		}
 		return false;
 	}
 	if (status != 200) {
-		// The reason a stream was refused, in the log and in last_error, the
-		// way get_once() does for an ordinary request: Google answers 403 to a
-		// media address that was resolved from a different machine, and that
-		// is a thing worth reading rather than guessing at.
+		if (st->tls) {
+			tls_free(st->tls);
+			st->tls = NULL;
+		}
+		if (st->fd >= 0) {
+			close(st->fd);
+			st->fd = -1;
+		}
 		fprintf(stderr, "http: %s%.*s -> status %d\n", u.host, (int)strcspn(u.path, "?"), u.path, status);
 		if (!last_error[0]) {
 			set_last_error(tr("http_server_answered"), status);
 		}
-		conn_close(&conn);
 		return false;
 	}
 
-	st->fd = conn.fd;
-	st->tls = conn.tls;
 	st->lead_pos = 0;
 
 	header_value(headers, "Content-Type", st->content_type, sizeof(st->content_type));
