@@ -190,7 +190,14 @@ void factoryreset_run(void) {
 	unmount_card();
 
 	// This player's configuration goes now, without waiting for the reboot.
-	static const char *const OURS[] = {CONFIG_FILE, CONFIG_FILE ".browser", CONFIG_FILE ".browser.tmp", EBOOK_CONFIG_FILE};
+	static const char *const OURS[] = {
+		CONFIG_FILE,
+		CONFIG_FILE ".browser",
+		CONFIG_FILE ".browser.tmp",
+		EBOOK_CONFIG_FILE,
+		"/usr/data/qobuz_session.ini",
+		"/usr/data/tidal_session.ini",
+	};
 	for (size_t i = 0; i < sizeof(OURS) / sizeof(OURS[0]); i++) {
 		if (unlink(OURS[i]) == 0) {
 			printf("factoryreset: %s deleted\n", OURS[i]);
@@ -249,8 +256,14 @@ static const char *const KEEP[] = {
 	"device_config.ini.browser.tmp",
 	"ebook_config.ini",
 	"ebook_config.ini.tmp",
+	"streaming-keys.ini",
+	"streaming-keys.ini.tmp",
+	"qobuz_session.ini",
+	"qobuz_session.ini.tmp",
 	"tidal_session.ini",
+	"tidal_session.ini.tmp",
 	"ytmusic_session.ini",
+	"ytmusic_session.ini.tmp",
 	"lastfm.session",
 	"listenbrainz.token",
 };
