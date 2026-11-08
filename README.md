@@ -70,6 +70,36 @@ The player UI is built with LVGL 9.6 and customized for the V1's 240×320 geomet
 
 ---
 
+## ⚡ High-Performance Architecture for Ingenic X1600
+
+This fork features an extensively optimized low-level architecture designed specifically around the strict hardware constraints of the **Ingenic X1600 (MIPS32r2)** processor and its **55 MB usable RAM budget**:
+
+### 1. Kernel, ZRAM & Boot Optimization
+* **Linux Kernel 4.4.94+ with High-Ratio ZRAM:** Configured with ultra-fast **LZ4** compression algorithm (`echo lz4 > /sys/block/zram0/comp_algorithm`), 20 MB zram disk size, and low swappiness (`vm.swappiness = 20`) to minimize page-fault latency under memory pressure.
+* **On-Demand Daemons in `/etc/init.d/rcS`:** All automatic boot-time background services (`wpa_supplicant`, `udhcpc`, `bluetoothd`, `avahi-daemon`, `syslogd`) have been disabled from autostarting. Networking and Bluetooth stacks spawn strictly on-demand.
+* **CPU Priority & Governor:** Boot governor locked to `performance` with the player binary executed with elevated scheduling priority (`nice -n -10 /usr/bin/sonix_player &`).
+* **Rootfs Staging Audit & Squashfs XZ:** Build system runs `mipsel-linux-gnu-strip --strip-all` on all binaries and shared libraries (.so). `v1_packer.sh` compresses rootfs using `mksquashfs -comp xz -b 256K -noappend`, shrinking firmware package size from 50 MB down to **~20 MB**.
+
+### 2. LVGL 9.6 Rendering & glibc Heap Tuning
+* **L1 Cache-Aligned Dual Partial Buffers:** Zero full-framebuffer heap allocations. LVGL 9.6 utilizes dual partial line buffers (240 × 32 × 2 bytes RGB565) aligned to 32 bytes, fitting perfectly within the MIPS L1 data cache.
+* **glibc Heap Tuning (`mallopt`):** Configured thresholds (`mallopt(M_MMAP_THRESHOLD, 64 * 1024)` and `mallopt(M_TRIM_THRESHOLD, 128 * 1024)`) combined with targeted, event-driven `malloc_trim(0)` calls when closing views or switching tracks. Typical active RAM usage drops to **15–18 MB**.
+* **Decoded Artwork Cache Cap:** Max 2 simultaneous decoded images in RAM in 16-bit RGB565 format (eliminating 32-bit RGBA bloat and out-of-memory spikes).
+* **UI Template Recycling (`ui_generic_list_view`):** Lists use a fixed virtual pool of only 8 recycled row widgets for the 240×320 viewport, binding data dynamically via callbacks with zero widget allocations during scrolling.
+* **Lightweight 250ms Loading Indicator:** Replaced heavy 60 FPS vector spinner with a discrete 250 ms 3-dot text animation, completely decoupling UI rendering from audio decoding loops.
+
+### 3. Touch Input & Boot Stability
+* **Input Event Queue Draining:** `flush_input_events(int fd)` drains accumulated stale boot events from `/dev/input/event*` before registration.
+* **Touch Settling Grace Period:** Touch indev starts disabled (`lv_indev_enable(false)`) with a one-shot 1200 ms settling timer before enabling, completely eliminating post-boot ghost clicks.
+
+### 4. Real-Time Audio Pipeline & State Machine
+* **Real-Time Priority Scheduling:** Dedicated ALSA/CS43131 playback thread runs at `SCHED_FIFO` priority 80. Playback begins only after 300 ms pre-roll buffering.
+* **Atomic Audio State Machine:** Sequential pipeline (`[STOPPING] -> [CLEANUP] -> [BUFFERING] -> [PLAYING]`) eliminates clicks and thread collisions when switching sources (YouTube Music, Tidal, Radio, Local Files). Digital DAC mute (`alsa_track_mute`) drops audio cleanly from silence.
+* **Decoupled Asynchronous SD Card I/O:** Zero synchronous disk I/O in the UI thread. The `metaloader` pthread worker extracts tags and album sleeves in the background with immediate UI placeholder rendering.
+* **Bluetooth Panel Hold & Fast Screen Wake:** Silent screen waking during Bluetooth streaming by holding panel power and toggling backlight, preventing PMIC rail voltage drop and Bluetooth audio stutters. Instant wake on power key-down.
+* **Optimized Enchanted SonixLink:** Worker threads set to `nice +10`, static 4 KB packet buffers, 500 ms throttled broadcasts, and on-demand resource cleanup.
+
+---
+
 ## Features overview
 
 - **Interface languages** — 12 language packs selectable on the fly (Čeština, English, Deutsch, Español, Français, Italiano, Japanese, Nederlands, Polski, Português BR, Russian, Ukrainian), with dynamic script fallbacks for East Asian, Cyrillic, and Arabic text.
