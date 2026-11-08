@@ -1028,7 +1028,7 @@ static void gapless_release(void) {
 		alsa_track_mute();
 		snd_pcm_drop(pcm);
 	} else {
-		safe_pcm_start(pcm, sample_rate, true);
+		snd_pcm_start(pcm);
 		// Drain rather than drop: what is in there is the real tail of the track
 		// that just ended, and it has to be heard. With a deadline, because a
 		// handle that will never drain must not take the thread with it.
@@ -3060,7 +3060,7 @@ static void play_wav_file(const char *filepath) {
 			// threshold: the stream is still PREPARED with the whole track
 			// queued. Start it by hand, or the drain has nothing to flush and
 			// those last moments are never heard.
-			safe_pcm_start(pcm_handle, sample_rate, true);
+			safe_pcm_start(pcm_handle, info.sample_rate, true);
 			pcm_drain_bounded(pcm_handle);
 			alsa_track_mute(); // the tail is out; close from silence
 		} else {
