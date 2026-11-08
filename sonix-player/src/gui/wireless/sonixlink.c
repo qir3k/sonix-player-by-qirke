@@ -40,7 +40,7 @@ lv_obj_t *sonixlink_screen;
 
 // The pump is not the page's timer: commands arrive while the page is closed,
 // and that is when a remote control has to work at all.
-#define PUMP_MS 200
+#define PUMP_MS 500
 #define PUMP_WAITING_MS 1000
 #define PUMP_IDLE_MS 2000
 #define PAGE_POLL_MS 500

@@ -9,7 +9,11 @@ CFLAGS += -std=gnu11 -Wall -Wextra -Werror -D_FILE_OFFSET_BITS=64 -ffunction-sec
 # which is what gives the More menu its seventh entry. The headless suites use
 # the same flag so the page they lay out is the page the firmware builds.
 CFLAGS += -DGB_CORE=1
+ifeq ($(OS),Windows_NT)
+LDLIBS += -lpthread -lm -lws2_32
+else
 LDLIBS += -lpthread -ldl -lm
+endif
 LDFLAGS += -Wl,--gc-sections
 
 CORE = $(ROOT)/src/system/streaming/subsonic.c \

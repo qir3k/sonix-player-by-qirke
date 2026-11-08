@@ -111,6 +111,8 @@ static char list_album[YTMUSIC_TITLE_MAX];
 // title with nothing under it -- and a download would carry no creator into the
 // now-playing screen. Read the same way list_album is, from the card tapped.
 static char list_show[YTMUSIC_TITLE_MAX];
+static char list_artist[YTMUSIC_NAME_MAX];
+static char list_thumbnail[YTMUSIC_URL_MAX];
 
 // Whether the tracks screen is showing the favourites this player keeps itself
 // rather than a card opened from the store. Only that list has to be rebuilt
@@ -332,6 +334,7 @@ static lv_obj_t *busy_layer;
 static lv_obj_t *busy_label;
 
 static void busy_show(void) {
+	player_pause_for_loading();
 	if (!busy_layer) return;
 	lv_obj_set_hidden(busy_label, false);
 	lv_obj_set_hidden(busy_layer, false);
@@ -458,6 +461,7 @@ static void loading_build(void) {
 }
 
 static void loading_show(void) {
+	player_pause_for_loading();
 	loading_build();
 	if (!loading_veil) return;
 	lv_obj_remove_flag(loading_veil, LV_OBJ_FLAG_HIDDEN);
@@ -1650,7 +1654,7 @@ static void track_from_item(const ytmusic_item_t *item, ytmusic_track_t *track) 
 	snprintf(track->id, sizeof(track->id), "%s", item->id);
 	snprintf(track->title, sizeof(track->title), "%s", item->title);
 	// A row's subtitle is the artist, or the show an episode belongs to.
-	snprintf(track->artist, sizeof(track->artist), "%s", item->subtitle);
+	snprintf(track->artist, sizeof(track->artist), "%s", item->subtitle[0] ? item->subtitle : list_artist);
 	// The album the row named, or the list it was opened from: that is what
 	// makes the download land in a folder with a name instead of "Unknown
 	// album". The tag file written beside the audio carries it, and the keep
@@ -1658,7 +1662,7 @@ static void track_from_item(const ytmusic_item_t *item, ytmusic_track_t *track) 
 	snprintf(track->album, sizeof(track->album), "%s", item->album[0] ? item->album : list_album);
 	// The row's cover goes with the track: the downloader fetches it beside the
 	// audio, which is where the player looks for a file's artwork.
-	snprintf(track->thumbnail, sizeof(track->thumbnail), "%s", item->thumbnail);
+	snprintf(track->thumbnail, sizeof(track->thumbnail), "%s", item->thumbnail[0] ? item->thumbnail : list_thumbnail);
 	track->duration = item->duration;
 	track->podcast_episode = item->podcast_episode;
 }
@@ -1930,6 +1934,8 @@ static bool start_list_request(list_kind_t kind, bool to_tracks, ytmusic_filter_
 		strcmp(browse_id, "VLLM") == 0 || strncmp(browse_id, "FEmusic_", 8) == 0) {
 		list_album[0] = '\0';
 		list_show[0] = '\0';
+		list_artist[0] = '\0';
+		list_thumbnail[0] = '\0';
 	}
 	if (!begin_busy()) return false;
 	list_result_t *result = calloc(1, sizeof(*result));
@@ -1997,6 +2003,19 @@ static void list_done(void *data) {
 	}
 	int count = result->count;
 	if (count > YTMUSIC_PAGE_RESULTS) count = YTMUSIC_PAGE_RESULTS;
+	for (int i = 0; i < count; i++) {
+		if (result->items[i].kind == YTMUSIC_ITEM_TRACK) {
+			if (!result->items[i].subtitle[0] && list_artist[0]) {
+				snprintf(result->items[i].subtitle, sizeof(result->items[i].subtitle), "%s", list_artist);
+			}
+			if (!result->items[i].album[0] && list_album[0]) {
+				snprintf(result->items[i].album, sizeof(result->items[i].album), "%s", list_album);
+			}
+			if (!result->items[i].thumbnail[0] && list_thumbnail[0]) {
+				snprintf(result->items[i].thumbnail, sizeof(result->items[i].thumbnail), "%s", list_thumbnail);
+			}
+		}
+	}
 	// A card tapped in Explore: the tracks it was hiding are the point of the
 	// tap, not the page they would fill. They are queued straight from the
 	// fetched list -- play_item_at copies everything it keeps -- so the folder
@@ -2089,6 +2108,8 @@ static void item_clicked_cb(lv_event_t *e) {
 		// track list does not name the album on its rows.
 		snprintf(list_album, sizeof(list_album), "%s", item->title);
 		snprintf(list_show, sizeof(list_show), "%s", item->title);
+		snprintf(list_artist, sizeof(list_artist), "%s", item->subtitle);
+		snprintf(list_thumbnail, sizeof(list_thumbnail), "%s", item->thumbnail);
 		bool from_explore = lv_obj_get_parent(lv_event_get_target(e)) == results_list && explore_cards;
 		start_list_request(LIST_BROWSE, true, YTMUSIC_FILTER_SONGS, NULL, item->browse_id, item->title,
 						   from_explore);
@@ -2558,6 +2579,8 @@ static void favourites_cb(lv_event_t *e) {
 		return;
 	}
 	list_album[0] = '\0';
+	list_artist[0] = '\0';
+	list_thumbnail[0] = '\0';
 	favourites_fill_items();
 	if (track_count <= 0) {
 		toast_error("ytmusic_favourites_empty");

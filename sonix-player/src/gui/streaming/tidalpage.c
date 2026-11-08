@@ -272,6 +272,7 @@ static void busy_dismiss_cb(lv_event_t *e);
 
 static void busy_show(const char *text) {
 	(void)text;
+	player_pause_for_loading();
 	if (!busy_layer) {
 		return;
 	}

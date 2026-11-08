@@ -172,4 +172,15 @@
   #define LV_USE_EVDEV 1
 #endif
 
+/* Dual partial draw buffer configuration: 32 lines of 240x32 RGB565 */
+#define LV_LINUX_FBDEV_RENDER_MODE LV_DISPLAY_RENDER_MODE_PARTIAL
+#define LV_LINUX_FBDEV_BUFFER_SIZE (240 * 32 * sizeof(uint16_t))
+
+/* Decoded image cache: cap to a maximum of 2 images simultaneously in RAM.
+ * Ensures decoded 16-bit RGB565 bitmaps (240x320x2 = 153.6 KB) are capped at 2 in memory. */
+#define LV_IMG_CACHE_DEF_SIZE 2
+#define LV_IMAGE_CACHE_DEF_CNT 2
+#define LV_IMAGE_HEADER_CACHE_DEF_CNT 2
+#define LV_CACHE_DEF_SIZE (2 * 240 * 320 * sizeof(uint16_t))
+
 #endif /* LV_CONF_H */

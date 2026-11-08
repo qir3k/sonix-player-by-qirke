@@ -1,0 +1,135 @@
+#!/bin/sh
+# /etc/init.d/rcS - System startup script for Ingenic X1600 (TempoTec V1 / Sonix Player)
+# Optimized for minimal background overhead, zero CPU starvation, and fast boot.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+# -----------------------------------------------------------------------------
+# 1. Mount Core & Virtual Filesystems Synchronously
+# -----------------------------------------------------------------------------
+mount -a
+mkdir -p /dev/pts /dev/shm /tmp /var /var/run /var/lock /var/log /data
+mount -t devpts devpts /dev/pts 2>/dev/null || :
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null || :
+mount -t tmpfs tmpfs /tmp 2>/dev/null || :
+mount -t tmpfs tmpfs /var 2>/dev/null || :
+
+# Populate dynamic device nodes using mdev
+if [ -x /sbin/mdev ]; then
+    echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || :
+    /sbin/mdev -s
+fi
+
+# Ensure user/storage data partitions are mounted
+if grep -q "ubifs" /proc/filesystems 2>/dev/null && [ -e /dev/ubi0_0 ]; then
+    mount -t ubifs /dev/ubi0_0 /data 2>/dev/null || :
+fi
+
+# -----------------------------------------------------------------------------
+# 2. CPU Performance & Frequency Governor Lock
+# -----------------------------------------------------------------------------
+# Lock the Ingenic XBurst core to peak performance frequency; avoid ondemand
+# frequency scaling latency spikes during playback and UI rendering.
+if [ -e /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ]; then
+    echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || :
+fi
+
+# -----------------------------------------------------------------------------
+# 3. Synchronous Pre-boot Setup: zram Initialization
+# -----------------------------------------------------------------------------
+# Initialize compressed RAM swap BEFORE sonix_player starts to avoid OOM killer
+# strikes on the tight 64MB physical RAM space.
+# 20MB disksize with LZ4 algorithm and swappiness set to 20.
+if [ -d /sys/block/zram0 ] && [ -e /dev/zram0 ]; then
+    # Reset existing device if needed
+    if [ -w /sys/block/zram0/reset ]; then
+        echo 1 > /sys/block/zram0/reset 2>/dev/null || :
+    fi
+
+    # Set compression algorithm to lz4
+    if grep -q "lz4" /sys/block/zram0/comp_algorithm 2>/dev/null; then
+        echo lz4 > /sys/block/zram0/comp_algorithm 2>/dev/null || :
+    fi
+
+    # Allocate 20M disksize (20971520 bytes)
+    echo 20M > /sys/block/zram0/disksize 2>/dev/null || \
+        echo 20971520 > /sys/block/zram0/disksize 2>/dev/null || :
+
+    # Format and activate swap
+    mkswap /dev/zram0 >/dev/null 2>&1 || :
+    swapon /dev/zram0 >/dev/null 2>&1 || :
+fi
+
+# Set kernel swappiness to 20 to prevent premature/aggressive paging thrash
+if [ -w /proc/sys/vm/swappiness ]; then
+    echo 20 > /proc/sys/vm/swappiness 2>/dev/null || :
+fi
+
+# -----------------------------------------------------------------------------
+# 4. Filtered SysV Init Scripts (/etc/init.d/S*)
+# -----------------------------------------------------------------------------
+# Execute hardware initialization scripts while filtering out all background
+# networking, Bluetooth, logging, and mDNS daemons that starve the single core.
+for script in /etc/init.d/S??* ; do
+    [ -f "$script" ] || continue
+
+    case "$script" in
+        # 1. Disable Auto-Started Networking & Wi-Fi:
+        # wpa_supplicant, udhcpc, and auto-start network daemons are disabled.
+        # Sonix Player brings up Wi-Fi on demand via wifi.c / sys_server.
+        *wpa_supplicant*|*udhcpc*|*wifi*|*network*|*dhcp*)
+            # Disabled: network auto-start skipped at boot
+            continue
+            ;;
+
+        # 2. Disable Automatic Bluetooth Daemons:
+        # bluetoothd, rtk_hciattach, bcm_hciattach, and brcm_patchram_plus.
+        # Sonix Player starts the BT stack and attaches firmware on demand.
+        *bluetooth*|*bt_init*|*hciattach*|*rtk_hciattach*|*bcm_hciattach*|*patchram*)
+            # Disabled: Bluetooth daemons skipped at boot
+            continue
+            ;;
+
+        # 3. Disable Avahi & Logging Daemons:
+        # avahi-daemon consumes CPU and RAM; busybox syslogd/klogd write constant
+        # logs to /tmp filling up tmpfs memory.
+        *avahi*|*syslog*|*klogd*|*logging*)
+            # Disabled: background mDNS and syslog/klogd skipped
+            continue
+            ;;
+
+        # Skip stock music player script (we launch sonix_player with elevated priority)
+        *start_music_player*|*hiby_player*)
+            continue
+            ;;
+
+        # Skip zram SysV script since zram was already initialized synchronously above
+        *sonix_zram*)
+            continue
+            ;;
+
+        *.sh)
+            (
+                trap - INT QUIT TSTP
+                set start
+                . "$script"
+            )
+            ;;
+        *)
+            "$script" start
+            ;;
+    esac
+done
+
+# -----------------------------------------------------------------------------
+# 5. Launch Sonix Player with Elevated Process Priority (nice -n -10)
+# -----------------------------------------------------------------------------
+if [ -x /usr/bin/sonix_player.sh ]; then
+    nice -n -10 /usr/bin/sonix_player.sh &
+elif [ -x /usr/bin/sonix_launch ] && [ -x /usr/bin/sonix_player ]; then
+    nice -n -10 /usr/bin/sonix_launch /usr/bin/sonix_player &
+elif [ -x /usr/bin/sonix_player ]; then
+    nice -n -10 /usr/bin/sonix_player &
+fi
+
+exit 0

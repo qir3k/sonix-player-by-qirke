@@ -420,6 +420,17 @@ build_one() {
 	# ==========================================================================
 	step "[$MODEL_NAME] installing sonix_player"
 
+	STRIP_TOOL="$(command -v mipsel-linux-gnu-strip || command -v mipsel-rockbox-linux-gnu-strip || true)"
+	if [ -n "$STRIP_TOOL" ]; then
+		"$STRIP_TOOL" --strip-all "$PLAYER_BIN" 2>/dev/null || true
+		say "    $PLAYER_BIN stripped with $STRIP_TOOL --strip-all"
+		if [ -f "$LAUNCH_BIN" ]; then
+			"$STRIP_TOOL" --strip-all "$LAUNCH_BIN" 2>/dev/null || true
+			say "    $LAUNCH_BIN stripped with $STRIP_TOOL --strip-all"
+		fi
+		find "$SCRIPT_DIR" "$SCRIPT_DIR/../sonix-player" -maxdepth 4 -type f -name "*.so*" -exec "$STRIP_TOOL" --strip-all {} + 2>/dev/null || true
+	fi
+
 	chmod 777 "$PLAYER_BIN"
 
 	if [ -e "$SQUASH_DIR/$STOCK_PLAYER" ]; then
@@ -900,12 +911,21 @@ if [ \"\$boot_sel\" = \"logo:4\" ]; then boot_waited=0; while [ \$boot_waited -l
 	say "${YELLOW}###############################${NC}"
 	say ""
 
-	step "[$MODEL_NAME] clearing macOS clutter"
+	step "[$MODEL_NAME] stripping binaries and shared libraries in staging rootfs"
+	STRIP_TOOL="$(command -v mipsel-linux-gnu-strip || command -v mipsel-rockbox-linux-gnu-strip || true)"
+	if [ -n "$STRIP_TOOL" ]; then
+		find "$SQUASH_DIR" -type f \( -name "sonix_player" -o -name "sonix_launch" -o -name "*.so*" \) -exec "$STRIP_TOOL" --strip-all {} + 2>/dev/null || true
+		say "    staging binaries and libraries stripped with $STRIP_TOOL --strip-all"
+	fi
+
+	step "[$MODEL_NAME] rootfs staging audit: removing leftover clutter"
 	find "$SQUASH_DIR" -name '.DS_Store' -type f -delete 2>/dev/null || true
 	find "$SQUASH_DIR" -name '._*' -type f -delete 2>/dev/null || true
 
 	# Nothing this script writes belongs in the image.
 	find "$SQUASH_DIR" -name '*.packer.tmp' -type f -delete 2>/dev/null || true
+	find "$SQUASH_DIR" -name '.git*' -exec rm -rf {} + 2>/dev/null || true
+	find "$SQUASH_DIR" -type f \( -name "*.o" -o -name "*.a" -o -name "*.log" -o -name "core" -o -name "core.[0-9]*" -o -name "*_test" -o -name "test_*" \) -delete 2>/dev/null || true
 
 	# No trim step here any more, and none is wanted: the image always carries
 	# every language and every face, and which of them the player offers is a
@@ -916,7 +936,10 @@ if [ \"\$boot_sel\" = \"logo:4\" ]; then boot_waited=0; while [ \$boot_waited -l
 	ROOTFS_NEW="$OTA_DIR/rootfs.squashfs"
 
 	step "[$MODEL_NAME] building the filesystem"
-	mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp lzo -all-root > /dev/null
+	if ! mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp xz -b 256K -noappend -all-root > /dev/null 2>&1; then
+		say "    xz compression unavailable or failed, falling back to gzip..."
+		mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp gzip -b 128K -noappend -all-root > /dev/null
+	fi
 
 	ORIGINAL_SUM="$(get_md5 "$ROOTFS_NEW")"
 	SIZE="$(get_size "$ROOTFS_NEW")"

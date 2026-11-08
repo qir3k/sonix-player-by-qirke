@@ -29,6 +29,7 @@
 #include "src/system/audio/replaygain.h"
 #include "src/system/decode/decode.h"
 #include "src/system/library/metadata.h"
+#include "src/system/library/metaloader.h"
 #include "src/system/playback/device_state.h"
 #include "src/system/core/lang.h"
 #include "src/gui/streaming/podcastpage.h"
@@ -265,8 +266,11 @@ static void queue_row_bind(queue_row_t *row, int index) {
 		// to the track. Without this the queue showed a column of numbers, which
 		// were the file names.
 		song_metadata_t meta;
-		metadata_read(path, &meta);
-		if (meta.title[0]) {
+		const char *cur_file = NULL;
+		const song_metadata_t *cur_meta = device_state_loaded_metadata(&cur_file);
+		if (cur_file && strcmp(cur_file, path) == 0 && cur_meta && cur_meta->title[0]) {
+			snprintf(title, sizeof(title), "%.250s", cur_meta->title);
+		} else if (metaloader_take(path, &meta) && meta.title[0]) {
 			snprintf(title, sizeof(title), "%.250s", meta.title);
 		} else {
 			const char *slash = strrchr(path, '/');
@@ -275,6 +279,7 @@ static void queue_row_bind(queue_row_t *row, int index) {
 			if (dot) {
 				*dot = '\0';
 			}
+			metaloader_request(path);
 		}
 	}
 

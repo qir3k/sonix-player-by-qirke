@@ -17,6 +17,7 @@ void main_menu_set_icons_only(bool enabled);
 
 bool main_menu_books(void);
 bool main_menu_browse(void);
+bool main_menu_has_library_tile(const char **label_out);
 void main_menu_set_books(bool enabled);
 void main_menu_set_browse(bool enabled);
 

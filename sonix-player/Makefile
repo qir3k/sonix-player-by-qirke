@@ -322,7 +322,17 @@ LAUNCH_CFLAGS = -Os -Wall -Wextra -march=mips32r2 -mno-abicalls -fno-pic -G0 -st
 
 $(LAUNCH_BIN): launcher/sonix_launch.c $(CROSS_CC)
 	$(CROSS_CC) $(LAUNCH_CFLAGS) -o $@ $<
-	@if [ -x "$(CROSS_STRIP)" ]; then $(CROSS_STRIP) $@; fi
+	@STRIP_CMD="$(CROSS_STRIP)"; \
+	if [ ! -x "$$STRIP_CMD" ] && ! command -v "$$STRIP_CMD" >/dev/null 2>&1; then \
+		if command -v mipsel-linux-gnu-strip >/dev/null 2>&1; then \
+			STRIP_CMD="mipsel-linux-gnu-strip"; \
+		elif command -v mipsel-rockbox-linux-gnu-strip >/dev/null 2>&1; then \
+			STRIP_CMD="mipsel-rockbox-linux-gnu-strip"; \
+		fi; \
+	fi; \
+	if [ -x "$$STRIP_CMD" ] || command -v "$$STRIP_CMD" >/dev/null 2>&1; then \
+		$$STRIP_CMD --strip-all $@; \
+	fi
 	@echo "sonix_launch: $$(wc -c < $@) bytes"
 
 # ---------------------------------------------------------------------------
@@ -337,19 +347,28 @@ $(LAUNCH_BIN): launcher/sonix_launch.c $(CROSS_CC)
 # stderr while exiting non-zero, which would take the whole build down.
 # ---------------------------------------------------------------------------
 
-CROSS_STRIP ?= $(ROCKBOX_TOOLCHAIN_DIR)/bin/mipsel-rockbox-linux-gnu-strip
+CROSS_STRIP ?= $(shell command -v mipsel-linux-gnu-strip 2>/dev/null || command -v mipsel-rockbox-linux-gnu-strip 2>/dev/null || echo $(ROCKBOX_TOOLCHAIN_DIR)/bin/mipsel-rockbox-linux-gnu-strip)
 
 .PHONY: strip-target
 strip-target:
 	@if [ ! -f "$(TARGET_BIN)" ]; then \
 		exit 0; \
 	fi; \
-	if [ ! -x "$(CROSS_STRIP)" ]; then \
-		echo "strip-target: $(CROSS_STRIP) is not there, '$(TARGET_BIN)' left unstripped"; \
+	STRIP_CMD="$(CROSS_STRIP)"; \
+	if [ ! -x "$$STRIP_CMD" ] && ! command -v "$$STRIP_CMD" >/dev/null 2>&1; then \
+		if command -v mipsel-linux-gnu-strip >/dev/null 2>&1; then \
+			STRIP_CMD="mipsel-linux-gnu-strip"; \
+		elif command -v mipsel-rockbox-linux-gnu-strip >/dev/null 2>&1; then \
+			STRIP_CMD="mipsel-rockbox-linux-gnu-strip"; \
+		fi; \
+	fi; \
+	if [ ! -x "$$STRIP_CMD" ] && ! command -v "$$STRIP_CMD" >/dev/null 2>&1; then \
+		echo "strip-target: $$STRIP_CMD is not there, '$(TARGET_BIN)' left unstripped"; \
 		exit 0; \
 	fi; \
 	cp -f $(TARGET_BIN) $(TARGET_DEBUG_BIN); \
-	$(CROSS_STRIP) $(TARGET_BIN); \
+	$$STRIP_CMD --strip-all $(TARGET_BIN); \
+	find build_target -type f -name '*.so*' -exec $$STRIP_CMD --strip-all {} + 2>/dev/null || true; \
 	echo "strip-target: symbols in '$(TARGET_DEBUG_BIN)' ($$(du -h $(TARGET_DEBUG_BIN) | cut -f1)), stripped '$(TARGET_BIN)' ($$(du -h $(TARGET_BIN) | cut -f1))"
 
 # ---------------------------------------------------------------------------

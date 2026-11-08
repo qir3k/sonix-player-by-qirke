@@ -205,7 +205,7 @@ static void teardown(void) {
 
 static void *worker_func(void *unused) {
 	(void)unused;
-	thread_be_background("sonixlink bt");
+	thread_be_low_priority("sonixlink bt");
 
 	for (;;) {
 		bool wanted = sonixlink_get_enabled() && bluetooth_get_enabled();

@@ -155,6 +155,7 @@ static void busy_hide(void) {
 
 static void busy_show(const char *text) {
 	(void)text;
+	player_pause_for_loading();
 	if (!busy_layer) {
 		return;
 	}

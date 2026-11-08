@@ -29,6 +29,7 @@
 // second write of a run, and a settings write that silently fails makes a test
 // measure defaults instead of what it set.
 #define rename(from, to) win_rename((from), (to))
+#define pread(fd, buf, count, offset) win_pread((fd), (buf), (count), (offset))
 
 int win_mkdir(const char *path, int mode);
 int win_fchmod(int fd, unsigned mode);
@@ -39,6 +40,7 @@ int win_usleep(unsigned usec);
 char *win_mkdtemp(char *tmpl);
 char *win_strcasestr(const char *haystack, const char *needle);
 int win_rename(const char *from, const char *to);
+long long win_pread(int fd, void *buf, size_t count, long long offset);
 
 #endif /* _WIN32 */
 

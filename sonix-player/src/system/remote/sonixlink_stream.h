@@ -85,4 +85,7 @@ bool sonixlink_stream_play(const char *service, int index, char *error, size_t e
 // order, read from the same configuration the service pages use.
 bool sonixlink_stream_menu(const char *service, sonixlink_stream_list_t *out);
 
+// Shuts down sockets and frees all cached resources when SonixLink is toggled off.
+void sonixlink_stream_cleanup(void);
+
 #endif /* SONIXLINK_STREAM_H */

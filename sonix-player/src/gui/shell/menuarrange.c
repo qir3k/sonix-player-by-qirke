@@ -12,6 +12,7 @@
 #include "src/gui/shell/settingsrow.h"
 #include "src/gui/shell/theme.h"
 #include "src/gui/streaming/streaming.h"
+#include "src/gui/settings/homeslot.h"
 #include "src/system/addons/addons.h"
 #include "src/system/core/lang.h"
 
@@ -27,6 +28,11 @@ static menuorder_section_t shown_section;
 static void paint_tabs(void) {
 	if (!home_tab || !more_tab || !streaming_tab) {
 		return;
+	}
+	bool streaming_avail = addons_any_streaming_enabled();
+	lv_obj_set_hidden(streaming_tab, !streaming_avail);
+	if (shown_section == MENUORDER_STREAMING && !streaming_avail) {
+		shown_section = MENUORDER_HOME;
 	}
 	lv_obj_t *home_label = lv_obj_get_child(home_tab, 0);
 	lv_obj_t *more_label = lv_obj_get_child(more_tab, 0);
@@ -117,11 +123,51 @@ static void repaint(void) {
 	int row_height = bp_pick(42, 60);
 	for (int i = 0; i < count; i++) {
 		int id = order[i];
-		// The library slot is off in Plugins: the page it stands for was not
-		// built, so there is nothing here to order or to switch on.
-		if (shown_section == MENUORDER_HOME && id == MENU_HOME_AUDIOBOOKS && !main_menu_books() &&
-			!addons_enabled("audiobooks")) {
-			continue;
+		if (shown_section == MENUORDER_HOME) {
+			if (id == MENU_HOME_STREAMING && !addons_any_streaming_enabled()) {
+				continue;
+			}
+			const char *lib_label = NULL;
+			if (id == MENU_HOME_AUDIOBOOKS && !main_menu_has_library_tile(&lib_label)) {
+				continue;
+			}
+		} else if (shown_section == MENUORDER_STREAMING) {
+			const char *slug = menuorder_slug(MENUORDER_STREAMING, id);
+			if (!addons_enabled(slug)) {
+				continue;
+			}
+		} else if (shown_section == MENUORDER_MORE) {
+			const char *slug = menuorder_slug(MENUORDER_MORE, id);
+			if (strcmp(slug, "games") == 0) {
+				if (!addons_any_game_enabled()) {
+					continue;
+				}
+			} else if (strcmp(slug, "calculator") == 0) {
+				if (!addons_enabled("calculator")) {
+					continue;
+				}
+			} else if (strcmp(slug, "notes") == 0) {
+				if (!addons_enabled("notes")) {
+					continue;
+				}
+			} else if (strcmp(slug, "metronome") == 0) {
+				if (!addons_enabled("metronome")) {
+					continue;
+				}
+			} else if (strcmp(slug, "tag_manager") == 0) {
+				if (!addons_enabled("tagmanager")) {
+					continue;
+				}
+			} else if (strcmp(slug, "books") == 0) {
+				bool books_on_home = main_menu_books();
+				bool holds_audiobooks = (books_on_home || !addons_enabled("ebook"));
+				if (holds_audiobooks && !addons_enabled("audiobooks")) {
+					continue;
+				}
+				if (!addons_enabled("audiobooks") && !books_on_home && strcmp(slug, homeslot_choice()) == 0) {
+					continue;
+				}
+			}
 		}
 		lv_obj_t *row = lv_obj_create(rows);
 		lv_obj_set_size(row, lv_pct(100), row_height);
@@ -139,10 +185,17 @@ static void repaint(void) {
 		const char *label = menuorder_label(shown_section, id);
 		if (shown_section == MENUORDER_HOME && id == MENU_HOME_MUSIC && main_menu_browse()) {
 			label = tr("music_browse");
-		} else if (shown_section == MENUORDER_HOME && id == MENU_HOME_AUDIOBOOKS && main_menu_books()) {
-			label = tr("books");
-		} else if (shown_section == MENUORDER_MORE && id == MENU_MORE_BOOKS && main_menu_books()) {
-			label = tr("audiobooks");
+		} else if (shown_section == MENUORDER_HOME && id == MENU_HOME_AUDIOBOOKS) {
+			const char *lib_label = NULL;
+			if (main_menu_has_library_tile(&lib_label) && lib_label) {
+				label = tr(lib_label);
+			}
+		} else if (shown_section == MENUORDER_MORE && id == MENU_MORE_BOOKS) {
+			bool books_on_home = main_menu_books();
+			bool holds_audiobooks = (books_on_home || !addons_enabled("ebook"));
+			if (holds_audiobooks) {
+				label = tr("audiobooks");
+			}
 		}
 		lv_label_set_text(name, label);
 		lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);

@@ -163,6 +163,15 @@ void addons_apply_defaults(bool (*is_default)(const char *id)) {
 	config_save();
 }
 
+bool addons_any_streaming_enabled(void) {
+	return addons_enabled("radio") ||
+	       addons_enabled("podcasts") ||
+	       addons_enabled("tidal") ||
+	       addons_enabled("qobuz") ||
+	       addons_enabled("subsonic") ||
+	       addons_enabled("ytmusic");
+}
+
 bool addons_any_game_enabled(void) {
 #if GB_CORE
 	if (addons_enabled("gearboy")) return true;

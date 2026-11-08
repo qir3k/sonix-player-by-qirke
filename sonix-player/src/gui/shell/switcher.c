@@ -1,3 +1,4 @@
+#include <malloc.h>
 #include "switcher.h"
 
 #include <stdio.h>
@@ -561,6 +562,12 @@ static void load_screen(lv_obj_t *target_screen) {
 
 	// Re-read the folder on the way in: the card may have finished mounting
 	// (or changed) since the browser last looked at it.
+	if (target_screen == main_menu_screen) {
+#if !defined(HOST_BUILD) || defined(__GLIBC__)
+		malloc_trim(0);
+#endif
+	}
+
 	if (target_screen == browser_screen) {
 		browser_refresh();
 	}
@@ -703,6 +710,9 @@ void back_btn_cb(lv_event_t *e) {
 
 	lv_obj_t *previous = history_pop();
 	load_screen(previous ? previous : main_menu_screen);
+#if !defined(HOST_BUILD) || defined(__GLIBC__)
+	malloc_trim(0);
+#endif
 }
 
 void switch_screen_cb(lv_event_t *e) {

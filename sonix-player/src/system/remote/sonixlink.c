@@ -1,4 +1,6 @@
+#include <malloc.h>
 #include "sonixlink.h"
+#include "src/system/remote/sonixlink_stream.h"
 #include "sonixlink_bt.h"
 #include "sonixlink_stream.h"
 
@@ -430,36 +432,75 @@ static bool local_address(char *out, size_t out_size) {
 // A growable byte buffer, for building a reply
 // ---------------------------------------------------------------------------
 
+#define PACKET_BUF_SIZE 4096
+
 typedef struct {
 	char *data;
 	size_t len;
 	size_t cap;
 	bool failed;
+	bool heap_allocated;
+	char static_buf[PACKET_BUF_SIZE];
 } buf_t;
 
-static void buf_free(buf_t *b) {
-	free(b->data);
+static void buf_init(buf_t *b) {
 	memset(b, 0, sizeof(*b));
+	b->data = b->static_buf;
+	b->cap = sizeof(b->static_buf);
+	b->static_buf[0] = '\0';
+}
+
+static void buf_free(buf_t *b) {
+	if (b->heap_allocated && b->data) {
+		free(b->data);
+	}
+	memset(b, 0, sizeof(*b));
+}
+
+static void buf_move(buf_t *dst, buf_t *src) {
+	buf_free(dst);
+	*dst = *src;
+	if (!src->heap_allocated && src->data == src->static_buf) {
+		dst->data = dst->static_buf;
+	}
+	memset(src, 0, sizeof(*src));
 }
 
 static bool buf_room(buf_t *b, size_t extra) {
 	if (b->failed) {
 		return false;
 	}
+	if (!b->data) {
+		b->data = b->static_buf;
+		b->cap = sizeof(b->static_buf);
+	}
 	if (b->len + extra + 1 <= b->cap) {
 		return true;
 	}
-	size_t want = b->cap ? b->cap : 512;
+	size_t want = b->cap ? b->cap * 2 : PACKET_BUF_SIZE * 2;
 	while (want < b->len + extra + 1) {
 		want *= 2;
 	}
-	char *grown = realloc(b->data, want);
+	char *grown = NULL;
+	if (!b->heap_allocated) {
+		grown = malloc(want);
+		if (grown) {
+			if (b->len > 0) {
+				memcpy(grown, b->static_buf, b->len + 1);
+			} else {
+				grown[0] = '\0';
+			}
+		}
+	} else {
+		grown = realloc(b->data, want);
+	}
 	if (!grown) {
 		b->failed = true;
 		return false;
 	}
 	b->data = grown;
 	b->cap = want;
+	b->heap_allocated = true;
 	return true;
 }
 
@@ -625,7 +666,7 @@ static void reply_raw(client_t *c, const char *status, const char *type, const c
 
 static void reply_json(client_t *c, buf_t *json) {
 	buf_t head;
-	memset(&head, 0, sizeof(head));
+	buf_init(&head);
 	buf_fmt(&head, "HTTP/1.1 200 OK\r\n");
 	buf_str(&head, "Content-Type: application/json; charset=utf-8\r\n");
 	buf_fmt(&head, "Content-Length: %zu\r\n", json->len);
@@ -633,8 +674,7 @@ static void reply_json(client_t *c, buf_t *json) {
 	buf_str(&head, connection_header(c));
 	buf_add(&head, json->data ? json->data : "", json->len);
 
-	buf_free(&c->out);
-	c->out = head;
+	buf_move(&c->out, &head);
 	buf_free(json);
 }
 
@@ -1876,7 +1916,7 @@ static art_entry_t *art_slot(void) {
 
 static void *art_worker(void *unused) {
 	(void)unused;
-	thread_be_background("sonixlink art");
+	thread_be_low_priority("sonixlink art");
 	for (;;) {
 		char path[SONIXLINK_PATH_MAX];
 		int side;
@@ -2953,7 +2993,7 @@ static bool mdns_asks_for_us(const uint8_t *packet, size_t len) {
 
 static void *sonixlink_worker(void *unused) {
 	(void)unused;
-	thread_be_background("sonixlink");
+	thread_be_low_priority("sonixlink");
 
 	int listener = -1, beacon = -1, mdns = -1;
 	uint32_t last_beacon = 0, last_mdns = 0;
@@ -3016,9 +3056,34 @@ static void *sonixlink_worker(void *unused) {
 					mdns = -1;
 				}
 				pthread_mutex_lock(&lock);
+				if (queue_arena) {
+					free(queue_arena);
+					queue_arena = NULL;
+					queue_arena_len = 0;
+				}
 				address_text[0] = '\0';
+				peer_text[0] = '\0';
 				pthread_mutex_unlock(&lock);
-				printf("sonixlink: off\n");
+
+				pthread_mutex_lock(&art_lock);
+				for (int i = 0; i < ART_KEPT; i++) {
+					if (art_kept[i].data) {
+						free(art_kept[i].data);
+						art_kept[i].data = NULL;
+					}
+					memset(&art_kept[i], 0, sizeof(art_kept[i]));
+				}
+				art_job_queued = false;
+				art_busy_path[0] = '\0';
+				pthread_mutex_unlock(&art_lock);
+
+				sonixlink_stream_cleanup();
+#if !defined(HOST_BUILD) || defined(__GLIBC__)
+				malloc_trim(0);
+#endif
+				if (verbose) {
+					printf("sonixlink: off, resources freed\n");
+				}
 			}
 			usleep(300 * 1000);
 			continue;

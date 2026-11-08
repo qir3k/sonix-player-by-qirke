@@ -175,6 +175,17 @@ typedef struct {
 	void (*action)(void);
 } home_tile_t;
 
+bool main_menu_has_library_tile(const char **label_out) {
+	home_tile_t tile;
+	if (!home_library_tile(&tile)) {
+		return false;
+	}
+	if (label_out) {
+		*label_out = tile.label;
+	}
+	return true;
+}
+
 static bool home_library_tile(home_tile_t *tile) {
 	if (main_menu_books()) {
 		tile->label = "books";
@@ -275,6 +286,9 @@ static void main_menu_refresh_tiles(void) {
 	for (int i = 0; i < ordered && count < item_count; i++) {
 		int id = order[i];
 		if (!visible[id]) {
+			continue;
+		}
+		if (id == MENU_HOME_STREAMING && !addons_any_streaming_enabled()) {
 			continue;
 		}
 		if (id == MENU_HOME_AUDIOBOOKS && !library) {
@@ -662,6 +676,7 @@ void main_menu_init(gui_config_t *cfg) {
 	for (int i = 0; i < ordered; i++) {
 		int id = order[i];
 		if (!visible[id]) continue;
+		if (id == MENU_HOME_STREAMING && !addons_any_streaming_enabled()) continue;
 		if (id == MENU_HOME_AUDIOBOOKS && !library) continue;
 		switch (id) {
 		case 0: entries[count++] = (grid_entry_t){"music", &icon_menu_music, NULL, open_home_music}; break;

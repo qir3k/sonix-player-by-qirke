@@ -1,3 +1,4 @@
+#include <malloc.h>
 #include "audio.h"
 #include "visualizer.h"
 #include "src/system/audio/alsa-controls.h"
@@ -991,6 +992,24 @@ static void pcm_drain_bounded(snd_pcm_t *pcm) {
 
 // Closes the held PCM, letting it play out what it still has queued. Playback
 // thread only: nothing else touches held_pcm.
+// Ensures PCM does not start until at least 300 ms of pre-buffered decoded audio is queued.
+static int safe_pcm_start(snd_pcm_t *pcm, int rate, bool is_eof) {
+	if (!pcm) {
+		return 0;
+	}
+	if (snd_pcm_state(pcm) != SND_PCM_STATE_PREPARED) {
+		return 0;
+	}
+	snd_pcm_sframes_t delay = 0;
+	if (snd_pcm_delay(pcm, &delay) >= 0 && delay >= 0) {
+		snd_pcm_uframes_t min_preroll = (snd_pcm_uframes_t)(((uint64_t)rate * 300u + 999u) / 1000u);
+		if ((snd_pcm_uframes_t)delay < min_preroll && !is_eof) {
+			return 0; // Not enough pre-roll buffer accumulated yet
+		}
+	}
+	return snd_pcm_start(pcm);
+}
+
 static void gapless_release(void) {
 	pthread_mutex_lock(&held_lock);
 	snd_pcm_t *pcm = held_pcm;
@@ -1009,9 +1028,7 @@ static void gapless_release(void) {
 		alsa_track_mute();
 		snd_pcm_drop(pcm);
 	} else {
-		if (snd_pcm_state(pcm) == SND_PCM_STATE_PREPARED) {
-			snd_pcm_start(pcm);
-		}
+		safe_pcm_start(pcm, sample_rate, true);
 		// Drain rather than drop: what is in there is the real tail of the track
 		// that just ended, and it has to be heard. With a deadline, because a
 		// handle that will never drain must not take the thread with it.
@@ -1596,6 +1613,9 @@ static snd_pcm_t *open_pcm_device_now(int channels, int sample_rate, int bits_pe
 	// The emulator asks for a much shorter buffer of its own and overrides both:
 	// see pcm_forced_buffer_ms.
 	int buffer_time_ms = pcm_forced_buffer_ms > 0 ? pcm_forced_buffer_ms : (int)config_get_int("audio", "buffer_time_ms", 0);
+	if (buffer_time_ms > 0 && buffer_time_ms < 300) {
+		buffer_time_ms = 300;
+	}
 	if (buffer_time_ms > 0) {
 		unsigned int buffer_time = (unsigned int)buffer_time_ms * 1000u;   // microseconds
 		unsigned int period_time = buffer_time / 4;
@@ -1704,10 +1724,16 @@ static snd_pcm_t *open_pcm_device_now(int channels, int sample_rate, int bits_pe
 		snd_pcm_sw_params_alloca(&sw_params);
 		if (snd_pcm_sw_params_current(pcm_handle, sw_params) >= 0) {
 			snd_pcm_sw_params_set_avail_min(pcm_handle, sw_params, period_size);
-			// Start threshold = the whole buffer (see above).
-			if (buffer_frames > 0) {
-				snd_pcm_sw_params_set_start_threshold(pcm_handle, sw_params, buffer_frames);
+			// Start threshold: guarantee at least 300 ms of pre-buffered decoded audio data
+			unsigned int eff_rate = val ? val : (unsigned int)sample_rate;
+			snd_pcm_uframes_t min_preroll = (snd_pcm_uframes_t)(((uint64_t)eff_rate * 300u + 999u) / 1000u);
+			snd_pcm_uframes_t start_threshold = buffer_frames;
+			if (start_threshold < min_preroll && buffer_frames >= min_preroll) {
+				start_threshold = min_preroll;
+			} else if (start_threshold == 0) {
+				start_threshold = min_preroll;
 			}
+			snd_pcm_sw_params_set_start_threshold(pcm_handle, sw_params, start_threshold);
 			snd_pcm_sw_params(pcm_handle, sw_params);
 		}
 	}
@@ -3034,9 +3060,7 @@ static void play_wav_file(const char *filepath) {
 			// threshold: the stream is still PREPARED with the whole track
 			// queued. Start it by hand, or the drain has nothing to flush and
 			// those last moments are never heard.
-			if (snd_pcm_state(pcm_handle) == SND_PCM_STATE_PREPARED) {
-				snd_pcm_start(pcm_handle);
-			}
+			safe_pcm_start(pcm_handle, sample_rate, true);
 			pcm_drain_bounded(pcm_handle);
 			alsa_track_mute(); // the tail is out; close from silence
 		} else {
@@ -3882,9 +3906,7 @@ static void play_decoded_file(const char *filepath, decode_format_t format) {
 			// threshold: the stream is still PREPARED with the whole track
 			// queued. Start it by hand, or the drain has nothing to flush and
 			// those last moments are never heard.
-			if (snd_pcm_state(pcm_handle) == SND_PCM_STATE_PREPARED) {
-				snd_pcm_start(pcm_handle);
-			}
+			safe_pcm_start(pcm_handle, sample_rate, true);
 			pcm_drain_bounded(pcm_handle);
 			alsa_track_mute(); // the tail is out; close from silence
 		} else {
@@ -3998,9 +4020,11 @@ static void *playback_thread_func(void *arg) {
 	// Real-time round-robin, modestly: the UI decoding a 9 MB cover on the
 	// one core must never starve the thread that feeds the DAC. Failing is
 	// fine (the host build has no privilege for it).
-	struct sched_param rt = {.sched_priority = 10};
-	if (pthread_setschedparam(pthread_self(), SCHED_RR, &rt) == 0) {
-		fprintf(stderr, "audio: playback thread running at RT priority\n");
+	struct sched_param rt = {.sched_priority = 80};
+	if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &rt) == 0) {
+		fprintf(stderr, "audio: playback thread running at SCHED_FIFO priority 80\n");
+	} else if (pthread_setschedparam(pthread_self(), SCHED_RR, &rt) == 0) {
+		fprintf(stderr, "audio: playback thread running at SCHED_RR priority 80\n");
 	}
 
 	while (1) {
@@ -4425,6 +4449,9 @@ void audio_stop(void) {
 	track_completed = false; // deliberate stop is not a natural completion
 	pthread_mutex_unlock(&audio_mutex);
 	subsonicstream_cancel();
+#if !defined(HOST_BUILD) || defined(__GLIBC__)
+	malloc_trim(0);
+#endif
 }
 
 audio_status_t audio_get_status(void) {

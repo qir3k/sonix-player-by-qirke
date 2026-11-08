@@ -3,6 +3,7 @@
 #include "src/gui/fonts/fonts.h"
 #include "src/gui/shell/icons.h"
 #include "src/gui/shell/spinner.h"
+#include "src/gui/nowplaying/player.h"
 #include "src/gui/shell/theme.h"
 #include "src/system/core/lang.h"
 
@@ -201,6 +202,7 @@ static void show_busy(const char *text, bool transparent) {
 	if (!card) {
 		return;
 	}
+	player_pause_for_loading();
 	busy_dismissable = false;
 	busy_transparent = transparent;
 	lv_timer_pause(hide_timer);

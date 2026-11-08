@@ -2,11 +2,13 @@
 
 #include "src/system/audio/alsa-controls.h"
 #include "src/system/audio/audio.h"
+#include "src/system/playback/audio_state_machine.h"
 #include "src/system/playback/audiobook.h"
 #include "src/system/core/config.h"
 #include "src/system/core/lang.h"
 #include "src/system/library/library.h"
 #include "src/system/library/metadata.h"
+#include "src/system/library/metaloader.h"
 #include "src/system/playback/playlist.h"
 #include "src/system/streaming/podcast.h"
 #include "src/system/streaming/podcastcache.h"
@@ -28,6 +30,17 @@
 // LVGL/UI thread (same as the rest of player.c today), so no lock needed.
 static song_metadata_t current_metadata;
 static char current_metadata_file[512] = {0};
+static void apply_track_speed(void);
+
+// Helper to decouple SD Card I/O from the UI thread by using the metaloader worker.
+static void update_track_metadata_async(const char *filepath) {
+	metaloader_get_placeholder(filepath, &current_metadata);
+	metaloader_request(filepath);
+	audiobook_track_changed(current_metadata_file);
+	replaygain_load(&current_metadata);
+	apply_track_speed();
+}
+
 
 // ---------------------------------------------------------------------------
 // "Remember track": where playback was, kept across a power cycle
@@ -286,6 +299,15 @@ void device_state_get(device_state_t *out) {
 			snprintf(out->current_file, sizeof(out->current_file), "%s", current_metadata_file);
 		}
 
+		if (current_metadata_file[0]) {
+			song_metadata_t loaded_meta;
+			if (metaloader_take(current_metadata_file, &loaded_meta)) {
+				current_metadata = loaded_meta;
+				audiobook_track_changed(current_metadata_file);
+				replaygain_load(&current_metadata);
+				apply_track_speed();
+			}
+		}
 		out->metadata = current_metadata;
 	}
 
@@ -502,42 +524,20 @@ static void apply_track_speed(void) {
 // `position` is where to start; below zero means the beginning, which is what
 // every caller but the resume below wants.
 static void load_and_play_at(const char *filepath, double position) {
-	// A position picked on the outgoing track means nothing on this one, and
-	// the track can change under a held button -- the queue advances on its
-	// own when the outgoing one ends.
 	scrub_cancel();
 
-	// A file and a stream cannot both have the output. Starting a track ends
-	// the radio outright -- not merely stops it -- because from here on the
-	// player belongs to the track.
-	radio_clear();
+	// [STOPPING] -> [CLEANUP]: Stop ALSA immediately, abort stream sockets/threads, trim heap
+	audio_sm_stop_and_cleanup();
 
-	// Callers may replay the already-loaded track by passing current_metadata_file
-	// itself, so guard against copying a buffer onto itself.
 	if (filepath != current_metadata_file) {
 		strncpy(current_metadata_file, filepath, sizeof(current_metadata_file) - 1);
 		current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
 	}
 
-	metadata_read(current_metadata_file, &current_metadata);
-	// Whether the loaded file is an audiobook is decided here, once per track
-	// change, and everything that dresses the player for one reads the answer
-	// from it. Every route by which the track can change passes through one of
-	// these calls.
-	audiobook_track_changed(current_metadata_file);
-	// The ReplayGain the tags asked for, worked out once per track.
-	replaygain_load(&current_metadata);
-	apply_track_speed();
+	// [BUFFERING]: Extract metadata and run prepare callbacks
+	audio_sm_set_state(AUDIO_SM_BUFFERING);
+	update_track_metadata_async(current_metadata_file);
 
-	// The file may not be there yet: with Qobuz and Tidal the queue holds the
-	// whole album and playback can reach a track before its download does. The
-	// registered callback takes over and restarts this once the file is ready;
-	// stop here rather than hand the decoder a path to nothing.
-	//
-	// The callbacks may also correct the name: Tidal queues a guessed container
-	// and the manifest can deliver another, so the file on the card is
-	// sometimes not called what the queue said. Everything above was read from
-	// the guess, so when the name comes back changed it is read again.
 	char prepared_path[sizeof(current_metadata_file)];
 	snprintf(prepared_path, sizeof(prepared_path), "%s", current_metadata_file);
 	for (int i = 0; i < prepare_cb_count; i++) {
@@ -547,12 +547,11 @@ static void load_and_play_at(const char *filepath, double position) {
 		}
 	}
 	if (strcmp(prepared_path, current_metadata_file) != 0) {
-		metadata_read(current_metadata_file, &current_metadata);
-		audiobook_track_changed(current_metadata_file);
-		replaygain_load(&current_metadata);
-		apply_track_speed();
+		update_track_metadata_async(current_metadata_file);
 	}
 
+	// [PLAYING]: Start decoder only after old resources are completely freed
+	audio_sm_set_state(AUDIO_SM_PLAYING);
 	if (position > 0) {
 		audio_play_at(current_metadata_file, position);
 	} else {
@@ -580,10 +579,7 @@ static void load_paused(const char *filepath) {
 	if (filepath != current_metadata_file) {
 		snprintf(current_metadata_file, sizeof(current_metadata_file), "%s", filepath);
 	}
-	metadata_read(current_metadata_file, &current_metadata);
-	audiobook_track_changed(current_metadata_file);
-	replaygain_load(&current_metadata);
-	apply_track_speed();
+	update_track_metadata_async(current_metadata_file);
 
 	audio_play_paused(current_metadata_file, 0);
 	audiobook_suppress_rewind_once();
@@ -616,15 +612,7 @@ void device_state_restore_file(const char *filepath, double position) {
 
 	strncpy(current_metadata_file, filepath, sizeof(current_metadata_file) - 1);
 	current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
-	metadata_read(current_metadata_file, &current_metadata);
-	// Whether the loaded file is an audiobook is decided here, once per track
-	// change, and everything that dresses the player for one reads the answer
-	// from it. Every route by which the track can change passes through one of
-	// these calls.
-	audiobook_track_changed(current_metadata_file);
-	// The ReplayGain the tags asked for, worked out once per track.
-	replaygain_load(&current_metadata);
-	apply_track_speed();
+	update_track_metadata_async(current_metadata_file);
 
 	audio_play_paused(current_metadata_file, position);
 	device_state_remember_restored(current_metadata_file, position);
@@ -698,10 +686,7 @@ void device_state_restore_index(library_index_t *ix, int start_index, const char
 
 	strncpy(current_metadata_file, path, sizeof(current_metadata_file) - 1);
 	current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
-	metadata_read(current_metadata_file, &current_metadata);
-	audiobook_track_changed(current_metadata_file);
-	replaygain_load(&current_metadata);
-	apply_track_speed();
+	update_track_metadata_async(current_metadata_file);
 
 	// The queue just loaded is the saved one: do not write it straight back.
 	saved_queue_revision = playlist_revision();
@@ -749,15 +734,7 @@ void device_state_restore_list(const char *const *list, int count, int start_ind
 
 	strncpy(current_metadata_file, path, sizeof(current_metadata_file) - 1);
 	current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
-	metadata_read(current_metadata_file, &current_metadata);
-	// Whether the loaded file is an audiobook is decided here, once per track
-	// change, and everything that dresses the player for one reads the answer
-	// from it. Every route by which the track can change passes through one of
-	// these calls.
-	audiobook_track_changed(current_metadata_file);
-	// The ReplayGain the tags asked for, worked out once per track.
-	replaygain_load(&current_metadata);
-	apply_track_speed();
+	update_track_metadata_async(current_metadata_file);
 
 	// The queue just loaded is the saved one: do not write it straight back.
 	saved_queue_revision = playlist_revision();
@@ -794,11 +771,7 @@ void device_state_play_file_at(const char *filepath, double position) {
 		strncpy(current_metadata_file, filepath, sizeof(current_metadata_file) - 1);
 		current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
 	}
-	metadata_read(current_metadata_file, &current_metadata);
-	audiobook_track_changed(current_metadata_file);
-	// The ReplayGain the tags asked for, worked out once per track.
-	replaygain_load(&current_metadata);
-	apply_track_speed();
+	update_track_metadata_async(current_metadata_file);
 
 	audio_play_at(current_metadata_file, position);
 

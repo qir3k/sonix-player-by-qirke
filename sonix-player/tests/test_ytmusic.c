@@ -421,6 +421,15 @@ static void test_download_walks_past_a_refused_stream(void) {
 	}
 	fclose(writable);
 	remove(YTM_CACHE_PROBE);
+	char stale[600];
+	snprintf(stale, sizeof(stale), "%s/%s.m4a", YTM_CACHE, VID);
+	remove(stale);
+	snprintf(stale, sizeof(stale), "%s/%s.done", YTM_CACHE, VID);
+	remove(stale);
+	snprintf(stale, sizeof(stale), "%s/%s.jpg", YTM_CACHE, VID);
+	remove(stale);
+	snprintf(stale, sizeof(stale), "%s/%s.tags", YTM_CACHE, VID);
+	remove(stale);
 	config_set("ytmusic", "instances", "https://inv.test,https://inv2.test");
 	set_relay("");
 	CHECK(ytmusic_source_select("auto"));
@@ -1086,6 +1095,61 @@ static void test_podcast_episode_row_keeps_creator_and_type(void) {
 // The loading card's numbers come from the downloader, and must not be left
 // saying something is running once it has finished -- a bar that never goes away
 // is worse than no bar at all.
+static const char EXPLORE_CARD_ITEM[] =
+	"{\"contents\":{\"musicTwoRowItemRenderer\":{"
+	"\"title\":{\"runs\":[{\"text\":\"Patrzcie i mowcie\",\"navigationEndpoint\":{\"browseEndpoint\":{\"browseId\":\"MPREb_pETx2j8239i\"}}}]},"
+	"\"subtitle\":{\"runs\":[{\"text\":\"Singiel\"},{\"text\":\" \xE2\x80\xA2 \"},{\"text\":\"Nina Lakomy\"}]},"
+	"\"thumbnailRenderer\":{\"musicThumbnailRenderer\":{\"thumbnail\":{\"thumbnails\":[{\"url\":\"https://lh3.test/nina=w226\",\"width\":226}]}}}"
+	"}}}";
+
+static void test_two_row_card_extracts_artist_from_subtitle(void) {
+	fake_reset();
+	fake_reply("youtubei/v1/search", 200, EXPLORE_CARD_ITEM);
+	ytmusic_item_t items[YTMUSIC_ITEMS_MAX];
+	char error[192] = "";
+	int count = ytmusic_search_items("nina", YTMUSIC_FILTER_ALBUMS, items, 4, error, sizeof(error));
+	CHECK(count == 1);
+	if (count != 1) return;
+	CHECK(items[0].kind == YTMUSIC_ITEM_CONTAINER);
+	CHECK(strcmp(items[0].title, "Patrzcie i mowcie") == 0);
+	CHECK(strcmp(items[0].subtitle, "Nina Lakomy") == 0);
+	CHECK(strcmp(items[0].thumbnail, "https://lh3.test/nina=w226") == 0);
+}
+
+static const char ALBUM_PAGE_WITH_HEADER[] =
+	"{\"contents\":{\"twoColumnBrowseResultsRenderer\":{\"secondaryContents\":{\"sectionListRenderer\":{\"contents\":["
+	"{\"musicResponsiveHeaderRenderer\":{"
+	"\"title\":{\"runs\":[{\"text\":\"The Rhythm Takes Control\"}]},"
+	"\"straplineTextOne\":{\"runs\":[{\"text\":\"Dub Style MCs\"}]},"
+	"\"thumbnail\":{\"musicThumbnailRenderer\":{\"thumbnail\":{\"thumbnails\":[{\"url\":\"https://lh3.test/album=w544\",\"width\":544}]}}}"
+	"}},"
+	"{\"musicShelfRenderer\":{\"contents\":["
+	"{\"musicResponsiveListItemRenderer\":{"
+	"\"playlistItemData\":{\"videoId\":\"ZwVBZeHIYTM\"},"
+	"\"flexColumns\":["
+	"{\"musicResponsiveListItemFlexColumnRenderer\":{\"text\":{\"runs\":[{\"text\":\"The Rhythm Takes Control Raw ((Scratch Mix Version))\"}]}}},"
+	"{\"musicResponsiveListItemFlexColumnRenderer\":{\"text\":{}}}"
+	"],"
+	"\"fixedColumns\":[{\"musicResponsiveListItemFixedColumnRenderer\":{\"text\":{\"runs\":[{\"text\":\"5:09\"}]}}}]"
+	"}}"
+	"]}}"
+	"]}}}}}}";
+
+static void test_album_browse_populates_tracks_with_header_metadata(void) {
+	fake_reset();
+	fake_reply("youtubei/v1/browse", 200, ALBUM_PAGE_WITH_HEADER);
+	ytmusic_item_t items[YTMUSIC_ITEMS_MAX];
+	char error[192] = "";
+	int count = ytmusic_browse_items("MPREb_r7BwZyiJV39", items, 4, error, sizeof(error));
+	CHECK(count == 1);
+	if (count != 1) return;
+	CHECK(items[0].kind == YTMUSIC_ITEM_TRACK);
+	CHECK(strcmp(items[0].title, "The Rhythm Takes Control Raw ((Scratch Mix Version))") == 0);
+	CHECK(strcmp(items[0].subtitle, "Dub Style MCs") == 0);
+	CHECK(strcmp(items[0].album, "The Rhythm Takes Control") == 0);
+	CHECK(strcmp(items[0].thumbnail, "https://lh3.test/album=w544") == 0);
+}
+
 static void test_progress_is_cleared_when_the_download_ends(void) {
 	// The progress itself is in memory rather than a file on the card, so this
 	// check needs no folder and skips on no host.
@@ -1217,6 +1281,15 @@ static void test_playback_starts_before_the_download_ends(void) {
 	}
 	fclose(writable);
 	remove(YTM_CACHE_PROBE);
+	char stale[600];
+	snprintf(stale, sizeof(stale), "%s/%s.m4a", YTM_CACHE, VID);
+	remove(stale);
+	snprintf(stale, sizeof(stale), "%s/%s.done", YTM_CACHE, VID);
+	remove(stale);
+	snprintf(stale, sizeof(stale), "%s/%s.jpg", YTM_CACHE, VID);
+	remove(stale);
+	snprintf(stale, sizeof(stale), "%s/%s.tags", YTM_CACHE, VID);
+	remove(stale);
 	config_set("ytmusic", "instances", "https://inv.test");
 	set_relay("");
 	CHECK(ytmusic_source_select("auto"));
@@ -1306,6 +1379,8 @@ int main(void) {
 	test_song_row_names_its_album();
 	test_podcast_episode_row_keeps_creator_and_type();
 	test_netscape_cookie_file_is_imported();
+	test_two_row_card_extracts_artist_from_subtitle();
+	test_album_browse_populates_tracks_with_header_metadata();
 	test_progress_is_cleared_when_the_download_ends();
 
 	if (failures) {

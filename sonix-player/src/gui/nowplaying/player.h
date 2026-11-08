@@ -129,6 +129,7 @@ void player_output_unplugged(const char *what);
 
 // Pauses whatever audio/radio is playing when loading/buffering begins,
 // freeing CPU resources and preventing stuttering while the network fetches.
+bool player_is_playing(void);
 void player_pause_for_loading(void);
 
 // ---------------------------------------------------------------------------

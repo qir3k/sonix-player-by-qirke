@@ -1343,6 +1343,7 @@ static bool read_thumbnail(const json_doc_t *doc, int renderer, char *out, size_
 	static const char *const paths[] = {
 		"thumbnail.musicThumbnailRenderer.thumbnail.thumbnails",
 		"thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails",
+		"thumbnail.thumbnails",
 	};
 	out[0] = '\0';
 	for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
@@ -1431,6 +1432,104 @@ static void read_album(const json_doc_t *doc, int renderer, ytmusic_item_t *item
 	snprintf(item->album, sizeof(item->album), "%s", start);
 }
 
+static bool is_bare_year(const char *s) {
+	if (!s) return false;
+	while (*s == ' ' || *s == '\t') s++;
+	if (strlen(s) != 4) return false;
+	for (int i = 0; i < 4; i++) {
+		if (!isdigit((unsigned char)s[i])) return false;
+	}
+	return true;
+}
+
+static bool is_release_type(const char *text) {
+	if (!text || !text[0]) return false;
+	static const char *const types[] = {
+		"album", "single", "singiel", "ep", "song", "utwór", "utwor",
+		"piosenka", "track", "video", "wideo", "playlist", "playlista",
+	};
+	for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+		if (strcasecmp(text, types[i]) == 0) return true;
+	}
+	return false;
+}
+
+static void read_subtitle_from_runs(const json_doc_t *doc, int runs_arr, char *out, size_t size) {
+	if (out && size) out[0] = '\0';
+	if (!doc || runs_arr < 0 || !out || size == 0) return;
+	int len = json_len(doc, runs_arr);
+	if (len <= 0) return;
+
+	bool has_bullet = false;
+	for (int i = 0; i < len; i++) {
+		char t[YTMUSIC_NAME_MAX] = "";
+		if (json_obj_str(doc, json_at(doc, runs_arr, i), "text", t, sizeof(t)) &&
+			(strstr(t, "\xE2\x80\xA2") || strstr(t, "\xC2\xB7"))) {
+			has_bullet = true;
+			break;
+		}
+	}
+
+	if (has_bullet) {
+		char before_bullet[YTMUSIC_NAME_MAX] = "";
+		char after_bullet[YTMUSIC_NAME_MAX] = "";
+		bool past_bullet = false;
+		for (int i = 0; i < len; i++) {
+			char t[YTMUSIC_NAME_MAX] = "";
+			if (!json_obj_str(doc, json_at(doc, runs_arr, i), "text", t, sizeof(t)) || !t[0]) continue;
+			if (strstr(t, "\xE2\x80\xA2") || strstr(t, "\xC2\xB7")) {
+				if (past_bullet) break;
+				past_bullet = true;
+				continue;
+			}
+			if (!past_bullet) {
+				size_t cur = strlen(before_bullet);
+				snprintf(before_bullet + cur, sizeof(before_bullet) - cur, "%s", t);
+			} else {
+				size_t cur = strlen(after_bullet);
+				snprintf(after_bullet + cur, sizeof(after_bullet) - cur, "%s", t);
+			}
+		}
+
+		char *b = before_bullet;
+		while (*b == ' ' || *b == '\t') b++;
+		size_t blen = strlen(b);
+		while (blen > 0 && (b[blen - 1] == ' ' || b[blen - 1] == '\t')) b[--blen] = '\0';
+
+		char *a = after_bullet;
+		while (*a == ' ' || *a == '\t') a++;
+		size_t alen = strlen(a);
+		while (alen > 0 && (a[alen - 1] == ' ' || a[alen - 1] == '\t')) a[--alen] = '\0';
+
+		if (is_release_type(b)) {
+			if (a[0] && !text_is_play_count(a) && !is_bare_year(a)) {
+				snprintf(out, size, "%s", a);
+				return;
+			}
+		} else if (b[0] && !text_is_play_count(b) && !is_bare_year(b)) {
+			snprintf(out, size, "%s", b);
+			return;
+		} else if (a[0] && !text_is_play_count(a) && !is_bare_year(a)) {
+			snprintf(out, size, "%s", a);
+			return;
+		}
+	}
+
+	for (int i = 0; i < len; i++) {
+		char t[YTMUSIC_NAME_MAX] = "";
+		if (json_obj_str(doc, json_at(doc, runs_arr, i), "text", t, sizeof(t)) && t[0]) {
+			char *trimmed = t;
+			while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+			size_t tlen = strlen(trimmed);
+			while (tlen > 0 && (trimmed[tlen - 1] == ' ' || trimmed[tlen - 1] == '\t')) trimmed[--tlen] = '\0';
+			if (trimmed[0] && !text_is_play_count(trimmed) && !is_release_type(trimmed) && !is_bare_year(trimmed)) {
+				snprintf(out, size, "%s", trimmed);
+				return;
+			}
+		}
+	}
+}
+
 // One row of any of the three shapes the store uses for a list entry: a song
 // row, a podcast episode (a multi-row item), or a card for a playlist, album or
 // show. A row with a video id plays; one that only names a page opens it.
@@ -1452,26 +1551,30 @@ static bool read_item(const json_doc_t *doc, int renderer, ytmusic_item_t *item)
 	// The next column is tried instead; a row that only ever offers counts keeps
 	// its name and its sleeve and says nothing else, which is how the Tidal rows
 	// read.
-	static const char *const subtitle_paths[] = {
-		"flexColumns.1.musicResponsiveListItemFlexColumnRenderer.text.runs.0.text",
-		"flexColumns.2.musicResponsiveListItemFlexColumnRenderer.text.runs.0.text",
-		"subtitle.runs.0.text",
-		"longBylineText.runs.0.text",
-		"shortBylineText.runs.0.text",
-		"ownerText.runs.0.text",
-		"strapline.runs.0.text",
-		"episodePublisherText.runs.0.text",
-	};
-	for (size_t i = 0; i < sizeof(subtitle_paths) / sizeof(subtitle_paths[0]); i++) {
-		char text[YTMUSIC_NAME_MAX] = "";
-		if (!json_str(doc, json_path(doc, renderer, subtitle_paths[i]), text, sizeof(text)) || !text[0]) {
-			continue;
+	read_subtitle_from_runs(doc, json_path(doc, renderer, "subtitle.runs"), item->subtitle, sizeof(item->subtitle));
+	if (!item->subtitle[0]) {
+		static const char *const subtitle_paths[] = {
+			"flexColumns.1.musicResponsiveListItemFlexColumnRenderer.text.runs.0.text",
+			"flexColumns.2.musicResponsiveListItemFlexColumnRenderer.text.runs.0.text",
+			"straplineTextOne.runs.0.text",
+			"longBylineText.runs.0.text",
+			"shortBylineText.runs.0.text",
+			"ownerText.runs.0.text",
+			"strapline.runs.0.text",
+			"episodePublisherText.runs.0.text",
+			"subtitle.runs.0.text",
+		};
+		for (size_t i = 0; i < sizeof(subtitle_paths) / sizeof(subtitle_paths[0]); i++) {
+			char text[YTMUSIC_NAME_MAX] = "";
+			if (!json_str(doc, json_path(doc, renderer, subtitle_paths[i]), text, sizeof(text)) || !text[0]) {
+				continue;
+			}
+			if (text_is_play_count(text) || is_release_type(text) || is_bare_year(text)) {
+				continue;
+			}
+			snprintf(item->subtitle, sizeof(item->subtitle), "%s", text);
+			break;
 		}
-		if (text_is_play_count(text)) {
-			continue;
-		}
-		snprintf(item->subtitle, sizeof(item->subtitle), "%s", text);
-		break;
 	}
 	if (item->kind == YTMUSIC_ITEM_TRACK) read_album(doc, renderer, item);
 	read_thumbnail(doc, renderer, item->thumbnail, sizeof(item->thumbnail));
@@ -1707,6 +1810,75 @@ static void read_section_title(const char *object, char *out, size_t size) {
 	}
 }
 
+static void read_browse_header(const char *body, char *artist, size_t artist_size,
+                               char *album, size_t album_size,
+                               char *thumbnail, size_t thumb_size) {
+	if (artist && artist_size) artist[0] = '\0';
+	if (album && album_size) album[0] = '\0';
+	if (thumbnail && thumb_size) thumbnail[0] = '\0';
+	if (!body) return;
+
+	static const char *const headers[] = {
+		"\"musicResponsiveHeaderRenderer\"",
+		"\"musicHeaderRenderer\"",
+		"\"musicVisualHeaderRenderer\"",
+		"\"musicDetailHeaderRenderer\"",
+		"\"musicEditablePlaylistHeaderRenderer\"",
+	};
+
+	for (size_t i = 0; i < sizeof(headers) / sizeof(headers[0]); i++) {
+		const char *key = strstr(body, headers[i]);
+		if (!key) continue;
+		const char *value = skip_json_space(key + strlen(headers[i]));
+		if (*value != ':') continue;
+		value = skip_json_space(value + 1);
+		if (*value != '{') continue;
+		const char *end = json_compound_end(value);
+		if (!end) continue;
+		size_t len = (size_t)(end - value);
+		if (len > YTMUSIC_RENDERER_SIZE_LIMIT) continue;
+		char *header = malloc(len + 1);
+		if (!header) return;
+		memcpy(header, value, len);
+		header[len] = '\0';
+		json_doc_t doc;
+		if (json_parse_limited(header, &doc, YTMUSIC_RENDERER_TOKEN_LIMIT)) {
+			int root = json_root(&doc);
+			if (album && album_size && !album[0]) {
+				if (!json_str(&doc, json_path(&doc, root, "title.runs.0.text"), album, album_size) || !album[0]) {
+					json_str(&doc, json_path(&doc, root, "title.simpleText"), album, album_size);
+				}
+			}
+			if (artist && artist_size && !artist[0]) {
+				static const char *const artist_paths[] = {
+					"straplineTextOne.runs.0.text",
+					"straplineTextOne.simpleText",
+					"strapline.runs.0.text",
+					"bylineText.runs.0.text",
+					"ownerText.runs.0.text",
+				};
+				for (size_t p = 0; p < sizeof(artist_paths) / sizeof(artist_paths[0]); p++) {
+					if (json_str(&doc, json_path(&doc, root, artist_paths[p]), artist, artist_size) && artist[0]) {
+						break;
+					}
+				}
+				if (!artist[0]) {
+					int sub_runs = json_path(&doc, root, "subtitle.runs");
+					read_subtitle_from_runs(&doc, sub_runs, artist, artist_size);
+				}
+			}
+			if (thumbnail && thumb_size && !thumbnail[0]) {
+				read_thumbnail(&doc, root, thumbnail, thumb_size);
+			}
+			json_free(&doc);
+		}
+		free(header);
+		if ((artist && artist[0]) || (album && album[0]) || (thumbnail && thumbnail[0])) {
+			return;
+		}
+	}
+}
+
 // The cards under one carousel. The carousel is a slice of the whole page, so
 // it is copied out (the scanner wants a terminated string) and the items are
 // read from the copy.
@@ -1811,6 +1983,12 @@ int ytmusic_browse_items(const char *browse_id, ytmusic_item_t *items, int limit
 		if (!session_cookie_attached() || !youtubei_post("browse", request, false, &body, NULL, error, error_size)) return -1;
 		used_account = true;
 	}
+	char header_artist[YTMUSIC_NAME_MAX] = "";
+	char header_album[YTMUSIC_TITLE_MAX] = "";
+	char header_thumbnail[YTMUSIC_URL_MAX] = "";
+	read_browse_header(body, header_artist, sizeof(header_artist),
+	                   header_album, sizeof(header_album),
+	                   header_thumbnail, sizeof(header_thumbnail));
 	int count = collect_items_compact(body, items, limit);
 	if (count == 0 && !used_account) {
 		ytmusic_log_empty_body(browse_id, body);
@@ -1819,6 +1997,11 @@ int ytmusic_browse_items(const char *browse_id, ytmusic_item_t *items, int limit
 	if (count == 0 && !used_account && session_cookie_attached()) {
 		char *private_page = NULL;
 		if (youtubei_post("browse", request, false, &private_page, NULL, error, error_size)) {
+			if (!header_artist[0] && !header_album[0] && !header_thumbnail[0]) {
+				read_browse_header(private_page, header_artist, sizeof(header_artist),
+				                   header_album, sizeof(header_album),
+				                   header_thumbnail, sizeof(header_thumbnail));
+			}
 			count = collect_items_compact(private_page, items, limit);
 			free(private_page);
 		}
@@ -1836,6 +2019,21 @@ int ytmusic_browse_items(const char *browse_id, ytmusic_item_t *items, int limit
 	if (count < 0) {
 		set_error(error, error_size, "ytmusic_unreadable_reply");
 		return count;
+	}
+	if (count > 0 && strcmp(browse_id, "VLLM") != 0) {
+		for (int i = 0; i < count; i++) {
+			if (items[i].kind == YTMUSIC_ITEM_TRACK) {
+				if (!items[i].subtitle[0] && header_artist[0]) {
+					snprintf(items[i].subtitle, sizeof(items[i].subtitle), "%s", header_artist);
+				}
+				if (!items[i].album[0] && header_album[0]) {
+					snprintf(items[i].album, sizeof(items[i].album), "%s", header_album);
+				}
+				if (!items[i].thumbnail[0] && header_thumbnail[0]) {
+					snprintf(items[i].thumbnail, sizeof(items[i].thumbnail), "%s", header_thumbnail);
+				}
+			}
+		}
 	}
 	if (strcmp(browse_id, "VLLM") == 0 && session_cookie_attached()) {
 		ytlike_t local[YTMUSIC_ITEMS_MAX];

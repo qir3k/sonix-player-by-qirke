@@ -1,4 +1,5 @@
 #include "sonixlink_stream.h"
+#include "src/system/core/utils.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -7,6 +8,7 @@
 #include <unistd.h>
 
 #include "src/gui/shell/gui.h"
+#include "src/system/addons/addons.h"
 #include "src/gui/nowplaying/player.h"
 #include "src/gui/streaming/ytmusicpage.h"
 #include "src/system/playback/device_state.h"
@@ -60,6 +62,16 @@ static long id_number(const char *text) {
 // services
 // ---------------------------------------------------------------------------
 
+static const char *service_addon(const char *service) {
+	if (!service) return NULL;
+	if (strcmp(service, "youtube") == 0) return "ytmusic";
+	if (strcmp(service, "tidal") == 0) return "tidal";
+	if (strcmp(service, "qobuz") == 0) return "qobuz";
+	if (strcmp(service, "podcasts") == 0) return "podcasts";
+	if (strcmp(service, "radio") == 0) return "radio";
+	return NULL;
+}
+
 int sonixlink_stream_services(sonixlink_stream_service_t *out, int max) {
 	if (!out || max <= 0) {
 		return 0;
@@ -83,6 +95,10 @@ int sonixlink_stream_services(sonixlink_stream_service_t *out, int max) {
 		{"radio", "Internet radio", true, true, ""},
 	};
 	for (size_t i = 0; i < sizeof(list) / sizeof(list[0]) && n < max; i++) {
+		const char *addon = service_addon(list[i].id);
+		if (addon && !addons_enabled(addon)) {
+			continue;
+		}
 		memset(&out[n], 0, sizeof(out[n]));
 		snprintf(out[n].id, sizeof(out[n].id), "%s", list[i].id);
 		snprintf(out[n].name, sizeof(out[n].name), "%s", list[i].name);
@@ -171,6 +187,9 @@ static void list_youtube(const char *kind, const char *id, const char *q, const 
 			// its rows, so this is where the creator comes from.
 			snprintf(out->rows[out->count - 1].subtitle, sizeof(out->rows[0].subtitle), "%s", parent);
 		}
+		if (!out->rows[out->count - 1].album[0] && parent && parent[0] && !items[i].podcast_episode) {
+			snprintf(out->rows[out->count - 1].album, sizeof(out->rows[0].album), "%s", parent);
+		}
 	}
 	out->more = count >= STREAM_PAGE;
 	stream_rows_order(out, order);
@@ -196,51 +215,6 @@ static void tidal_album_row(const tidal_album_t *a, sonixlink_stream_row_t *row)
 	row->track_number = a->track_count;
 }
 
-static void list_tidal(const char *kind, const char *id, const char *q, int offset, sonixlink_stream_list_t *out) {
-	const char *mode = kind && kind[0] ? kind : "featured";
-	tidal_track_t tracks[STREAM_PAGE];
-	tidal_album_t albums[STREAM_PAGE];
-	int count = 0;
-
-	if (strcmp(mode, "search") == 0) {
-		if (!q || !q[0]) {
-			snprintf(out->error, sizeof(out->error), "empty_search");
-			return;
-		}
-		count = tidal_search_tracks(q, offset, tracks, STREAM_PAGE);
-		snprintf(out->title, sizeof(out->title), "%s", q);
-	} else if (strcmp(mode, "favorites") == 0) {
-		count = tidal_favorite_tracks(offset, tracks, STREAM_PAGE);
-		snprintf(out->title, sizeof(out->title), "%s", "Favourites");
-	} else if (strcmp(mode, "album") == 0) {
-		count = tidal_album_tracks(id, offset, tracks, STREAM_PAGE);
-	} else if (strcmp(mode, "playlist") == 0) {
-		count = tidal_playlist_tracks(id, offset, tracks, STREAM_PAGE);
-	} else if (strcmp(mode, "artist") == 0) {
-		count = tidal_artist_albums(id_number(id), offset, albums, STREAM_PAGE);
-	} else if (strcmp(mode, "featured") == 0) {
-		count = tidal_featured_albums("new", offset, albums, STREAM_PAGE);
-		snprintf(out->title, sizeof(out->title), "%s", "New releases");
-	} else {
-		snprintf(out->error, sizeof(out->error), "unknown_kind");
-		return;
-	}
-
-	if (count < 0) {
-		const char *why = tidal_last_error();
-		snprintf(out->error, sizeof(out->error), "%s", why && why[0] ? why : "request_failed");
-		return;
-	}
-	bool album_mode = strcmp(mode, "artist") == 0 || strcmp(mode, "featured") == 0;
-	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
-		if (album_mode) {
-			tidal_album_row(&albums[i], &out->rows[out->count++]);
-		} else {
-			tidal_track_row(&tracks[i], &out->rows[out->count++]);
-		}
-	}
-	out->more = count >= STREAM_PAGE;
-}
 
 static void qobuz_track_row(const qobuz_track_t *t, sonixlink_stream_row_t *row) {
 	row_set(row, "track", "", t->title, t->artist);
@@ -258,51 +232,6 @@ static void qobuz_album_row(const qobuz_album_t *a, sonixlink_stream_row_t *row)
 	row->track_number = a->track_count;
 }
 
-static void list_qobuz(const char *kind, const char *id, const char *q, int offset, sonixlink_stream_list_t *out) {
-	const char *mode = kind && kind[0] ? kind : "featured";
-	qobuz_track_t tracks[STREAM_PAGE];
-	qobuz_album_t albums[STREAM_PAGE];
-	int count = 0;
-
-	if (strcmp(mode, "search") == 0) {
-		if (!q || !q[0]) {
-			snprintf(out->error, sizeof(out->error), "empty_search");
-			return;
-		}
-		count = qobuz_search_tracks(q, offset, tracks, STREAM_PAGE);
-		snprintf(out->title, sizeof(out->title), "%s", q);
-	} else if (strcmp(mode, "favorites") == 0) {
-		count = qobuz_favorite_tracks(offset, tracks, STREAM_PAGE);
-		snprintf(out->title, sizeof(out->title), "%s", "Favourites");
-	} else if (strcmp(mode, "album") == 0) {
-		count = qobuz_album_tracks(id, offset, tracks, STREAM_PAGE);
-	} else if (strcmp(mode, "playlist") == 0) {
-		count = qobuz_playlist_tracks(id_number(id), offset, tracks, STREAM_PAGE);
-	} else if (strcmp(mode, "artist") == 0) {
-		count = qobuz_artist_albums(id_number(id), offset, albums, STREAM_PAGE);
-	} else if (strcmp(mode, "featured") == 0) {
-		count = qobuz_featured_albums("new", offset, albums, STREAM_PAGE);
-		snprintf(out->title, sizeof(out->title), "%s", "New releases");
-	} else {
-		snprintf(out->error, sizeof(out->error), "unknown_kind");
-		return;
-	}
-
-	if (count < 0) {
-		const char *why = qobuz_last_error();
-		snprintf(out->error, sizeof(out->error), "%s", why && why[0] ? why : "request_failed");
-		return;
-	}
-	bool album_mode = strcmp(mode, "artist") == 0 || strcmp(mode, "featured") == 0;
-	for (int i = 0; i < count && out->count < SONIXLINK_STREAM_ROWS; i++) {
-		if (album_mode) {
-			qobuz_album_row(&albums[i], &out->rows[out->count++]);
-		} else {
-			qobuz_track_row(&tracks[i], &out->rows[out->count++]);
-		}
-	}
-	out->more = count >= STREAM_PAGE;
-}
 
 // ---------------------------------------------------------------------------
 // Podcasts
@@ -379,12 +308,12 @@ static void list_podcasts(const char *kind, const char *id, const char *q, const
 // ---------------------------------------------------------------------------
 
 static bool radio_wait(unsigned serial) {
-	for (int i = 0; i < 160; i++) {
+	for (int i = 0; i < 40; i++) {
 		radio_job_t state = radio_job_state();
 		if (radio_job_serial() != serial && (state == RADIO_JOB_OK || state == RADIO_JOB_FAILED)) {
 			return state == RADIO_JOB_OK;
 		}
-		usleep(50 * 1000);
+		usleep(200 * 1000);
 	}
 	return false;
 }
@@ -509,6 +438,12 @@ bool sonixlink_stream_list(const char *service, const char *kind, const char *id
 		return false;
 	}
 	memset(out, 0, sizeof(*out));
+
+	const char *addon = service_addon(service);
+	if (addon && !addons_enabled(addon)) {
+		snprintf(out->error, sizeof(out->error), "service_disabled");
+		return false;
+	}
 
 	if (kind && strcmp(kind, "menu") == 0) {
 		return sonixlink_stream_menu(service, out);
@@ -735,6 +670,7 @@ static bool prepare_queue(play_job_t *job) {
 }
 
 static void *play_worker(void *arg) {
+	thread_be_low_priority("sonixlink play");
 	play_job_t *job = arg;
 	if (strcmp(job->service, "radio") == 0) {
 		if (!gui_post(radio_start, job)) {
@@ -848,6 +784,11 @@ bool sonixlink_stream_play(const char *service, int index, char *error, size_t e
 		if (error && error_size) snprintf(error, error_size, "bad_request");
 		return false;
 	}
+	const char *addon = service_addon(service);
+	if (addon && !addons_enabled(addon)) {
+		if (error && error_size) snprintf(error, error_size, "service_disabled");
+		return false;
+	}
 
 	pthread_mutex_lock(&list_lock);
 	if (strcmp(last_service, service) != 0 || index >= last_list.count) {
@@ -883,4 +824,11 @@ bool sonixlink_stream_play(const char *service, int index, char *error, size_t e
 	}
 	pthread_detach(worker);
 	return true;
+}
+
+void sonixlink_stream_cleanup(void) {
+	pthread_mutex_lock(&list_lock);
+	memset(&last_list, 0, sizeof(last_list));
+	last_service[0] = '\0';
+	pthread_mutex_unlock(&list_lock);
 }

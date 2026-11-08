@@ -1597,7 +1597,7 @@ static void order_load(void) {
 	// nobody has decided about is better offered than hidden -- except the two
 	// below, and the grid is already full without them.
 	for (int i = 0; i < QP_BTN_COUNT; i++) {
-		if (placed[i]) {
+		if (placed[i] || !button_module_on((uint8_t)i)) {
 			continue;
 		}
 		// Crossfade, which the migration below is taking out on purpose, and the
@@ -1621,6 +1621,14 @@ static void order_load(void) {
 	for (int i = 0; i < line_n; i++) {
 		if (!button_module_on(line[i])) {
 			line[i] = QP_BTN_NONE;
+		}
+	}
+	for (int i = 0; i < hidden_n;) {
+		if (!button_module_on(hidden[i])) {
+			memmove(&hidden[i], &hidden[i + 1], (size_t)(hidden_n - i - 1));
+			hidden_n--;
+		} else {
+			i++;
 		}
 	}
 

@@ -216,6 +216,7 @@ static void job_result_taken(void) {
 // ---------------------------------------------------------------------------
 
 static void busy_show_text(bool with_text) {
+	player_pause_for_loading();
 	if (!busy_layer) {
 		return;
 	}

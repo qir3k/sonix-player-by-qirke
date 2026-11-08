@@ -1,3 +1,4 @@
+#include <malloc.h>
 #include "player.h"
 
 #include <pthread.h>
@@ -4975,6 +4976,9 @@ static void apply_cover_result(void) {
 			cover_poll_start();
 		}
 
+		if (current_cover.pixels && current_cover.pixels != new_cover.pixels) {
+			cover_free(&current_cover);
+		}
 		current_cover = new_cover;
 		current_cover.dsc.data = current_cover.pixels; // struct moved, buffer didn't
 
@@ -4985,6 +4989,9 @@ static void apply_cover_result(void) {
 		cover_show(true);
 
 		if (new_backdrop.pixels) {
+			if (current_backdrop.pixels && current_backdrop.pixels != new_backdrop.pixels) {
+				cover_free(&current_backdrop);
+			}
 			current_backdrop = new_backdrop;
 			current_backdrop.dsc.data = current_backdrop.pixels;
 			if (backdrop_is_band) {
@@ -6573,6 +6580,10 @@ void player_output_unplugged(const char *what) {
 	apply_playback_status(AUDIO_STATUS_PAUSED);
 }
 
+bool player_is_playing(void) {
+	return (audio_get_status() == AUDIO_STATUS_PLAYING) || radio_is_active();
+}
+
 void player_pause_for_loading(void) {
 	if (radio_is_active()) {
 		radio_stop();
@@ -6809,6 +6820,9 @@ void player_sheet_close(bool animate) {
 		back_btn_translate(0);
 		lv_obj_set_hidden(player_screen, true);
 		back_btn_sync_visibility();
+#if !defined(HOST_BUILD) || defined(__GLIBC__)
+		malloc_trim(0);
+#endif
 		return;
 	}
 
@@ -6821,6 +6835,9 @@ void player_sheet_close(bool animate) {
 	lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
 	lv_anim_set_completed_cb(&a, sheet_hidden_anim_ready_cb);
 	lv_anim_start(&a);
+#if !defined(HOST_BUILD) || defined(__GLIBC__)
+	malloc_trim(0);
+#endif
 }
 
 // Runs from lv_async_call, one tick after the gesture's own events (RELEASED,

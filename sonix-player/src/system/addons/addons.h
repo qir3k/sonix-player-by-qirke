@@ -45,4 +45,7 @@ void addons_apply_defaults(bool (*is_default)(const char *id));
 // True if at least one game (Gearboy, Flappy Bird, 2048, Pocket Arcade) is enabled.
 bool addons_any_game_enabled(void);
 
+// True if at least one streaming service (radio, podcasts, tidal, qobuz, subsonic, ytmusic) is enabled.
+bool addons_any_streaming_enabled(void);
+
 #endif /* ADDONS_H */

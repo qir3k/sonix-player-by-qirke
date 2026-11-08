@@ -119,4 +119,26 @@ char *win_strcasestr(const char *haystack, const char *needle) {
 	return NULL;
 }
 
+long long win_pread(int fd, void *buf, size_t count, long long offset) {
+	HANDLE h = (HANDLE)_get_osfhandle(fd);
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = EBADF;
+		return -1;
+	}
+	OVERLAPPED ov;
+	memset(&ov, 0, sizeof(ov));
+	ov.Offset = (DWORD)(offset & 0xFFFFFFFF);
+	ov.OffsetHigh = (DWORD)((unsigned long long)offset >> 32);
+	DWORD bytes_read = 0;
+	if (!ReadFile(h, buf, (DWORD)count, &bytes_read, &ov)) {
+		DWORD err = GetLastError();
+		if (err == ERROR_HANDLE_EOF) return 0;
+		errno = EIO;
+		return -1;
+	}
+	return (long long)bytes_read;
+}
+
+void cpupower_yield_if_stressed(void) {}
+
 #endif /* _WIN32 */

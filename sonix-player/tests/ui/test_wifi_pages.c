@@ -158,6 +158,8 @@ void player_sheet_attach_drag(lv_obj_t *obj, bool opening) {
 	(void)opening;
 }
 bool player_sheet_drag_active(void) { return false; }
+bool player_is_playing(void) { return false; }
+void player_pause_for_loading(void) {}
 
 /* ---- the radio, substituted and recording ------------------------------- */
 
