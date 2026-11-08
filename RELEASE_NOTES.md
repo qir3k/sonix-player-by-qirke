@@ -1,19 +1,26 @@
-# Sonix OS v1.1.39 for TempoTec Variations V1
+# Sonix OS v1.1.40 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.1.39
+## 🛠️ Critical Fixes in v1.1.40
+
+### 🎵 Fixed Abrupt Volume Drop / ReplayGain Delay on Track Start
+- **Root Cause**: When a track was queued or played in `device_state.c`, metadata was set to a blank placeholder (`metaloader_get_placeholder`), and `replaygain_load()` was called with no gain tags (`has_track_gain = false`). The audio decoder immediately started playback at 100% full volume (0 dB gain). Approximately one second later, the asynchronous metadata reader finished, and `device_state_get()` on the UI poll re-called `replaygain_load(&current_metadata)` with the true ReplayGain values (often -6 dB to -10 dB). This caused an abrupt, jarring drop in volume one second after playback began.
+- **Resolution**:
+  - Restored synchronous metadata reading (`metadata_read()`) and tag extraction prior to `audio_play()` in `device_state.c`.
+  - ReplayGain is now computed and applied to `gain_q15` **before the very first audio frame is decoded or transmitted to the DAC**.
+  - Removed `replaygain_load` re-invocation from `device_state_get()`, eliminating mid-stream volume jumps.
+
+---
+
+## 🛠️ Included Fixes from v1.1.39 & v1.1.38
 
 ### 1. Restored Rotating Circle Spinner & Multilingual Layout
-- **Root Cause**: In recent commits, `spinner.c` was altered to display hardcoded Polish text `"Ładowanie..."` via a timer instead of rotating the visual icon. Screens using the spinner (e.g. Podcasts, Qobuz, Tidal, YouTube Music, Wi-Fi dialogs) already have localized captions underneath (`t("loading")` in the user's selected language, such as English `"Loading ..."`). This resulted in ugly duplicated text (`"Ładowanie..."` over `"Loading ..."`) and stripped the spinning visual animation.
-- **Resolution**: Reverted `spinner_create()` to pure LVGL image rotation animation (`spin_cb` with `lv_image_set_rotation`), completely removing hardcoded text and restoring the smooth rotating loading circle in all views while respecting the active system language.
+- Reverted `spinner_create()` to pure LVGL image rotation animation (`spin_cb` with `lv_image_set_rotation`), removing hardcoded Polish text and restoring the smooth rotating loading circle in all views while respecting the active system language.
 
-### 2. Bluetooth Teardown & btmon Diagnostic Process Cleanup
-- **Resolution**: Added `stop_process("btmon")` to `bring_stack_down()` and `bluetooth_power_down_stack()`, preventing the 1.2 MB `btmon` diagnostic logger from lingering when Bluetooth is turned off.
-
-### 3. Extended Quickpanel Status Bar & Toggle Grid Layout (from v1.1.38)
+### 2. Extended Quickpanel Status Bar & Toggle Grid Layout
 - Pre-emptively hides all `0..QP_BTN_COUNT-1` button widgets in `order_apply()` before grid slot assignment, preventing rogue 9th buttons (e.g. Gain) from expanding into a 3rd row and shifting widgets into the top status bar.
 - Set cross alignment to `LV_FLEX_ALIGN_START` and added corner clipping for pixel-perfect 2-row layout in the 92px buttons viewport.
 
-### 4. USB Mass Storage & PC Connection (MicroSD Card Access) (from v1.1.38)
+### 3. USB Mass Storage & PC Connection (MicroSD Card Access)
 - Added hardware support for onboard TCS1421 Type-C CC controller (`/sys/devices/platform/tcs1421/tcs1421_cfg`), explicitly asserting `"Sink"` mode when connected to a host PC so the device correctly negotiates as a USB peripheral instead of idling in dual-role (DRP) charge-only mode.
 - Dynamically poll all `/sys/class/power_supply/*/online` nodes.
 - Added safe audio release draining (up to 500ms), `sync()`, and `umount2(..., MNT_DETACH)` fallback during unmount.

@@ -32,11 +32,12 @@ static song_metadata_t current_metadata;
 static char current_metadata_file[512] = {0};
 static void apply_track_speed(void);
 
-// Helper to decouple SD Card I/O from the UI thread by using the metaloader worker.
-static void update_track_metadata_async(const char *filepath) {
-	metaloader_get_placeholder(filepath, &current_metadata);
-	metaloader_request(filepath);
-	audiobook_track_changed(current_metadata_file);
+// Reads track metadata synchronously before starting playback so that ReplayGain,
+// audiobook detection, and playback speed are fully configured before the first
+// audio frame is decoded or fed to the DAC.
+static void update_track_metadata(const char *filepath) {
+	metadata_read(filepath, &current_metadata);
+	audiobook_track_changed(filepath);
 	replaygain_load(&current_metadata);
 	apply_track_speed();
 }
@@ -299,15 +300,6 @@ void device_state_get(device_state_t *out) {
 			snprintf(out->current_file, sizeof(out->current_file), "%s", current_metadata_file);
 		}
 
-		if (current_metadata_file[0]) {
-			song_metadata_t loaded_meta;
-			if (metaloader_take(current_metadata_file, &loaded_meta)) {
-				current_metadata = loaded_meta;
-				audiobook_track_changed(current_metadata_file);
-				replaygain_load(&current_metadata);
-				apply_track_speed();
-			}
-		}
 		out->metadata = current_metadata;
 	}
 
@@ -525,6 +517,7 @@ static void apply_track_speed(void) {
 // every caller but the resume below wants.
 static void load_and_play_at(const char *filepath, double position) {
 	scrub_cancel();
+	radio_clear();
 
 	// [STOPPING] -> [CLEANUP]: Stop ALSA immediately, abort stream sockets/threads, trim heap
 	audio_sm_stop_and_cleanup();
@@ -536,7 +529,7 @@ static void load_and_play_at(const char *filepath, double position) {
 
 	// [BUFFERING]: Extract metadata and run prepare callbacks
 	audio_sm_set_state(AUDIO_SM_BUFFERING);
-	update_track_metadata_async(current_metadata_file);
+	update_track_metadata(current_metadata_file);
 
 	char prepared_path[sizeof(current_metadata_file)];
 	snprintf(prepared_path, sizeof(prepared_path), "%s", current_metadata_file);
@@ -547,7 +540,7 @@ static void load_and_play_at(const char *filepath, double position) {
 		}
 	}
 	if (strcmp(prepared_path, current_metadata_file) != 0) {
-		update_track_metadata_async(current_metadata_file);
+		update_track_metadata(current_metadata_file);
 	}
 
 	// [PLAYING]: Start decoder only after old resources are completely freed
@@ -579,7 +572,7 @@ static void load_paused(const char *filepath) {
 	if (filepath != current_metadata_file) {
 		snprintf(current_metadata_file, sizeof(current_metadata_file), "%s", filepath);
 	}
-	update_track_metadata_async(current_metadata_file);
+	update_track_metadata(current_metadata_file);
 
 	audio_play_paused(current_metadata_file, 0);
 	audiobook_suppress_rewind_once();
@@ -612,7 +605,7 @@ void device_state_restore_file(const char *filepath, double position) {
 
 	strncpy(current_metadata_file, filepath, sizeof(current_metadata_file) - 1);
 	current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
-	update_track_metadata_async(current_metadata_file);
+	update_track_metadata(current_metadata_file);
 
 	audio_play_paused(current_metadata_file, position);
 	device_state_remember_restored(current_metadata_file, position);
@@ -686,7 +679,7 @@ void device_state_restore_index(library_index_t *ix, int start_index, const char
 
 	strncpy(current_metadata_file, path, sizeof(current_metadata_file) - 1);
 	current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
-	update_track_metadata_async(current_metadata_file);
+	update_track_metadata(current_metadata_file);
 
 	// The queue just loaded is the saved one: do not write it straight back.
 	saved_queue_revision = playlist_revision();
@@ -734,7 +727,7 @@ void device_state_restore_list(const char *const *list, int count, int start_ind
 
 	strncpy(current_metadata_file, path, sizeof(current_metadata_file) - 1);
 	current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
-	update_track_metadata_async(current_metadata_file);
+	update_track_metadata(current_metadata_file);
 
 	// The queue just loaded is the saved one: do not write it straight back.
 	saved_queue_revision = playlist_revision();
@@ -771,7 +764,7 @@ void device_state_play_file_at(const char *filepath, double position) {
 		strncpy(current_metadata_file, filepath, sizeof(current_metadata_file) - 1);
 		current_metadata_file[sizeof(current_metadata_file) - 1] = '\0';
 	}
-	update_track_metadata_async(current_metadata_file);
+	update_track_metadata(current_metadata_file);
 
 	audio_play_at(current_metadata_file, position);
 

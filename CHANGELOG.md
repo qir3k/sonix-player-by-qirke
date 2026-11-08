@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [v1.1.40] - 2026-11-08
+
+### 🛠️ Fixed
+- **ReplayGain Playback Volume & Metadata Timing**:
+  - Restored synchronous metadata tag loading before starting the audio decoder in `device_state.c`.
+  - ReplayGain values are now accurately applied to the gain scale before frame 0 is decoded, eliminating the abrupt volume drop previously heard ~1 second into playback.
+
+---
+
 ## [v1.1.39] - 2026-11-08
 
 ### 🛠️ Fixed
