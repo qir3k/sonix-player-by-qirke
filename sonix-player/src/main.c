@@ -1430,6 +1430,8 @@ static int fb_touch_fd = -1;
 static uint8_t draw_buf1[PARTIAL_DRAW_BUF_SIZE] __attribute__((aligned(32)));
 static uint8_t draw_buf2[PARTIAL_DRAW_BUF_SIZE] __attribute__((aligned(32)));
 
+#define DISPLAY_FRAME_US 16667u
+
 static uint64_t now_us(void) {
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
