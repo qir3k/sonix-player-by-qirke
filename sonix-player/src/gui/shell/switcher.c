@@ -414,14 +414,8 @@ static void back_drag_cb(lv_event_t *e) {
 
 	if (code == LV_EVENT_PRESSING) {
 		if (!back_drag_engaged) {
-			// Vertical scrolling must still work: the moment LVGL has begun
-			// scrolling something, this press belongs to the scroll, full
-			// stop. Otherwise the incidental horizontal drift of a fast
-			// flick crosses the threshold and the list shimmies sideways.
-			if (lv_indev_get_scroll_obj(indev)) {
-				back_dragging = false;
-				return;
-			}
+			// Vertical scrolling must still work: if movement is primarily
+			// vertical, yield to the scroll container.
 			int dy = point.y - back_drag_start.y;
 			if (LV_ABS(dy) >= BACK_DRAG_COMMIT_PX && LV_ABS(dy) > LV_ABS(dx)) {
 				back_dragging = false; // clearly a vertical gesture

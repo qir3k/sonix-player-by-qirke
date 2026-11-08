@@ -731,7 +731,11 @@ if [ \"\$boot_sel\" = \"logo:4\" ]; then boot_waited=0; while [ \$boot_waited -l
 	# enough to cause it, which is why this is checked rather than assumed.
 	step "[$MODEL_NAME] making the boot path executable"
 
-	for rel in "$NEW_LAUNCHER" "$INIT_SCRIPT" usr/bin/bluealsa usr/bin/shairport_on.sh etc/init.d/S80_bt_init; do
+	# Ensure stock bluetooth init scripts are removed from rootfs: Sonix Player manages
+	# the Bluetooth stack on-demand when enabled, saving ~11MB of RAM at boot.
+	rm -f "$SQUASH_DIR/etc/init.d/S80_bt_init" "$SQUASH_DIR/etc/init.d/K80_bt_init"
+
+	for rel in "$NEW_LAUNCHER" "$INIT_SCRIPT" usr/bin/bluealsa usr/bin/shairport_on.sh; do
 		if [ -f "$SQUASH_DIR/$rel" ]; then
 			chmod 755 "$SQUASH_DIR/$rel"
 			say "    $rel is 755"

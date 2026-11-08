@@ -6889,18 +6889,16 @@ static void sheet_drag_cb(lv_event_t *e) {
 	int dx = point.x - drag_start_point.x;
 
 	if (code == LV_EVENT_PRESSING) {
-		// Vertical scrolling must still work: the moment LVGL is scrolling
-		// something this press is a scroll, and once the movement reads as
-		// vertical it stays a scroll -- no more sideways shimmy of the page
-		// during a fast flick.
+		// Vertical scrolling must still work: if movement is primarily
+		// vertical, dismiss sheet drag so the scrollable list scrolls smoothly.
 		if (!drag_committed) {
-			if (lv_indev_get_scroll_obj(indev)) {
-				dragging = false;
-				return;
-			}
 			int dy = point.y - drag_start_point.y;
 			if (LV_ABS(dy) >= DRAG_COMMIT_PX && LV_ABS(dy) > LV_ABS(dx)) {
 				dragging = false;
+				return;
+			}
+			if ((opening && dx > 0) || (!opening && dx < 0)) {
+				dragging = false; // dragging in the opposite direction
 				return;
 			}
 			if (LV_ABS(dx) < DRAG_COMMIT_PX || LV_ABS(dx) < 2 * LV_ABS(dy)) {

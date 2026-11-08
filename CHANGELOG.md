@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [v1.1.41] - 2026-11-09
+
+### 🛠️ Fixed
+- **Streaming List Item Touch Responsiveness**:
+  - In ytmusicpage.c, evaluated lv_event_get_current_target(e) instead of the clicked inner widget (lv_event_get_target(e)), ensuring taps in the middle of a track row correctly identify the container and start playback.
+  - Set lv_obj_set_clickable(..., false) on inner row containers and labels across ytmusicpage.c, 	idalpage.c, qobuzpage.c, podcastpage.c, and 
+adiopage.c.
+- **Player Sheet Swipe Right-to-Left on Scrollable Lists**:
+  - Removed premature lv_indev_get_scroll_obj(indev) abort in sheet_drag_cb (player.c) and ack_drag_cb (switcher.c).
+  - Gestures now dynamically commit to horizontal player sheet transitions when horizontal displacement dominates (LV_ABS(dx) >= DRAG_COMMIT_PX && LV_ABS(dx) >= 2 * LV_ABS(dy)), while yielding to vertical scrolling when vertical displacement dominates.
+- **Playback Spontaneous Pausing & Jack Detection Debounce**:
+  - In lsa-controls.c, increased JACK_SETTLE_MS from 120ms to 600ms to debounce mechanical socket micro-bounce.
+  - In headphone_jack_state_raw(), if /sys/class/switch/headset/state returns < 0 (transient read error), the current stable state is retained instead of defaulting to JACK_NONE.
+- **Bluetooth Stack Boot RAM Reduction (~11MB Saved)**:
+  - Removed stock S80_bt_init from rootfs packaging in sonix_firmware_packer.sh.
+  - Updated luetooth_init() in luetooth.c to dispatch an explicit teardown job on boot whenever Bluetooth is disabled.
+  - Added t-agent check to luetooth_power_down_stack().
+- **ADB Daemon Teardown & USB Mass Storage**:
+  - Fixed db_apply_saved_state() in db.c to explicitly terminate running dbd / dbserver.sh processes and release the USB controller gadget when ADB is toggled off in developer settings or disabled on boot.
+  - Fixes USB Mass Storage export to host PCs when ADB is off.
+- **Smart Mix Large Library Support**:
+  - In geniusbuild.c, libraries with > 4096 tracks now cap the indexed graph at GENIUSBUILD_MAX_TRACKS and return success rather than failing the build with GENIUSBUILD_LIMIT (-5).
+  - Updated library.c SQLite bind to GENIUSBUILD_MAX_TRACKS.
+  - Removed misleading smartmix_start action from ITEMS_TIDAL in 	rackmenu.c.
+
+---
+
 ## [v1.1.40] - 2026-11-08
 
 ### 🛠️ Fixed

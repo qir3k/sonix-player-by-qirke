@@ -1435,6 +1435,7 @@ static void build_list_page(gui_config_t *cfg) {
 		lv_obj_set_style_border_width(text, 0, 0);
 		lv_obj_set_style_pad_all(text, 0, 0);
 		lv_obj_set_scrollable(text, false);
+		lv_obj_set_clickable(text, false);
 		lv_obj_set_event_bubble(text, true);
 		lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
 		lv_obj_set_flex_align(text, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);

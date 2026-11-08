@@ -1712,13 +1712,14 @@ static lv_obj_t *make_row(const char *name, const char *detail, const char *cove
 	// becomes the real image once the thread has downloaded it, so the list is
 	// readable at once without waiting for the network.
 	if (cover_url && cover_url[0] && index < TIDAL_MAX_HELD) {
-		lv_obj_t *thumb = lv_image_create(row);
-		lv_obj_set_size(thumb, ROW_THUMB, ROW_THUMB);
-		lv_image_set_inner_align(thumb, LV_IMAGE_ALIGN_CENTER);
-		lv_image_set_src(thumb, &icon_music2);
-		lv_obj_add_style(thumb, &theme_style_icon, 0);
-		lv_obj_set_style_image_recolor_opa(thumb, LV_OPA_COVER, 0);
-		lv_obj_set_event_bubble(thumb, true);
+	lv_obj_t *thumb = lv_image_create(row);
+	lv_obj_set_size(thumb, ROW_THUMB, ROW_THUMB);
+	lv_image_set_inner_align(thumb, LV_IMAGE_ALIGN_CENTER);
+	lv_image_set_src(thumb, &icon_music2);
+	lv_obj_add_style(thumb, &theme_style_icon, 0);
+	lv_obj_set_style_image_recolor_opa(thumb, LV_OPA_COVER, 0);
+	lv_obj_set_clickable(thumb, false);
+	lv_obj_set_event_bubble(thumb, true);
 		row_thumbs[index] = thumb;
 		snprintf(row_cover_url[index], sizeof(row_cover_url[0]), "%s", cover_url);
 	}
@@ -1731,6 +1732,7 @@ static lv_obj_t *make_row(const char *name, const char *detail, const char *cove
 	lv_obj_set_style_pad_all(texts, 0, 0);
 	lv_obj_set_style_pad_row(texts, bp_pick(2, 6), 0); // breathing room between title and subtitle
 	lv_obj_set_scrollable(texts, false);
+	lv_obj_set_clickable(texts, false);
 	lv_obj_set_event_bubble(texts, true);
 	lv_obj_set_flex_flow(texts, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_flex_align(texts, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -1742,6 +1744,7 @@ static lv_obj_t *make_row(const char *name, const char *detail, const char *cove
 	lv_obj_set_height(label, lv_font_get_line_height(ROW_TITLE_FONT));
 	lv_obj_add_style(label, &theme_style_text, 0);
 	lv_obj_set_style_text_font(label, ROW_TITLE_FONT, 0);
+	lv_obj_set_clickable(label, false);
 
 	// A track the subscription does not cover stays in the list but reads as
 	// unplayable: hiding it would leave a gap in the album with no explanation.
@@ -1757,6 +1760,7 @@ static lv_obj_t *make_row(const char *name, const char *detail, const char *cove
 		lv_obj_set_height(sub, lv_font_get_line_height(ROW_DETAIL_FONT));
 		lv_obj_add_style(sub, &theme_style_text_dim, 0);
 		lv_obj_set_style_text_font(sub, ROW_DETAIL_FONT, 0);
+	lv_obj_set_clickable(sub, false);
 	}
 
 	// The three dots, where the list has something to offer on a single entry.

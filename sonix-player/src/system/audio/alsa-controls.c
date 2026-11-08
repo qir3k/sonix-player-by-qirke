@@ -26,7 +26,7 @@ static long current_output = -1; // last value written to "Output Port Switch"
 // The jack switches can chatter while a plug is being seated. Use the same
 // settled answer for the status icon and the route key, so one noisy sample
 // neither flashes a false headphone glyph nor needlessly reprograms the DAC.
-#define JACK_SETTLE_MS 120
+#define JACK_SETTLE_MS 600
 static pthread_mutex_t jack_state_lock = PTHREAD_MUTEX_INITIALIZER;
 static int jack_state_stable = -1;
 static int jack_state_candidate = -1;
@@ -1329,7 +1329,11 @@ static int headphone_jack_state_raw(void) {
 			fprintf(stderr, "alsa: headset switch reads %ld (1 is the empty socket on this board)\n", state);
 			last_logged = state;
 		}
-		return state < 0 || state == 1 ? JACK_NONE : JACK_HEADSET;
+		if (state < 0) {
+			// Transient read error: keep current stable state to prevent accidental pause
+			return jack_state_stable < 0 ? JACK_NONE : jack_state_stable;
+		}
+		return state == 1 ? JACK_NONE : JACK_HEADSET;
 	}
 
 	if (file_matches(HEADSET_SWITCH, "1")) {

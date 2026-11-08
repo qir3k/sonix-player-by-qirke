@@ -467,7 +467,13 @@ bool adb_set_enabled(bool enabled) {
 }
 
 void adb_apply_saved_state(void) {
-	if (!config_get_bool("system", "adb", false)) {
+	bool enabled = config_get_bool("system", "adb", false);
+	if (!enabled) {
+		wanted = false;
+		if (adb_is_running()) {
+			printf("adb: disabled in settings, stopping running adbd\n");
+			adb_apply(false);
+		}
 		return;
 	}
 	wanted = true;

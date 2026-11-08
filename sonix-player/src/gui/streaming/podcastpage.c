@@ -1085,6 +1085,7 @@ static void build_rows(int width) {
 		row->thumb = lv_image_create(row->button);
 		lv_obj_set_size(row->thumb, ROW_THUMB, ROW_THUMB);
 		lv_image_set_inner_align(row->thumb, LV_IMAGE_ALIGN_CENTER);
+	lv_obj_set_clickable(row->thumb, false);
 		lv_obj_set_event_bubble(row->thumb, true);
 		paint_thumb(row->thumb, -1);
 
@@ -1096,6 +1097,7 @@ static void build_rows(int width) {
 		lv_obj_set_style_pad_all(texts, 0, 0);
 		lv_obj_set_style_pad_row(texts, bp_pick(2, 6), 0);
 		lv_obj_set_scrollable(texts, false);
+	lv_obj_set_clickable(texts, false);
 		lv_obj_set_event_bubble(texts, true);
 		lv_obj_set_flex_flow(texts, LV_FLEX_FLOW_COLUMN);
 		lv_obj_set_flex_align(texts, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -1106,6 +1108,7 @@ static void build_rows(int width) {
 		lv_obj_set_height(row->title, lv_font_get_line_height(ROW_TITLE_FONT));
 		lv_obj_add_style(row->title, &theme_style_text, 0);
 		lv_obj_set_style_text_font(row->title, ROW_TITLE_FONT, 0);
+	lv_obj_set_clickable(row->title, false);
 
 		row->detail = lv_label_create(texts);
 		lv_label_set_long_mode(row->detail, LV_LABEL_LONG_DOT);
@@ -1113,6 +1116,7 @@ static void build_rows(int width) {
 		lv_obj_set_height(row->detail, lv_font_get_line_height(ROW_DETAIL_FONT));
 		lv_obj_add_style(row->detail, &theme_style_text_dim, 0);
 		lv_obj_set_style_text_font(row->detail, ROW_DETAIL_FONT, 0);
+	lv_obj_set_clickable(row->detail, false);
 
 		// The tick of an episode that has been heard. Between the text and the
 		// three dots, because a podcast row shows no dots and an episode row

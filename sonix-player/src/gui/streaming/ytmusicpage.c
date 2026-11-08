@@ -1879,6 +1879,7 @@ static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int
 	lv_obj_set_style_pad_all(texts, 0, 0);
 	lv_obj_set_style_pad_row(texts, bp_pick(2, 6), 0);
 	lv_obj_set_scrollable(texts, false);
+	lv_obj_set_clickable(texts, false);
 	lv_obj_set_event_bubble(texts, true);
 	lv_obj_set_flex_flow(texts, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_flex_align(texts, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -1892,6 +1893,7 @@ static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int
 	lv_obj_set_height(title, lv_font_get_line_height(YTMUSIC_ROW_TITLE_FONT));
 	lv_obj_add_style(title, &theme_style_text, 0);
 	lv_obj_set_style_text_font(title, YTMUSIC_ROW_TITLE_FONT, 0);
+	lv_obj_set_clickable(title, false);
 
 	if (item->subtitle[0]) {
 		lv_obj_t *detail = lv_label_create(texts);
@@ -1901,6 +1903,7 @@ static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int
 		lv_obj_set_height(detail, lv_font_get_line_height(YTMUSIC_ROW_DETAIL_FONT));
 		lv_obj_add_style(detail, &theme_style_text_dim, 0);
 		lv_obj_set_style_text_font(detail, YTMUSIC_ROW_DETAIL_FONT, 0);
+	lv_obj_set_clickable(detail, false);
 	}
 
 	if (item->kind == YTMUSIC_ITEM_TRACK) {
@@ -1914,6 +1917,7 @@ static lv_obj_t *item_row_create(lv_obj_t *list, const ytmusic_item_t *item, int
 		lv_obj_add_style(chevron, &theme_style_icon, 0);
 		lv_obj_set_style_image_opa(chevron, LV_OPA_60, 0);
 		lv_image_set_scale(chevron, (uint32_t)(LV_SCALE_NONE * 22 / 36));
+		lv_obj_set_clickable(chevron, false);
 		lv_obj_set_event_bubble(chevron, true);
 	}
 
@@ -2078,13 +2082,14 @@ static void item_clicked_cb(lv_event_t *e) {
 		return;
 	}
 	int index = (int)(intptr_t)lv_event_get_user_data(e);
+	lv_obj_t *target_row = lv_event_get_current_target(e);
 	const ytmusic_item_t *item = NULL;
 	// The list a row was drawn in, kept so that playing it can queue the rest
 	// of that same list: a tap is "play this and what follows", not "play one
 	// file and fall back to whatever was queued before".
 	const ytmusic_item_t *list_items = NULL;
 	int list_count = 0;
-	if (lv_obj_get_parent(lv_event_get_target(e)) == results_list) {
+	if (lv_obj_get_parent(target_row) == results_list) {
 		if (index < 0 || index >= result_count) return;
 		item = &result_items[index];
 		list_items = result_items;
@@ -2110,7 +2115,7 @@ static void item_clicked_cb(lv_event_t *e) {
 		snprintf(list_show, sizeof(list_show), "%s", item->title);
 		snprintf(list_artist, sizeof(list_artist), "%s", item->subtitle);
 		snprintf(list_thumbnail, sizeof(list_thumbnail), "%s", item->thumbnail);
-		bool from_explore = lv_obj_get_parent(lv_event_get_target(e)) == results_list && explore_cards;
+		bool from_explore = lv_obj_get_parent(target_row) == results_list && explore_cards;
 		start_list_request(LIST_BROWSE, true, YTMUSIC_FILTER_SONGS, NULL, item->browse_id, item->title,
 						   from_explore);
 	} else {

@@ -1468,7 +1468,6 @@ void trackmenu_open(lv_obj_t *anchor) {
 	};
 	static const popover_item_t ITEMS_TIDAL[] = {
 		{"trackmenu_queue", open_queue_cb, NULL},
-		{"smartmix_start", start_genius_cb, NULL},
 		{"add_to_playlist", add_to_playlist_cb, NULL},
 		{"show_album", open_album_cb, NULL},
 		{"show_artist", open_tidal_artist_cb, NULL},

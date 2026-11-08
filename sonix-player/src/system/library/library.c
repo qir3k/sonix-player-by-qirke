@@ -1532,7 +1532,7 @@ bool library_read_tags(library_tags_cb cb, void *user, const atomic_bool *cancel
 						   " typeof(year),CASE WHEN typeof(year)='integer' THEN year END FROM MEDIA_TABLE"
 						   " ORDER BY rowid LIMIT ?1",
 						   -1, &stmt, NULL) != SQLITE_OK ||
-		sqlite3_bind_int(stmt, 1, GENIUSBUILD_MAX_TRACKS + 1) != SQLITE_OK ||
+		sqlite3_bind_int(stmt, 1, GENIUSBUILD_MAX_TRACKS) != SQLITE_OK ||
 		sqlite3_bind_int(stmt, 2, GENIUSBUILD_MAX_FIELD_BYTES) != SQLITE_OK) {
 		goto done;
 	}

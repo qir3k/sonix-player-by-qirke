@@ -147,8 +147,8 @@ static bool collect(const library_tags_t *tags, void *user) {
 		return false;
 	}
 	if (++b->rows_seen > GENIUSBUILD_MAX_TRACKS) {
-		b->result = GENIUSBUILD_LIMIT;
-		return false;
+		// Cap similarity graph to GENIUSBUILD_MAX_TRACKS without failing the build
+		return true;
 	}
 	if (!tags->path_bytes) return true; // same exclusion as the reference SQL
 	track_t *t = &b->tracks[b->count];

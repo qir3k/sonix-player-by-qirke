@@ -2726,7 +2726,7 @@ static void bring_stack_down(bool deliberate) {
 
 void bluetooth_power_down_stack(void) {
 	if (!process_running("bluetoothd") && !process_running("bluealsa") &&
-		!process_running("brcm_patchram_plus")) {
+		!process_running("brcm_patchram_plus") && !process_running("bt-agent")) {
 		return; // nothing was started: nothing to put down
 	}
 	long freed = process_rss_kb("bluealsa") + process_rss_kb("bluetoothd") + process_rss_kb("bt-agent");
@@ -3841,8 +3841,13 @@ void bluetooth_init(void) {
 		job_t job = {.type = JOB_POWER_CYCLE};
 		g_busy = true;
 		post_job(&job);
-	} else if (g_enabled) {
-		g_enabled = false;
+	} else {
+		if (g_enabled) {
+			g_enabled = false;
+		}
+		// When bluetooth is disabled, ensure any lingering boot stack is torn down!
+		job_t job = {.type = JOB_POWER, .arg_int = -1};
+		post_job(&job);
 	}
 }
 
