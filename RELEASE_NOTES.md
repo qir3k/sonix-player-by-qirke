@@ -1,26 +1,26 @@
-# Sonix OS v1.1.36 for TempoTec Variations V1
+# Sonix OS v1.1.37 for TempoTec Variations V1
 
-## 🚨 Critical Boot & Display Hotfix (v1.1.36)
+## 🚨 Boot & Display Recovery Fix (v1.1.37)
 
-This release addresses the critical black-screen / non-booting failure reported on v1.1.35. All four failure domains have been systematically audited and resolved:
+This release fully restores verified boot and display behavior by aligning firmware packaging and compression with the known-good **v1.1.30** baseline:
 
-### 1. Root Filesystem Compression (Squashfs)
-- **Root Cause**: v1.1.35 switched SquashFS compression to `-comp xz`, but the Ingenic X1600 Linux 4.4 vendor kernel does not have `CONFIG_SQUASHFS_XZ=y` compiled in. The kernel panicked immediately on boot, unable to mount rootfs.
-- **Resolution**: Restored standard gzip compression (`-comp gzip -b 128K -noappend -all-root`) across all firmware packing pipelines.
+### 1. SquashFS Compression Format (LZO Restored)
+- **Root Cause**: Starting in v1.1.35, root filesystem compression was changed to `-comp xz` and subsequently `-comp gzip`. The Ingenic X1600 Linux 4.4 vendor kernel on TempoTec Variations V1 **only has `CONFIG_SQUASHFS_LZO=y` compiled in**. When formatted with XZ or GZIP, the kernel immediately panics at boot (*Unable to mount root fs on unknown-block*), leaving the device completely dark and unbootable.
+- **Resolution**: Reverted `sonix_firmware_packer.sh` back to exact v1.1.30 SquashFS compression: `mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp lzo -all-root`.
 
-### 2. Shared Library Dynamic Symbol Table Preservation
-- **Root Cause**: Running `strip --strip-all` over `*.so*` libraries stripped `.dynsym`, corrupting dynamic linking runtime resolution.
-- **Resolution**: Updated `Makefile` and `sonix_firmware_packer.sh` to strictly use `mipsel-linux-gnu-strip --strip-unneeded` for all shared objects (`*.so*`), restricting `--strip-all` exclusively to static/main executables (`sonix_player`, `sonix_launch`).
+### 2. Vendor Shared Libraries Intact in Staging Rootfs
+- **Root Cause**: Running `strip` across the entire unpacked `$SQUASH_DIR` staging rootfs stripped and altered precompiled vendor shared libraries from older Ingenic/MIPS toolchains, breaking runtime dynamic link loading.
+- **Resolution**: Removed staging-wide strip operations from `sonix_firmware_packer.sh`, matching v1.1.30. Only `sonix_player` and `sonix_launch` are stripped by the Makefile during compilation.
 
-### 3. Hardware Backlight & Driver Initialization in rcS
-- **Root Cause**: An overlaid `/etc/init.d/rcS` inadvertently overwrote the vendor startup script, preventing `mdev`, display panel kernel drivers, and PWM/GPIO backlight controls from initializing.
-- **Resolution**: Deleted the overriding asset file. The clean vendor `rcS` script is preserved with complete hardware peripheral and display bring-up intact.
+### 3. Preserved Vendor Startup Script (/etc/init.d/rcS)
+- **Root Cause**: An overlaid `/etc/init.d/rcS` was inadvertently present in `assets/V1`, overwriting the stock vendor script responsible for `mdev`, display controller modules (`insmod`), and backlight PWM/GPIO initialization.
+- **Resolution**: The overriding `rcS` asset was deleted. The stock vendor initialization script is preserved untouched.
 
-### 4. Non-Blocking Touch Evdev Drain & Direct Framebuffer Panning
-- **Root Cause**: The input event drain loop could block indefinitely during early boot if the touch event queue had no data and lacked `O_NONBLOCK`. In addition, experimental partial render buffers conflicted with hardware panning.
-- **Resolution**: 
-  - Guaranteed non-blocking mode via `fcntl(fb_touch_fd, F_SETFL, flags | O_NONBLOCK)` with a 256-event safety bounding limit in `panel_touch_flush()`.
-  - Fully restored rock-solid double-buffered direct framebuffer mode (`LV_DISPLAY_RENDER_MODE_DIRECT` on `fb_mem` and `fb_mem + fb_page_size`) with `FBIOPAN_DISPLAY` and clean 180° rotation page management.
+### 4. Direct Double-Buffered Framebuffer Panning & Non-Blocking Evdev Drain
+- **Resolution**:
+  - Restored zero-copy direct double-buffered hardware panning (`LV_DISPLAY_RENDER_MODE_DIRECT` on `fb_mem` and `fb_mem + fb_page_size`) with `FBIOPAN_DISPLAY` and clean 180° rotation page management.
+  - Ensured `panel_touch_flush()` sets `O_NONBLOCK` via `fcntl` and safely bounds the read drain loop (`drain_count < 256`) to guarantee that UI start is never blocked.
+  - Ensured all startup scripts in `/etc/init.d/` and `/usr/bin/` have strict Unix LF line endings.
 
 ---
 
