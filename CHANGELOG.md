@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [v1.1.39] - 2026-11-08
+
+### 🛠️ Fixed
+- **Rotating Circle Spinner & Multilingual Layout**:
+  - Replaced broken text label `"Ładowanie..."` in `spinner.c` with the native rotating image animation (`spin_cb` with `lv_image_set_rotation`).
+  - Removed duplicate text labels across dialogs and restored full respect for user-chosen UI languages (English, Polish, etc.).
+- **Bluetooth Diagnostics Teardown**:
+  - Added termination of lingering `btmon` processes to `bluetooth_power_down_stack()` and `bring_stack_down()`.
+
+---
+
 ## [v1.1.38] - 2026-11-08
 
 ### 🛠️ Fixed

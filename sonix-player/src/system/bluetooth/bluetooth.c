@@ -2704,6 +2704,7 @@ static void bring_stack_down(bool deliberate) {
 
 	stop_process("bluetoothd");
 	stop_process("bt-agent");
+	stop_process("btmon");
 
 	if (freed > 0) {
 		fprintf(stderr, "bluetooth: daemons stopped, about %ld KB back\n", freed);
@@ -2735,6 +2736,7 @@ void bluetooth_power_down_stack(void) {
 	stop_process("bluealsa");
 	stop_process("bluetoothd");
 	stop_process("bt-agent");
+	stop_process("btmon");
 	hci_down();
 	if (stop_process("brcm_patchram_plus")) {
 		write_file(BT_RFKILL, "0");

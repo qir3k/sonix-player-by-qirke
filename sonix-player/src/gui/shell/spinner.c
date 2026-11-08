@@ -1,66 +1,40 @@
 #include "spinner.h"
+
 #include "src/gui/shell/theme.h"
-#include <stdint.h>
 
-// Slow 250 ms timer: updates discreet 3-dot animation without CPU/bus churn.
-#define SPINNER_UPDATE_MS 250
+// One full turn. A second and a half: faster looks frantic, slower looks stalled.
+#define SPIN_PERIOD_MS 1500
 
-static void spinner_timer_cb(lv_timer_t *timer) {
-	lv_obj_t *label = (lv_obj_t *)lv_timer_get_user_data(timer);
-	if (!label) return;
+// LVGL angles are in tenths of a degree, so a full turn is 3600.
+#define SPIN_FULL_TURN 3600
 
-	if (!lv_obj_is_visible(label)) return;
-
-	static const char * const dot_frames[] = {
-		".  ",
-		".. ",
-		"...",
-		"   "
-	};
-	static const char * const text_frames[] = {
-		"Ładowanie   ",
-		"Ładowanie.  ",
-		"Ładowanie.. ",
-		"Ładowanie..."
-	};
-
-	uintptr_t state = (uintptr_t)lv_obj_get_user_data(label);
-	bool is_small = (state & 0x100) != 0;
-	uint8_t frame = (uint8_t)(state & 0x3);
-	frame = (frame + 1) & 0x3;
-
-	lv_obj_set_user_data(label, (void *)(uintptr_t)((is_small ? 0x100 : 0) | frame));
-
-	if (is_small) {
-		lv_label_set_text(label, dot_frames[frame]);
-	} else {
-		lv_label_set_text(label, text_frames[frame]);
-	}
-}
-
-static void spinner_delete_cb(lv_event_t *e) {
-	lv_timer_t *timer = (lv_timer_t *)lv_event_get_user_data(e);
-	if (timer) {
-		lv_timer_delete(timer);
-	}
-}
+static void spin_cb(void *obj, int32_t angle) { lv_image_set_rotation((lv_obj_t *)obj, angle); }
 
 lv_obj_t *spinner_create(lv_obj_t *parent, const lv_image_dsc_t *icon) {
-	lv_obj_t *label = lv_label_create(parent);
-	lv_obj_set_style_text_color(label, theme()->text_primary, 0);
-	lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+	lv_obj_t *img = lv_image_create(parent);
+	lv_image_set_src(img, icon);
+	lv_obj_add_style(img, &theme_style_icon, 0);
+	lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
 
-	bool is_small = (icon && icon->header.w <= 20);
-	if (is_small) {
-		lv_label_set_text(label, ".  ");
-		lv_obj_set_user_data(label, (void *)(uintptr_t)0x100);
-	} else {
-		lv_label_set_text(label, "Ładowanie...");
-		lv_obj_set_user_data(label, (void *)(uintptr_t)3);
-	}
+	// Pivot at the image centre; otherwise it spins around the top-left corner
+	// and appears to fly off.
+	lv_image_set_pivot(img, (int32_t)icon->header.w / 2, (int32_t)icon->header.h / 2);
 
-	lv_timer_t *timer = lv_timer_create(spinner_timer_cb, SPINNER_UPDATE_MS, label);
-	lv_obj_add_event_cb(label, spinner_delete_cb, LV_EVENT_DELETE, timer);
+	// Rotation pushes pixels outside the image rectangle: without this LVGL
+	// draws within the original bounds and clips the circle's corners every
+	// quarter turn.
+	lv_obj_set_overflow_visible(img, true);
 
-	return label;
+	lv_anim_t a;
+	lv_anim_init(&a);
+	lv_anim_set_var(&a, img);
+	lv_anim_set_exec_cb(&a, spin_cb);
+	lv_anim_set_values(&a, 0, SPIN_FULL_TURN);
+	lv_anim_set_duration(&a, SPIN_PERIOD_MS);
+	lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+	// Linear: a spinner that speeds up and slows down each turn looks broken.
+	lv_anim_set_path_cb(&a, lv_anim_path_linear);
+	lv_anim_start(&a);
+
+	return img;
 }

@@ -1,30 +1,34 @@
-# Sonix OS v1.1.38 for TempoTec Variations V1
+# Sonix OS v1.1.39 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.1.38
+## 🛠️ Critical Fixes & Improvements in v1.1.39
 
-### 1. Extended Quickpanel Status Bar & Toggle Grid Layout
-- **Root Cause**: In `order_apply()` (`quickpanel.c`), button widgets were not hidden before slot assignment. When an extra or disabled button (such as Gain `| + |`) was not in the 8 active slots, it remained as an extra 9th child in `quick_row`. Because `quick_row` had flex cross alignment set to `LV_FLEX_ALIGN_CENTER`, the 3 resulting rows (140px total height) were vertically centered within `buttons_viewport` (92px height). This shifted Row 1 up by 24px directly underneath the topbar status bar and pushed Row 3 (Gain) down directly over the page indicator dots and brightness slider.
-- **Resolution**:
-  - `order_apply()` now systematically hides all `0..QP_BTN_COUNT-1` button widgets before placing assigned buttons.
-  - Flex alignment for `quick_row` and `extra_row` set to `LV_FLEX_ALIGN_START` with corner clipping enabled (`lv_obj_set_style_clip_corner`), guaranteeing clean, bounded 2-row button layouts.
+### 1. Restored Rotating Circle Spinner & Multilingual Layout
+- **Root Cause**: In recent commits, `spinner.c` was altered to display hardcoded Polish text `"Ładowanie..."` via a timer instead of rotating the visual icon. Screens using the spinner (e.g. Podcasts, Qobuz, Tidal, YouTube Music, Wi-Fi dialogs) already have localized captions underneath (`t("loading")` in the user's selected language, such as English `"Loading ..."`). This resulted in ugly duplicated text (`"Ładowanie..."` over `"Loading ..."`) and stripped the spinning visual animation.
+- **Resolution**: Reverted `spinner_create()` to pure LVGL image rotation animation (`spin_cb` with `lv_image_set_rotation`), completely removing hardcoded text and restoring the smooth rotating loading circle in all views while respecting the active system language.
 
-### 2. USB Mass Storage & PC Connection (MicroSD Card Access)
-- **Root Cause**:
-  - The Variations V1 uses an onboard TCS1421 Type-C CC controller (`/sys/devices/platform/tcs1421/tcs1421_cfg`). Previously, `typec_force_sink()` only attempted to write to `/sys/class/typec/port%d/port_type` (which does not exist on this board), leaving the TCS1421 in `NormalDRP` (dual-role mode). In this state, host computers failed to negotiate peripheral mode, resulting in charge-only behavior.
-  - `storage_export()` called `audio_stop()` asynchronously; if an audio decoder or SQLite handle had not completely closed before the unmount check, `storage_export()` failed and permanently set `await_unplug = true`, locking the device into charge-only mode until the cable was physically disconnected.
-  - Partition export: exporting `/dev/mmcblk0p1` rather than the parent block device `/dev/mmcblk0` prevented PC operating systems (especially Windows) from recognizing partition tables.
-- **Resolution**:
-  - `typec_force_sink()` now writes `"Sink\n"` to `/sys/devices/platform/tcs1421/tcs1421_cfg` when present.
-  - `vbus_present()` scans all `/sys/class/power_supply/*/online` nodes dynamically.
-  - Added safe audio release draining (up to 500ms), `sync()`, and `umount2(..., MNT_DETACH)` fallback during unmount.
-  - Auto-resolves parent block device (e.g. `/dev/mmcblk0`) when exporting partitioned cards.
-  - Removed permanent `await_unplug` lockouts on temporary export busy states.
+### 2. Bluetooth Teardown & btmon Diagnostic Process Cleanup
+- **Resolution**: Added `stop_process("btmon")` to `bring_stack_down()` and `bluetooth_power_down_stack()`, preventing the 1.2 MB `btmon` diagnostic logger from lingering when Bluetooth is turned off.
+
+### 3. Extended Quickpanel Status Bar & Toggle Grid Layout (from v1.1.38)
+- Pre-emptively hides all `0..QP_BTN_COUNT-1` button widgets in `order_apply()` before grid slot assignment, preventing rogue 9th buttons (e.g. Gain) from expanding into a 3rd row and shifting widgets into the top status bar.
+- Set cross alignment to `LV_FLEX_ALIGN_START` and added corner clipping for pixel-perfect 2-row layout in the 92px buttons viewport.
+
+### 4. USB Mass Storage & PC Connection (MicroSD Card Access) (from v1.1.38)
+- Added hardware support for onboard TCS1421 Type-C CC controller (`/sys/devices/platform/tcs1421/tcs1421_cfg`), explicitly asserting `"Sink"` mode when connected to a host PC so the device correctly negotiates as a USB peripheral instead of idling in dual-role (DRP) charge-only mode.
+- Dynamically poll all `/sys/class/power_supply/*/online` nodes.
+- Added safe audio release draining (up to 500ms), `sync()`, and `umount2(..., MNT_DETACH)` fallback during unmount.
+- Auto-resolves parent block device (e.g. `/dev/mmcblk0`) when exporting partitioned cards.
+- Removed permanent `await_unplug` lockouts on temporary export busy states.
 
 ---
 
-## ℹ️ Firmware Compression & Size Note
-- Working firmware images (v1.1.24–v1.1.30, v1.1.37, v1.1.38) are **~47.9 MB – 49 MB**.
-- The non-booting build (v1.1.35) weighed ~36.9 MB solely due to `-comp xz` SquashFS compression. The Ingenic X1600 Linux 4.4 vendor kernel only supports LZO decompression (`CONFIG_SQUASHFS_LZO=y`). Using XZ causes an instant kernel panic on boot. The ~47.9MB size with LZO is the correct and verified bootable format.
+## ℹ️ Memory & System Architecture Clarification
+- **Player RAM Footprint**: `sonix_player` uses only **~18.7 MB** of RAM on the Ingenic X1600 SoC.
+- **System Daemons**: The remaining memory reported in the Processes page belongs to hardware and networking daemons:
+  - Hardware Control: `sys_server` (~3.4 MB) handles volume knobs, power buttons, and hardware detection.
+  - Bluetooth Audio Stack: `bluealsa` (~3.9 MB), `bt-agent` (~3.7 MB), `bluetoothd` (~3.0 MB) provide active A2DP audio when Bluetooth is turned on.
+  - Wi-Fi Stack: `wpa_supplicant` (~2.4 MB) maintains the wireless connection when Wi-Fi is active.
+  - USB Debugging: `adbd` / `adbserver.sh` (~2.9 MB) run only when Developer Options ADB is enabled.
 
 ---
 
