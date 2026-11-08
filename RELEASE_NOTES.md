@@ -1,45 +1,30 @@
-# Sonix OS v1.1.37 for TempoTec Variations V1
+# Sonix OS v1.1.38 for TempoTec Variations V1
 
-## 🚨 Boot & Display Recovery Fix (v1.1.37)
+## 🛠️ Critical Fixes & Improvements in v1.1.38
 
-This release fully restores verified boot and display behavior by aligning firmware packaging and compression with the known-good **v1.1.30** baseline:
-
-### 1. SquashFS Compression Format (LZO Restored)
-- **Root Cause**: Starting in v1.1.35, root filesystem compression was changed to `-comp xz` and subsequently `-comp gzip`. The Ingenic X1600 Linux 4.4 vendor kernel on TempoTec Variations V1 **only has `CONFIG_SQUASHFS_LZO=y` compiled in**. When formatted with XZ or GZIP, the kernel immediately panics at boot (*Unable to mount root fs on unknown-block*), leaving the device completely dark and unbootable.
-- **Resolution**: Reverted `sonix_firmware_packer.sh` back to exact v1.1.30 SquashFS compression: `mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp lzo -all-root`.
-
-### 2. Vendor Shared Libraries Intact in Staging Rootfs
-- **Root Cause**: Running `strip` across the entire unpacked `$SQUASH_DIR` staging rootfs stripped and altered precompiled vendor shared libraries from older Ingenic/MIPS toolchains, breaking runtime dynamic link loading.
-- **Resolution**: Removed staging-wide strip operations from `sonix_firmware_packer.sh`, matching v1.1.30. Only `sonix_player` and `sonix_launch` are stripped by the Makefile during compilation.
-
-### 3. Preserved Vendor Startup Script (/etc/init.d/rcS)
-- **Root Cause**: An overlaid `/etc/init.d/rcS` was inadvertently present in `assets/V1`, overwriting the stock vendor script responsible for `mdev`, display controller modules (`insmod`), and backlight PWM/GPIO initialization.
-- **Resolution**: The overriding `rcS` asset was deleted. The stock vendor initialization script is preserved untouched.
-
-### 4. Direct Double-Buffered Framebuffer Panning & Non-Blocking Evdev Drain
+### 1. Extended Quickpanel Status Bar & Toggle Grid Layout
+- **Root Cause**: In `order_apply()` (`quickpanel.c`), button widgets were not hidden before slot assignment. When an extra or disabled button (such as Gain `| + |`) was not in the 8 active slots, it remained as an extra 9th child in `quick_row`. Because `quick_row` had flex cross alignment set to `LV_FLEX_ALIGN_CENTER`, the 3 resulting rows (140px total height) were vertically centered within `buttons_viewport` (92px height). This shifted Row 1 up by 24px directly underneath the topbar status bar and pushed Row 3 (Gain) down directly over the page indicator dots and brightness slider.
 - **Resolution**:
-  - Restored zero-copy direct double-buffered hardware panning (`LV_DISPLAY_RENDER_MODE_DIRECT` on `fb_mem` and `fb_mem + fb_page_size`) with `FBIOPAN_DISPLAY` and clean 180° rotation page management.
-  - Ensured `panel_touch_flush()` sets `O_NONBLOCK` via `fcntl` and safely bounds the read drain loop (`drain_count < 256`) to guarantee that UI start is never blocked.
-  - Ensured all startup scripts in `/etc/init.d/` and `/usr/bin/` have strict Unix LF line endings.
+  - `order_apply()` now systematically hides all `0..QP_BTN_COUNT-1` button widgets before placing assigned buttons.
+  - Flex alignment for `quick_row` and `extra_row` set to `LV_FLEX_ALIGN_START` with corner clipping enabled (`lv_obj_set_style_clip_corner`), guaranteeing clean, bounded 2-row button layouts.
+
+### 2. USB Mass Storage & PC Connection (MicroSD Card Access)
+- **Root Cause**:
+  - The Variations V1 uses an onboard TCS1421 Type-C CC controller (`/sys/devices/platform/tcs1421/tcs1421_cfg`). Previously, `typec_force_sink()` only attempted to write to `/sys/class/typec/port%d/port_type` (which does not exist on this board), leaving the TCS1421 in `NormalDRP` (dual-role mode). In this state, host computers failed to negotiate peripheral mode, resulting in charge-only behavior.
+  - `storage_export()` called `audio_stop()` asynchronously; if an audio decoder or SQLite handle had not completely closed before the unmount check, `storage_export()` failed and permanently set `await_unplug = true`, locking the device into charge-only mode until the cable was physically disconnected.
+  - Partition export: exporting `/dev/mmcblk0p1` rather than the parent block device `/dev/mmcblk0` prevented PC operating systems (especially Windows) from recognizing partition tables.
+- **Resolution**:
+  - `typec_force_sink()` now writes `"Sink\n"` to `/sys/devices/platform/tcs1421/tcs1421_cfg` when present.
+  - `vbus_present()` scans all `/sys/class/power_supply/*/online` nodes dynamically.
+  - Added safe audio release draining (up to 500ms), `sync()`, and `umount2(..., MNT_DETACH)` fallback during unmount.
+  - Auto-resolves parent block device (e.g. `/dev/mmcblk0`) when exporting partitioned cards.
+  - Removed permanent `await_unplug` lockouts on temporary export busy states.
 
 ---
 
-## 🚀 Key Improvements & Architecture Updates
-
-### 🎵 Atomic Audio State Machine
-- Strict sequential transition pipeline: `[STOPPING]` ➔ `[CLEANUP]` ➔ `[BUFFERING]` ➔ `[PLAYING]`.
-- Seamless switching between local tracks, YouTube, Tidal, and Web Radio without audio glitches, DAC pops, or ALSA underruns.
-- Systematic `pthread_join`, socket teardown, and glibc `malloc_trim(0)` on every stream transition to eliminate heap fragmentation.
-
-### 🧩 Addons & Plugin Ecosystem
-- **Pocket Arcade & Games**: Integrated portable gaming runtime without bloating core playback loops.
-- **Visual Effects & Layouts**: Vinyl turntable view and advanced transparency/tinting available as optional addons.
-- **Waveform Seekbar**: Dynamically enabled via `layout_waveform` addon.
-
-### ⚡ Optimized LVGL 9.6 Performance
-- Fixed 60 FPS refresh pacing (`DISPLAY_FRAME_US = 16667us`) synchronized with panel vblank.
-- Zero-copy direct video memory mapping in reserved video RAM, reducing system heap pressure by hundreds of kilobytes.
-- Lightweight loading animations replacing heavy continuous vector redraws.
+## ℹ️ Firmware Compression & Size Note
+- Working firmware images (v1.1.24–v1.1.30, v1.1.37, v1.1.38) are **~47.9 MB – 49 MB**.
+- The non-booting build (v1.1.35) weighed ~36.9 MB solely due to `-comp xz` SquashFS compression. The Ingenic X1600 Linux 4.4 vendor kernel only supports LZO decompression (`CONFIG_SQUASHFS_LZO=y`). Using XZ causes an instant kernel panic on boot. The ~47.9MB size with LZO is the correct and verified bootable format.
 
 ---
 

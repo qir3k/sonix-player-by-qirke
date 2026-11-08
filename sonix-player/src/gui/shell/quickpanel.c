@@ -1755,6 +1755,15 @@ static lv_obj_t *button_widget(quickpanel_button_t which) {
 // place in the grid is simply a button the panel does not draw, and the row
 // closes up behind it.
 static void order_apply(void) {
+	// First ensure every known button widget is hidden so unplaced, disabled,
+	// or extra buttons never linger in quick_row or overflow the 2-row layout.
+	for (int i = 0; i < QP_BTN_COUNT; i++) {
+		lv_obj_t *btn = button_widget((quickpanel_button_t)i);
+		if (btn) {
+			lv_obj_set_hidden(btn, true);
+		}
+	}
+
 	int at = 0;
 	for (int i = 0; i < QP_SLOT_COUNT; i++) {
 		if (slots[i] >= QP_BTN_COUNT) {
@@ -2628,7 +2637,8 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_set_event_bubble(row, true);
 	lv_obj_set_style_pad_row(row, circle_button_gap, 0);
 	lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW_WRAP);
-	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+	lv_obj_set_style_clip_corner(row, true, 0);
 
 	extra_row = lv_obj_create(buttons_viewport);
 	lv_obj_set_size(extra_row, lv_pct(100), grid_h);
@@ -2641,7 +2651,8 @@ void quickpanel_init(gui_config_t *cfg) {
 	lv_obj_set_event_bubble(extra_row, true);
 	lv_obj_set_style_pad_row(extra_row, circle_button_gap, 0);
 	lv_obj_set_flex_flow(extra_row, LV_FLEX_FLOW_ROW_WRAP);
-	lv_obj_set_flex_align(extra_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_flex_align(extra_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+	lv_obj_set_style_clip_corner(extra_row, true, 0);
 	lv_obj_set_hidden(extra_row, true);
 
 	// The radios: a tap switches them, a hold opens their page, the same contract

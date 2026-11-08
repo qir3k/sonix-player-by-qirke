@@ -1,7 +1,22 @@
 # Changelog
 
-Wszystkie istotne zmiany w tym projekcie są dokumentowane w tym pliku.
-Format bazuje na [Keep a Changelog](https://keepachangelog.com/pl/1.0.0/), a wersjonowanie na [Semantic Versioning](https://semver.org/).
+All notable changes to this project are documented in this file.
+
+---
+
+## [v1.1.38] - 2026-11-08
+
+### 🛠️ Fixed
+- **Quickpanel Extended Status Bar & Toggle Grid Layout**:
+  - Fixed button grid layout where unplaced/extra buttons (such as Gain `| + |`) lingered in `quick_row` and overflowed onto a 3rd row, shifting rows into the topbar and colliding with page indicator dots and brightness slider.
+  - Pre-emptively hide all buttons prior to grid slot assignment in `order_apply()`.
+  - Switched `track_cross_place` flex alignment to `LV_FLEX_ALIGN_START` and added corner clipping for pixel-perfect 2-row layout in the 92px buttons viewport.
+- **USB Mass Storage & PC Connection (MicroSD Card Access)**:
+  - Added support for the onboard TCS1421 Type-C CC controller (`/sys/devices/platform/tcs1421/tcs1421_cfg`), asserting `"Sink"` mode when connected to a host PC so the device correctly negotiates as a USB peripheral instead of idling in dual-role (DRP) charge-only mode.
+  - Dynamically poll all power supply nodes under `/sys/class/power_supply/*/online`.
+  - Safe audio release draining (up to 500ms), `sync()`, and `umount2(..., MNT_DETACH)` fallback during unmount.
+  - Automatically resolves parent block device (e.g. `/dev/mmcblk0`) when exporting partitioned cards.
+  - Removed permanent `await_unplug` lockouts on temporary export busy states.
 
 ---
 

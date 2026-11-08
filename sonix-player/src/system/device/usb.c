@@ -14,6 +14,9 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#if !defined(HOST_BUILD) || defined(__linux__)
+#include <sys/mount.h>
+#endif
 
 #include "src/system/library/audiobookdb.h"
 #include "src/system/library/library.h"
@@ -146,6 +149,27 @@ static bool vbus_present(void) {
 			return true;
 		}
 	}
+	DIR *dir = opendir("/sys/class/power_supply");
+	if (dir) {
+		struct dirent *de;
+		while ((de = readdir(dir)) != NULL) {
+			if (de->d_name[0] == '.') {
+				continue;
+			}
+			char path[256];
+			snprintf(path, sizeof(path), "/sys/class/power_supply/%s/online", de->d_name);
+			char *content = read_file_content(path);
+			if (content) {
+				bool on = content[0] == '1';
+				free(content);
+				if (on) {
+					closedir(dir);
+					return true;
+				}
+			}
+		}
+		closedir(dir);
+	}
 	return false;
 }
 
@@ -261,6 +285,22 @@ static void typec_force_sink(void) {
 	// something on it.
 	if (usbaudio_active()) {
 		return;
+	}
+
+	if (access("/sys/devices/platform/tcs1421/tcs1421_cfg", W_OK) == 0) {
+		FILE *f = fopen("/sys/devices/platform/tcs1421/tcs1421_cfg", "w");
+		if (f) {
+			bool ok = fputs("Sink\n", f) >= 0;
+			if (fclose(f) != 0) {
+				ok = false;
+			}
+			if (!announced) {
+				announced = true;
+				fprintf(stderr, "usb: /sys/devices/platform/tcs1421/tcs1421_cfg <- Sink (%s)\n",
+						ok ? "ok" : strerror(errno));
+			}
+			return;
+		}
 	}
 
 	for (int port = 0; port < 4; port++) {
@@ -602,6 +642,19 @@ void usb_resume_restore(void) {
 	fprintf(stderr, "usb: storage gadget rebound after resume\n");
 }
 
+static void get_export_device(char *out, size_t out_size) {
+	snprintf(out, out_size, "%s", sd_device);
+	char parent[64];
+	snprintf(parent, sizeof(parent), "%s", sd_device);
+	char *p = strstr(parent, "p");
+	if (p && p > parent && *(p + 1) >= '0' && *(p + 1) <= '9') {
+		*p = '\0';
+		if (access(parent, R_OK | W_OK) == 0) {
+			snprintf(out, out_size, "%s", parent);
+		}
+	}
+}
+
 // Adds the mass-storage function to the ADB gadget and rebinds it, giving the
 // host a composite adb+storage device. Shell, because this is precisely the
 // firmware's own scripting style and the sequence is standard configfs work:
@@ -609,6 +662,8 @@ void usb_resume_restore(void) {
 // what the stock binary writes (ro=0 removable=1 nofua=1 cdrom=0). The adb
 // connection drops for a moment at the rebind and comes back on its own.
 static void composite_export(void) {
+	char export_dev[64];
+	get_export_device(export_dev, sizeof(export_dev));
 	char cmd[1024];
 	snprintf(cmd, sizeof(cmd),
 			 "cd %s && "
@@ -623,8 +678,8 @@ static void composite_export(void) {
 			 "echo %s > functions/mass_storage.0/lun.0/file; "
 			 "[ -e configs/c.1/mass_storage.0 ] || ln -s functions/mass_storage.0 configs/c.1; "
 			 "echo $(ls /sys/class/udc/ | head -n1) > UDC",
-			 ADB_GADGET, usb_product(), sd_device);
-	fprintf(stderr, "usb: adding storage to the adb gadget\n");
+			 ADB_GADGET, usb_product(), export_dev);
+	fprintf(stderr, "usb: adding storage to the adb gadget (%s)\n", export_dev);
 	int rc = system(cmd);
 	fprintf(stderr, "usb: composite export exit code %d\n", rc);
 }
@@ -716,6 +771,9 @@ static void storage_export(void) {
 	// of play would otherwise read as "the track ended, start it again".
 	device_state_note_storage_gone();
 	audio_stop();
+	for (int i = 0; i < 10 && audio_device_is_open(); i++) {
+		usleep(50000); // 50ms per wait, up to 500ms
+	}
 	library_close();
 	audiobookdb_close();
 	geniusdb_close();
@@ -733,6 +791,7 @@ static void storage_export(void) {
 	// same reason. They go back on the card in storage_restore().
 	cover_set_cache_dir(NULL); // the thumbnail cache moves to /tmp
 	radio_store_close();
+	sync();
 
 	if (sysserver_available()) {
 		sysserver_umount(sd_mount);
@@ -759,6 +818,12 @@ static void storage_export(void) {
 		(void)urc;
 		sleep(1);
 	}
+#if !defined(HOST_BUILD) || defined(__linux__)
+	if (mount_still_up() && !dac_owns_usb) {
+		umount2(sd_mount, MNT_DETACH);
+		usleep(100000);
+	}
+#endif
 	if (dac_owns_usb) {
 		fprintf(stderr, "usb: DAC mode took the controller; export abandoned\n");
 		storage_active = false; // the supervisor is wanted again
@@ -777,6 +842,9 @@ static void storage_export(void) {
 		return;
 	}
 
+	char export_dev[64];
+	get_export_device(export_dev, sizeof(export_dev));
+
 	// With ADB holding the USB controller its gadget must carry the storage
 	// too -- a second gadget can never bind. Otherwise the player's own,
 	// already-bound gadget just gets the medium inserted: one write into
@@ -786,9 +854,9 @@ static void storage_export(void) {
 		export_mode = EXPORT_ADB_COMPOSITE;
 	} else {
 		char cmd[512];
-		snprintf(cmd, sizeof(cmd), "echo %s > " STORAGE_GADGET "/functions/mass_storage.0/lun.0/file", sd_device);
+		snprintf(cmd, sizeof(cmd), "echo %s > " STORAGE_GADGET "/functions/mass_storage.0/lun.0/file", export_dev);
 		int rc = system(cmd);
-		fprintf(stderr, "usb: medium inserted (%s), exit code %d\n", sd_device, rc);
+		fprintf(stderr, "usb: medium inserted (%s), exit code %d\n", export_dev, rc);
 		export_mode = EXPORT_OWN_GADGET;
 
 		// And then the host is asked to look again. It enumerated a card reader
@@ -1100,7 +1168,7 @@ static void *usb_thread(void *arg) {
 		locked_export();
 		exported = storage_active;
 		if (!exported) {
-			await_unplug = true;
+			sleep(2);
 		}
 	}
 
@@ -1118,6 +1186,24 @@ void usb_start(const char *device, const char *mount_point) {
 		bool have = access(VBUS_CANDIDATES[i], R_OK) == 0;
 		fprintf(stderr, "usb: vbus node %s: %s\n", VBUS_CANDIDATES[i], have ? "present" : "missing");
 		any_vbus |= have;
+	}
+	if (!any_vbus) {
+		DIR *dir = opendir("/sys/class/power_supply");
+		if (dir) {
+			struct dirent *de;
+			while ((de = readdir(dir)) != NULL) {
+				if (de->d_name[0] == '.') {
+					continue;
+				}
+				char path[256];
+				snprintf(path, sizeof(path), "/sys/class/power_supply/%s/online", de->d_name);
+				if (access(path, R_OK) == 0) {
+					any_vbus = true;
+					break;
+				}
+			}
+			closedir(dir);
+		}
 	}
 	if (!any_vbus) {
 		fprintf(stderr, "usb: no VBUS node found; USB mode disabled\n");
