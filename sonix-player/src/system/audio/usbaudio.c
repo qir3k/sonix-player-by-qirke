@@ -582,7 +582,7 @@ void usbaudio_apply_volume(int percent) {
 		return;
 	}
 
-	bool hardware = volume_has_db && config_get_int("usb", "hardware_volume", 0);
+	bool hardware = volume_has_db && config_get_int("usb", "hardware_volume", 1);
 	long value = volume_max;
 	long hw_db = 0;
 	if (mute) {

@@ -592,7 +592,7 @@ static bool open_sd_log(void) {
 		return false;
 	}
 
-	FILE *file = fopen(sd_log_path, "a");
+	FILE *file = fopen(sd_log_path, "ae");
 	if (!file) {
 		return false;
 	}
@@ -703,7 +703,7 @@ static void logging_resume_after_usb_locked(void) {
 		return;
 	}
 
-	FILE *file = sd_log_path[0] ? fopen(sd_log_path, "a") : NULL;
+	FILE *file = sd_log_path[0] ? fopen(sd_log_path, "ae") : NULL;
 	if (file) {
 		// The held lines go in before the redirect, because draining closes
 		// the stream stdout is still pointing at.

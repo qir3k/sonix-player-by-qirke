@@ -1503,7 +1503,15 @@ static char codec_auto_done[BT_MAC_MAX]; // worker only
 static void apply_output_routing(void) {
 	char pcm[128];
 	bluetooth_output_pcm(pcm, (int)sizeof(pcm));
-	audio_set_output_device(pcm[0] ? pcm : NULL);
+	if (pcm[0]) {
+		audio_set_output_device(pcm);
+	} else {
+		char current[128];
+		audio_get_output_device(current, sizeof(current));
+		if (strncmp(current, "bluealsa:", 9) == 0) {
+			audio_set_output_device(NULL);
+		}
+	}
 }
 
 // True when `name` is only the device's own address dressed up -- bluez uses

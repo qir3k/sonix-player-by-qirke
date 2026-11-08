@@ -2190,17 +2190,19 @@ void power_screen_on(void) {
 	set_indevs_enabled(true);
 	indev_timers_set_paused(false);
 
-	// The picture is on the glass: bring the user's level back over it.
-	fade_up_quickly(g_cfg.brightness);
+	// The picture is on the glass. Restore brightness in one write rather than
+	// adding a visible fade delay to every wake.
+	backlight_write(g_cfg.brightness);
 	lv_display_trigger_activity(g_disp);
 
-	// The panel blank/unblank cycle can disturb shared clock or power
-	// domains and leave the CS43198's volume register stale, which is
-	// heard as distortion when the screen comes back on while music is
-	// playing. Rewrite the DAC volume so the codec output is certain to
-	// match the level the user chose. Harmless if nothing changed: the
-	// write is idempotent.
-	set_volume_percent(get_volume_percent());
+	// Radio restoration can involve slow hardware work and does not belong
+	// between the power press and the first visible frame.
+	unpark_radios();
+
+	// Rewrite the DAC volume only if not on Bluetooth:
+	if (!audio_output_is_bluetooth()) {
+		set_volume_percent(get_volume_percent());
+	}
 
 	led_set_standby(false);
 	g_resume_after_suspend = false;

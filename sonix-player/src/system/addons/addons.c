@@ -43,6 +43,7 @@ static const addon_t ADDONS[] = {
 	{"layout_immersive", "Immersive", "Full-screen album artwork with overlaid controls.", "Player layouts"},
 	{"layout_poster", "Poster", "Poster artwork with playback controls below.", "Player layouts"},
 	{"layout_aam", "Album Art Max", "Full-screen artwork-focused layout for TempoTec V1.", "Player layouts"},
+	{"layout_vinyl", "Vinyl", "Classic vinyl record sleeve layout.", "Player layouts"},
 	{"coverflow", "Cover Flow", "Optional album carousel and cover cache.", "Player layouts"},
 	// What the player does WITH the music: words on screen, a curve for a pair
 	// of headphones, a line to two scrobblers. Four features, not four places,
@@ -52,6 +53,7 @@ static const addon_t ADDONS[] = {
 	// found into a file's tags are one act from where the user sits, and two
 	// toggles for it only asked which of the two was holding the feature back.
 	{"artwork", "cover_art_fetcher", "addon_artwork_note", "plugins_section_features"},
+	{"visual_effects", "Visual Effects", "Frosted and album-tinted status bar.", "plugins_section_features"},
 	// The three ways this player shapes the sound, each a module of its own:
 	// the graphic equaliser, the parametric one and MSEB. Switched off, their
 	// pages are never built, their rows leave Music settings and their buttons
