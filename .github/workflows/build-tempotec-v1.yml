@@ -485,25 +485,29 @@ jobs:
           NEW_TAG: ${{ steps.version.outputs.new_tag }}
         run: |
           set -euo pipefail
-          if git rev-parse -q --verify "refs/tags/${OLD_TAG}^{commit}" >/dev/null; then
-            range="${OLD_TAG}..${NEW_TAG}"
-          elif git rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
-            # The first release: what this branch carries and main does not.
-            range="origin/main..${NEW_TAG}"
+          if [ -f "RELEASE_NOTES.md" ]; then
+            cat "RELEASE_NOTES.md" > "$RUNNER_TEMP/release-notes.md"
           else
-            range="${NEW_TAG} -n 20"
+            if git rev-parse -q --verify "refs/tags/${OLD_TAG}^{commit}" >/dev/null; then
+              range="${OLD_TAG}..${NEW_TAG}"
+            elif git rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
+              # The first release: what this branch carries and main does not.
+              range="origin/main..${NEW_TAG}"
+            else
+              range="${NEW_TAG} -n 20"
+            fi
+            {
+              echo "## Sonix OS ${NEW_TAG} for TempoTec Variations V1"
+              echo
+              echo "### Changes since ${OLD_TAG}:"
+              echo
+              # shellcheck disable=SC2086
+              git log --no-merges --invert-grep --grep='^ci:' --pretty='- %s (`%h`)' $range
+              echo
+              echo "---"
+              echo "Built from \`$(git rev-parse --short "${NEW_TAG}^{commit}")\` on the \`personal\` branch."
+            } > "$RUNNER_TEMP/release-notes.md"
           fi
-          {
-            echo "## Sonix OS ${NEW_TAG} for TempoTec Variations V1"
-            echo
-            echo "### Changes since ${OLD_TAG}:"
-            echo
-            # shellcheck disable=SC2086
-            git log --no-merges --invert-grep --grep='^ci:' --pretty='- %s (`%h`)' $range
-            echo
-            echo "---"
-            echo "Built from \`$(git rev-parse --short "${NEW_TAG}^{commit}")\` on the \`personal\` branch."
-          } > "$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish the release

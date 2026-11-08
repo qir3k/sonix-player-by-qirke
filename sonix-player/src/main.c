@@ -10,6 +10,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <malloc.h>
 #include <poll.h>
 #include <sys/mman.h>
@@ -1421,14 +1422,69 @@ static bool fb_rotated;
 
 static int fb_touch_fd = -1;
 
-// Dual partial draw buffers: 32 lines of 240 pixels (16-bit RGB565) = 15,360 bytes each.
-// Dual buffers take 30 KB, fitting directly within the Ingenic X1600 32 KB MIPS L1 data cache.
-// 32-byte aligned to align with MIPS L1 cache lines.
-#define PARTIAL_DRAW_BUF_LINES 32
-#define PARTIAL_DRAW_BUF_SIZE (240 * PARTIAL_DRAW_BUF_LINES * sizeof(uint16_t))
+static uint8_t *rot_page;		   // the RAM page LVGL draws into while rotated
 
-static uint8_t draw_buf1[PARTIAL_DRAW_BUF_SIZE] __attribute__((aligned(32)));
-static uint8_t draw_buf2[PARTIAL_DRAW_BUF_SIZE] __attribute__((aligned(32)));
+// What this frame touched, and what each framebuffer page has not been given
+// yet (a bounding box each -- cheap, and a frame's damage is one region in
+// practice). Empty is x1 > x2.
+static lv_area_t rot_frame_dirty;
+static lv_area_t rot_page_pending[2];
+
+static void area_clear(lv_area_t *a) {
+	a->x1 = 1;
+	a->y1 = 1;
+	a->x2 = 0;
+	a->y2 = 0;
+}
+
+static bool area_is_empty(const lv_area_t *a) { return a->x1 > a->x2 || a->y1 > a->y2; }
+
+static void area_merge(lv_area_t *into, const lv_area_t *add) {
+	if (area_is_empty(add)) {
+		return;
+	}
+	if (area_is_empty(into)) {
+		*into = *add;
+		return;
+	}
+	if (add->x1 < into->x1) {
+		into->x1 = add->x1;
+	}
+	if (add->y1 < into->y1) {
+		into->y1 = add->y1;
+	}
+	if (add->x2 > into->x2) {
+		into->x2 = add->x2;
+	}
+	if (add->y2 > into->y2) {
+		into->y2 = add->y2;
+	}
+}
+
+static void area_set_full(lv_area_t *a) {
+	a->x1 = 0;
+	a->y1 = 0;
+	a->x2 = (int32_t)fb_var.xres - 1;
+	a->y2 = (int32_t)fb_var.yres - 1;
+}
+
+// Copies one dirty rectangle into `dst` (a whole framebuffer page) rotated by
+// 180 degrees: the pixel at (x, y) lands at (W-1-x, H-1-y).
+static void blit_rotated_180(uint16_t *dst, const uint16_t *src, const lv_area_t *area, int32_t width,
+							 int32_t height) {
+	int32_t x1 = area->x1 < 0 ? 0 : area->x1;
+	int32_t y1 = area->y1 < 0 ? 0 : area->y1;
+	int32_t x2 = area->x2 >= width ? width - 1 : area->x2;
+	int32_t y2 = area->y2 >= height ? height - 1 : area->y2;
+
+	for (int32_t y = y1; y <= y2; y++) {
+		const uint16_t *src_row = src + (size_t)y * width;
+		uint16_t *dst_row = dst + (size_t)(height - 1 - y) * width;
+		for (int32_t x = x1; x <= x2; x++) {
+			dst_row[width - 1 - x] = src_row[x];
+		}
+	}
+}
 
 #define DISPLAY_FRAME_US 16667u
 
@@ -1470,30 +1526,34 @@ static void display_pace_refresh(lv_display_t *disp, bool advance) {
 }
 
 static void fb_pan_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
-	bool second_page = (fb_var.yoffset == 0); // flip to the other page
-	int32_t w = area->x2 - area->x1 + 1;
+	bool second_page;
 
-	if (!fb_rotated) {
-		for (int32_t y = area->y1; y <= area->y2; y++) {
-			const uint16_t *src = (const uint16_t *)px + (size_t)(y - area->y1) * w;
-			uint16_t *dst0 = (uint16_t *)(fb_mem + (size_t)y * fb_var.xres * 2 + (size_t)area->x1 * 2);
-			memcpy(dst0, src, (size_t)w * sizeof(uint16_t));
-			if (fb_page_size > 0 && fb_mem) {
-				uint16_t *dst1 = (uint16_t *)(fb_mem + fb_page_size + (size_t)y * fb_var.xres * 2 + (size_t)area->x1 * 2);
-				memcpy(dst1, src, (size_t)w * sizeof(uint16_t));
-			}
+	if (fb_rotated) {
+		// Collect this frame's damage; the copy happens once, on the last
+		// area, into the page that is NOT on screen.
+		area_merge(&rot_frame_dirty, area);
+		if (!lv_display_flush_is_last(disp)) {
+			lv_display_flush_ready(disp);
+			return;
 		}
+
+		second_page = (fb_var.yoffset == 0); // flip to the other page
+		int target = second_page ? 1 : 0;
+
+		// Everything this page still owes, plus what just changed.
+		lv_area_t redraw = rot_page_pending[target];
+		area_merge(&redraw, &rot_frame_dirty);
+
+		if (!area_is_empty(&redraw)) {
+			blit_rotated_180((uint16_t *)(fb_mem + (second_page ? fb_page_size : 0)), (const uint16_t *)px, &redraw,
+							 (int32_t)fb_var.xres, (int32_t)fb_var.yres);
+		}
+
+		area_clear(&rot_page_pending[target]);
+		area_merge(&rot_page_pending[target ? 0 : 1], &rot_frame_dirty); // the other page still owes it
+		area_clear(&rot_frame_dirty);
 	} else {
-		for (int32_t y = area->y1; y <= area->y2; y++) {
-			const uint16_t *src_row = (const uint16_t *)px + (size_t)(y - area->y1) * w;
-			uint16_t *dst_row0 = (uint16_t *)(fb_mem + (size_t)(fb_var.yres - 1 - y) * fb_var.xres * 2);
-			uint16_t *dst_row1 = (uint16_t *)(fb_mem + fb_page_size + (size_t)(fb_var.yres - 1 - y) * fb_var.xres * 2);
-			for (int32_t x = area->x1; x <= area->x2; x++) {
-				uint16_t val = src_row[x - area->x1];
-				dst_row0[fb_var.xres - 1 - x] = val;
-				dst_row1[fb_var.xres - 1 - x] = val;
-			}
-		}
+		second_page = (px >= fb_mem + fb_page_size);
 	}
 
 	if (lv_display_flush_is_last(disp)) {
@@ -1579,8 +1639,8 @@ static lv_display_t *try_panned_display(void) {
 	}
 
 	lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
-	lv_display_set_buffers(disp, draw_buf1, draw_buf2, (uint32_t)sizeof(draw_buf1),
-						   LV_DISPLAY_RENDER_MODE_PARTIAL);
+	lv_display_set_buffers(disp, fb_mem, fb_mem + fb_page_size, (uint32_t)fb_page_size,
+						   LV_DISPLAY_RENDER_MODE_DIRECT);
 	lv_display_set_flush_cb(disp, fb_pan_flush_cb);
 	fb_display = disp;
 
@@ -1697,6 +1757,17 @@ bool display_wait_vsync(int frames) {
 	return true;
 }
 
+// Frees the RAM pages once the refresh that may still be reading them is
+// over: an async call runs at the top of the next lv_timer_handler pass.
+static void free_rot_pages_cb(void *unused) {
+	(void)unused;
+	if (fb_rotated) {
+		return; // turned back on in the meantime
+	}
+	free(rot_page);
+	rot_page = NULL;
+}
+
 bool display_rotation_supported(void) { return fb_display != NULL; }
 
 // The node lv_evdev_create() actually opened. Remembered because the emulator
@@ -1714,8 +1785,13 @@ const char *panel_touch_device(void) { return fb_touch_node[0] ? fb_touch_node :
 // dropped; the indev is then told to ignore the pointer until the finger is up.
 void panel_touch_flush(void) {
 	if (fb_touch_fd >= 0) {
+		int flags = fcntl(fb_touch_fd, F_GETFL, 0);
+		if (flags >= 0 && !(flags & O_NONBLOCK)) {
+			fcntl(fb_touch_fd, F_SETFL, flags | O_NONBLOCK);
+		}
 		struct input_event in;
-		while (read(fb_touch_fd, &in, sizeof(in)) > 0) {
+		int drain_count = 0;
+		while (read(fb_touch_fd, &in, sizeof(in)) > 0 && ++drain_count < 256) {
 		}
 	}
 	if (!fb_touch) {
@@ -1748,7 +1824,30 @@ void display_set_rotated(bool rotated) {
 		return;
 	}
 
-	fb_rotated = rotated;
+	if (rotated) {
+		if (!rot_page) {
+			rot_page = malloc(fb_page_size);
+		}
+		if (!rot_page) {
+			fprintf(stderr, "fb: no memory for the rotated page (%zu bytes)\n", fb_page_size);
+			return;
+		}
+		memset(rot_page, 0, fb_page_size);
+
+		// Both framebuffer pages still hold the picture the right way up, so
+		// they each owe a full frame.
+		area_clear(&rot_frame_dirty);
+		area_set_full(&rot_page_pending[0]);
+		area_set_full(&rot_page_pending[1]);
+
+		lv_display_set_buffers(fb_display, rot_page, NULL, (uint32_t)fb_page_size, LV_DISPLAY_RENDER_MODE_DIRECT);
+		fb_rotated = true;
+	} else {
+		lv_display_set_buffers(fb_display, fb_mem, fb_mem + fb_page_size, (uint32_t)fb_page_size,
+							   LV_DISPLAY_RENDER_MODE_DIRECT);
+		fb_rotated = false;
+		lv_async_call(free_rot_pages_cb, NULL);
+	}
 
 	// Keep the pointer aligned with the rotated framebuffer.
 	if (fb_touch) {
@@ -1759,7 +1858,11 @@ void display_set_rotated(bool rotated) {
 		}
 	}
 
-	// Direct partial draw buffers flush rotated into fb_mem; simply invalidate views
+	// Both framebuffer pages still hold the picture the other way up. One
+	// invalidation is enough: the page bookkeeping above already has each
+	// page owing a full frame, so the next two flips repaint them both. No
+	// lv_refr_now() here, because this runs inside a settings event handler
+	// and rendering from one is unsafe.
 	lv_obj_invalidate(lv_screen_active());
 	lv_obj_invalidate(lv_layer_top());
 	lv_obj_invalidate(lv_layer_sys());
@@ -2096,8 +2199,6 @@ static lv_display_t *init_target_display(void) {
 			return NULL;
 		}
 		lv_linux_fbdev_set_file(disp, "/dev/fb0");
-		lv_display_set_buffers(disp, draw_buf1, draw_buf2, (uint32_t)sizeof(draw_buf1),
-							   LV_DISPLAY_RENDER_MODE_PARTIAL);
 	}
 
 	// The panel as the kernel describes it, not by its number; event1 and then

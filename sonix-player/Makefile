@@ -368,7 +368,7 @@ strip-target:
 	fi; \
 	cp -f $(TARGET_BIN) $(TARGET_DEBUG_BIN); \
 	$$STRIP_CMD --strip-all $(TARGET_BIN); \
-	find build_target -type f -name '*.so*' -exec $$STRIP_CMD --strip-all {} + 2>/dev/null || true; \
+	find build_target -type f -name '*.so*' -exec $$STRIP_CMD --strip-unneeded {} + 2>/dev/null || true; \
 	echo "strip-target: symbols in '$(TARGET_DEBUG_BIN)' ($$(du -h $(TARGET_DEBUG_BIN) | cut -f1)), stripped '$(TARGET_BIN)' ($$(du -h $(TARGET_BIN) | cut -f1))"
 
 # ---------------------------------------------------------------------------

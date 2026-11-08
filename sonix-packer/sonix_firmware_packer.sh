@@ -428,7 +428,7 @@ build_one() {
 			"$STRIP_TOOL" --strip-all "$LAUNCH_BIN" 2>/dev/null || true
 			say "    $LAUNCH_BIN stripped with $STRIP_TOOL --strip-all"
 		fi
-		find "$SCRIPT_DIR" "$SCRIPT_DIR/../sonix-player" -maxdepth 4 -type f -name "*.so*" -exec "$STRIP_TOOL" --strip-all {} + 2>/dev/null || true
+		find "$SCRIPT_DIR" "$SCRIPT_DIR/../sonix-player" -maxdepth 4 -type f -name "*.so*" -exec "$STRIP_TOOL" --strip-unneeded {} + 2>/dev/null || true
 	fi
 
 	chmod 777 "$PLAYER_BIN"
@@ -914,8 +914,9 @@ if [ \"\$boot_sel\" = \"logo:4\" ]; then boot_waited=0; while [ \$boot_waited -l
 	step "[$MODEL_NAME] stripping binaries and shared libraries in staging rootfs"
 	STRIP_TOOL="$(command -v mipsel-linux-gnu-strip || command -v mipsel-rockbox-linux-gnu-strip || true)"
 	if [ -n "$STRIP_TOOL" ]; then
-		find "$SQUASH_DIR" -type f \( -name "sonix_player" -o -name "sonix_launch" -o -name "*.so*" \) -exec "$STRIP_TOOL" --strip-all {} + 2>/dev/null || true
-		say "    staging binaries and libraries stripped with $STRIP_TOOL --strip-all"
+		find "$SQUASH_DIR" -type f \( -name "sonix_player" -o -name "sonix_launch" \) -exec "$STRIP_TOOL" --strip-all {} + 2>/dev/null || true
+		find "$SQUASH_DIR" -type f -name "*.so*" -exec "$STRIP_TOOL" --strip-unneeded {} + 2>/dev/null || true
+		say "    staging binaries stripped with --strip-all, shared libraries with --strip-unneeded"
 	fi
 
 	step "[$MODEL_NAME] rootfs staging audit: removing leftover clutter"
@@ -936,10 +937,7 @@ if [ \"\$boot_sel\" = \"logo:4\" ]; then boot_waited=0; while [ \$boot_waited -l
 	ROOTFS_NEW="$OTA_DIR/rootfs.squashfs"
 
 	step "[$MODEL_NAME] building the filesystem"
-	if ! mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp xz -b 256K -noappend -all-root > /dev/null 2>&1; then
-		say "    xz compression unavailable or failed, falling back to gzip..."
-		mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp gzip -b 128K -noappend -all-root > /dev/null
-	fi
+	mksquashfs "$SQUASH_DIR" "$ROOTFS_NEW" -comp gzip -b 128K -noappend -all-root > /dev/null
 
 	ORIGINAL_SUM="$(get_md5 "$ROOTFS_NEW")"
 	SIZE="$(get_size "$ROOTFS_NEW")"
