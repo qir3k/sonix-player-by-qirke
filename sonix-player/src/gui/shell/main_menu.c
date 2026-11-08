@@ -1,5 +1,6 @@
 #include "main_menu.h"
 
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -174,6 +175,8 @@ typedef struct {
 	lv_obj_t **screen;
 	void (*action)(void);
 } home_tile_t;
+
+static bool home_library_tile(home_tile_t *tile);
 
 bool main_menu_has_library_tile(const char **label_out) {
 	home_tile_t tile;
