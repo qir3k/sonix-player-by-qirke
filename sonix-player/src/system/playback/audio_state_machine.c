@@ -5,7 +5,7 @@
 #include "src/system/streaming/subsonicstream.h"
 #include <stdio.h>
 #include <unistd.h>
-#if !defined(HOST_BUILD) || defined(__GLIBC__)
+#if defined(__GLIBC__)
 #include <malloc.h>
 #endif
 
@@ -44,7 +44,7 @@ void audio_sm_stop_and_cleanup(void) {
 	usleep(25000); // 25 ms settle time for decoder loop & ALSA pcm drain/drop
 
 	// c) Wywołaj 'malloc_trim(0)', aby zresetować pamięć sterty po starym strumieniu
-#if !defined(HOST_BUILD) || defined(__GLIBC__)
+#if defined(__GLIBC__)
 	malloc_trim(0);
 #endif
 }

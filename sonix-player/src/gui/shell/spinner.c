@@ -47,7 +47,7 @@ static void spinner_delete_cb(lv_event_t *e) {
 
 lv_obj_t *spinner_create(lv_obj_t *parent, const lv_image_dsc_t *icon) {
 	lv_obj_t *label = lv_label_create(parent);
-	lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+	lv_obj_set_style_text_color(label, theme()->text_primary, 0);
 	lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
 	bool is_small = (icon && icon->header.w <= 20);
