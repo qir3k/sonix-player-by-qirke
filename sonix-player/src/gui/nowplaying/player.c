@@ -24,6 +24,7 @@
 #include "src/gui/shell/favmark.h"
 #include "src/gui/shell/gui.h"
 #include "src/gui/shell/icons.h"
+#include "src/gui/shell/iconscale.h"
 #include "src/gui/shell/popover.h"
 #include "src/gui/nowplaying/coverflow.h"
 #include "src/gui/shell/gestures.h"
@@ -292,6 +293,22 @@ static lv_obj_t *qobuz_badge;	   // the Qobuz mark, in the same corner
 static lv_obj_t *tidal_badge;	   // and the Tidal one, over it: only one ever shows
 static lv_obj_t *podcast_badge;	   // and the podcast one, third in the same place
 static lv_obj_t *ytmusic_badge;	   // YouTube Music watermark badge, in the same corner
+
+static const lv_image_dsc_t *badge_src_for(lv_obj_t *mark) {
+	if (mark == qobuz_badge) {
+		return &icon_qobuz_badge;
+	}
+	if (mark == tidal_badge) {
+		return &icon_tidal_badge;
+	}
+	if (mark == podcast_badge) {
+		return &icon_podcast_badge;
+	}
+	if (mark == ytmusic_badge) {
+		return &icon_ytmusic_badge;
+	}
+	return NULL;
+}
 static bool live_mode;
 static bool live_transport_hidden; // prev/next taken away on a stream
 static bool live_custom_nav;	   // on a station from a list, where they change station
@@ -3151,15 +3168,16 @@ static void studio_badges_move(lv_obj_t *parent) {
 	int inset = bp_pick(6, 10);
 	int bx = cover_x + size - badge_w - inset;
 	int by = cover_y + inset;
-	int scale = badge_w * 256 / 52;
+
+	lv_obj_t *target_parent = parent ? parent : (studio_box ? studio_box : NULL);
 
 	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
 	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
 		if (!marks[i]) {
 			continue;
 		}
-		if (parent) {
-			lv_obj_set_parent(marks[i], parent);
+		if (target_parent && lv_obj_get_parent(marks[i]) != target_parent) {
+			lv_obj_set_parent(marks[i], target_parent);
 		}
 		if (marks[i] == live_badge) {
 			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
@@ -3172,8 +3190,12 @@ static void studio_badges_move(lv_obj_t *parent) {
 			}
 			lv_obj_align(live_badge, LV_ALIGN_TOP_LEFT, cover_x + size - lw - inset, by);
 		} else {
-			lv_image_set_scale(marks[i], scale);
-			lv_image_set_pivot(marks[i], 0, 0);
+			const lv_image_dsc_t *src = badge_src_for(marks[i]);
+			if (src) {
+				iconscale_set(marks[i], src, badge_w);
+			}
+			lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_X, 0);
+			lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_Y, 0);
 			lv_obj_set_size(marks[i], badge_w, badge_w);
 			lv_obj_align(marks[i], LV_ALIGN_TOP_LEFT, bx, by);
 		}
@@ -3203,8 +3225,6 @@ static void studio_place(void) {
 	lv_obj_set_pos(studio_head, 0, head_top);
 	lv_obj_set_size(studio_head, screen_w, STUDIO_HEAD_H);
 
-	studio_badges_move(NULL);
-
 	lv_obj_set_size(studio_cover, size, size);
 	lv_obj_set_pos(studio_cover, cover_x, cover_y);
 
@@ -3213,6 +3233,8 @@ static void studio_place(void) {
 	lv_obj_set_size(studio_empty, size, size);
 	lv_obj_set_pos(studio_empty, cover_x, cover_y);
 	studio_empty_rescale(); // the mark scales with the square it sits in
+
+	studio_badges_move(studio_box);
 
 	// The line under the sleeve: vertically centered between the sleeve and the seek bar
 	int clock_h = LV_MAX(lv_font_get_line_height(bp_time_font()), lv_font_get_line_height(bp_queue_label_font()));
@@ -3269,6 +3291,9 @@ static void studio_refresh_cover(void) {
 		} else {
 			lv_obj_set_hidden(studio_bg, true);
 		}
+	}
+	if (layout_studio_now) {
+		studio_badges_move(studio_box);
 	}
 }
 
@@ -3392,8 +3417,13 @@ static void studio_take_back(void) {
 					lv_obj_set_style_pad_ver(live_badge, 5, 0);
 					lv_obj_set_style_text_font(live_badge, &font_ui_18, 0);
 				} else {
+					const lv_image_dsc_t *orig = badge_src_for(marks[i]);
+					if (orig) {
+						lv_image_set_src(marks[i], orig);
+					}
 					lv_image_set_scale(marks[i], 256);
-					lv_image_set_pivot(marks[i], 26, 26);
+					lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_X, 0);
+					lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_Y, 0);
 					lv_obj_set_size(marks[i], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 				}
 				lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
@@ -5617,7 +5647,7 @@ static void update_qobuz_badge(void) {
 		}
 	}
 	if (layout_studio_now) {
-		studio_badges_move(NULL);
+		studio_badges_move(studio_box);
 	} else if (layout_vinyl_now) {
 		vinyl_badges_apply();
 	}
@@ -5675,29 +5705,7 @@ static void update_fav_button(void) {
 	// The favorite marker's colour is decided here and nowhere else. This
 	// function runs last on every track change, so anything that tints it
 	// elsewhere is overwritten.
-	//
-	// Amber's marker stays in the subdued brown sampled from the reference,
-	// instead of competing with the cream title and playback accent; OLED's in
-	// its muted grey, for the same reason.
-	lv_color_t favorite_color;
-	if (layout_aam_now) {
-		// The sleeve's colour, as everything else on that page is: the star sits
-		// between two other marks drawn in it, and a grey one among them would
-		// read as the button being unavailable.
-		favorite_color = aam_accent();
-	} else if (theme_is_monochrome()) {
-		favorite_color = theme_player_chrome_color(THEME_PLAYER_CHROME_MUTED);
-	} else if (starred) {
-		favorite_color = chrome_accent();
-	} else if (layout_studio_now) {
-		favorite_color = (cover_tint && album_tone)
-							 ? chrome_accent()
-							 : theme_player_chrome_color(THEME_PLAYER_CHROME_PRIMARY);
-	} else if (layout_alt_now) {
-		favorite_color = (cover_tint && album_tone) ? chrome_accent() : alt_ink();
-	} else {
-		favorite_color = (cover_tint && album_tone) ? chrome_accent() : lv_color_make(150, 150, 150);
-	}
+	lv_color_t favorite_color = layout_aam_now ? aam_accent() : chrome_accent();
 
 	// The one mark everywhere: the heart the control centre, the library and
 	// the decks all draw. Album Art Max is no exception -- its header has no

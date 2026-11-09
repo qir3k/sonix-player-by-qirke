@@ -1,28 +1,19 @@
-# Sonix OS v1.2.1 for TempoTec Variations V1
+# Sonix OS v1.2.2 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.2.1
+## 🛠️ Critical Fixes & Improvements in v1.2.2
 
-### 1. Screensaver Backdrop Customization (Blurred vs. Opacity)
-- **Overview**: With the Visual Effects addon enabled (`addons_enabled("visual_effects")`), the screensaver background can now be customized directly in **Settings > Screensaver**.
+### 1. Now Playing Favorite Heart Symbol Coloring & Tinting
+- **Root Cause**: In monochrome and OLED themes, `update_fav_button()` prematurely fell back to `THEME_PLAYER_CHROME_MUTED` (`#888888`), locking the favorite heart icon in a permanent dull gray across all player layouts even when "Tint controls from album art" or active accent colors were selected.
 - **Resolution**:
-  - Added a new **Screensaver Backdrop** option with two choices: **Blurred** (frosted album art backdrop) and **Opacity** (classic dimmed background with theme ground).
-  - Works consistently across **all** player layouts (Default, Compact, Alternative/Studio, Immersive, Poster, Vinyl).
-  - Seamlessly falls back to default opacity backdrop when the Visual Effects addon is disabled.
+  - Unified favorite heart coloring to dynamically use `chrome_accent()` across all player layouts.
+  - The heart icon (both outline when un-favorited and filled when favorited) now properly inherits the active theme accent color and dynamically adopts album cover tinting when enabled.
 
-### 2. Immersive Player Layout Heart & Spacing Alignment
-- **Root Cause**: In the immersive player layout, the favorite heart icon and audio format tag lacked right alignment relative to the margins, and the heart icon had uneven vertical padding.
+### 2. Alternative Layout Streaming Badge Scaling & Clipping Fix
+- **Root Cause**: In the Alternative (Studio) player layout, scaling the 52x52 px streaming badges (YouTube Music, Podcasts, Tidal, Qobuz) via `lv_image_set_scale` with an explicit (0, 0) pivot displaced the scaled bitmap relative to the centered 26x26 px widget container, clipping ~75% of the badge and leaving only a distorted fragment visible. Furthermore, background cover updates did not re-assert badge Z-order.
 - **Resolution**:
-  - Corrected vertical centering of the favorite heart button relative to the track title and artist rows.
-  - Aligned the heart icon and right-side metadata with the right margin border.
-
-### 3. Vinyl Record Sleeve Player Layout Overhaul & Bugfixes
-- **Root Cause**: Switching to the Vinyl player layout suffered from incorrect deck alignment, broken tonearm geometry, and caused persistent UI rendering corruptions when switching back to other layouts, requiring a device reboot.
-- **Resolution**:
-  - Overhauled vinyl tonearm, spinning platter, and sleeve placement geometry for the TempoTec V1 display.
-  - Fixed layout restoration so switching away from Vinyl cleanly resets viewport styles and widget bounds across all alternative layouts without needing a reboot.
-
-### 4. Build Stability
-- **Resolution**: Added forward declaration for `compact_place_sleeve` in `player.c` to resolve GCC static declaration errors during target cross-compilation.
+  - Leveraged `iconscale_set()` to cleanly pre-scale badge bitmaps on the FPU to the native 26 px (V1) / 36 px (V2) dimension, eliminating transform shifts and clipping.
+  - Ensured streaming badges are positioned and brought to the foreground over the album sleeve whenever the layout is drawn and whenever album art asynchronously finishes loading.
+  - Cleanly restored intrinsic 52 px source descriptors upon exiting to the standard layout in `studio_take_back()`.
 
 ---
 
