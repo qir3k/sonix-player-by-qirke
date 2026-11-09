@@ -1,6 +1,6 @@
-# Sonix OS v1.2.10 for TempoTec Variations V1
+# Sonix OS v1.2.11 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.2.10
+## 🛠️ Critical Fixes & Improvements in v1.2.11
 
 ### 1. Gramophone Vinyl Layout Album Art Enlargement & Turntable Spin Animation
 - **Root Cause**: In Vinyl layout, the circular album art label was configured at only 50% of the vinyl disc diameter (`max_d * 50 / 100`), making the cover appear disproportionately small compared to the black outer grooves. In addition, no rotation animation was driving the record or artwork during playback.
