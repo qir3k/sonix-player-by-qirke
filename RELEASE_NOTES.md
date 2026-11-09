@@ -1,13 +1,25 @@
-# Sonix OS v1.2.5 for TempoTec Variations V1
+# Sonix OS v1.2.6 for TempoTec Variations V1
 
-## 🛠️ Fixes & Improvements in v1.2.5
+## 🛠️ Fixes & Improvements in v1.2.6
 
-### Poster Layout Favorite Heart Left-Alignment
-- **Issue**: In the Poster player layout, the favorite heart button (`fav_btn_obj`) and icon (`fav_btn_icon`) were right-aligned (`LV_FLEX_ALIGN_END`) within the metadata column (`song_side_obj`), while the sound quality / format info label (`format_label`, e.g. "24/44.1 FLAC") spanned to the left. This caused the heart icon to sit on the far right edge of the screen, misaligned with the sound quality information beneath it.
+### 1. Gramophone Vinyl Player Layout Overhaul
+- **Gramophone LP Design**: Completely redesigned the Vinyl player layout to look like an authentic gramophone turntable:
+  - The album art is presented as a circular center label (`LV_RADIUS_CIRCLE`) in the center of the vinyl record disc with dynamic `chrome_accent()` perimeter ring.
+  - Realistic concentric sound grooves (`grooves[4]`) and subtle light sheen reflection line (`shine`) on the vinyl disc body.
+  - Authentic silver-rimmed spindle center pin hole (`spindle`) positioned over the label axis.
+  - Streaming badges (YouTube Music, Tidal, Podcasts, Qobuz) are neatly placed in the upper-right corner without obscuring the turntable disc.
+
+### 2. Seamless Layout Switching & State Restoration Fix
+- **Issue**: Switching away from the Vinyl layout previously left sleeve dimensions shrunk to label size, corrupted placeholder positioning, and caused cover art rendering glitches that forced a device reboot.
 - **Resolution**:
-  - Configured `song_side_obj` to use start/left cross-alignment (`LV_FLEX_ALIGN_START`) in `poster_put()`.
-  - Left-aligned the heart icon (`LV_ALIGN_LEFT_MID`) inside `fav_btn_obj` and set `format_label` text alignment to `LV_TEXT_ALIGN_LEFT`.
-  - Guaranteed that when switching away from Poster layout, `poster_take_back()` cleanly restores standard right-alignment (`LV_FLEX_ALIGN_END`, `LV_TEXT_ALIGN_RIGHT`, and centered heart icon) for all other layouts.
+  - `vinyl_take_back()` thoroughly restores sleeve dimensions (`compact_sleeve_side()`), border width, corner radiuses, and badge attachments.
+  - Added `cover_shape_vinyl` tracking to `update_layout()` and `reload_cover()`, properly triggering cover re-decoding when switching between Vinyl and standard rectangular sleeve layouts.
+  - Restored proper placeholder icon alignment and geometry on layout exit.
+
+### 3. Transport Controls & Podcast Seek Margin Spacing
+- **Issue**: In compact deck layouts (e.g. podcast playback and studio layout), the forward seek button (`(30)`) and the favorite heart button collided with virtually 0 px separation.
+- **Resolution**:
+  - Adjusted `COMPACT_SKIP_BTN` to 38 px and column spacing to 6 px, guaranteeing a comfortable, symmetrical 6 px margin between transport seek buttons and corner controls (speed gauge, repeat, and favorite heart).
 
 ---
 

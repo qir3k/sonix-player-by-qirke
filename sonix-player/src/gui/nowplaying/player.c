@@ -225,12 +225,11 @@ static int polls_since_stop = POLLS_FAST_AFTER_STOP;
 // read as the bottom of the artwork being cut away rather than melted.
 #define POSTER_FADE_HEIGHT 26
 #define COMPACT_PLAY_BTN 44
-#define COMPACT_SKIP_BTN 42
+#define COMPACT_SKIP_BTN 38
 // The repeat/speed and ellipsis buttons at the ends of that row. The centred
-// transport is 42+8+44+8+42 = 144 wide, leaving 36 px of the 216 px row on
-// either side -- so a corner button the skip buttons' 42 px wide would sit
-// 6 px inside the transport's own box and its glyph would touch the skip
-// glyph beside it. 36 keeps each corner at its edge, clear of the group.
+// transport is 38+6+44+6+38 = 132 wide, leaving 42 px of the 216 px row on
+// either side -- leaving a comfortable 6 px margin between the corner buttons (36 px)
+// and the skip buttons (38 px) so they never touch or collide.
 #define COMPACT_CORNER_BTN 36
 #define COMPACT_MORE_BTN 36
 #define COMPACT_MORE_BTN_EXT_CLICK 10
@@ -562,6 +561,9 @@ static bool cover_shape_poster;
 // is not a square in either of its two shapes. `cover_shape_aam` says whether
 // the picture on hand was made for it.
 static bool cover_shape_aam;
+
+// Vinyl gramophone layout asks for circular center label artwork.
+static bool cover_shape_vinyl;
 
 // Immersive asks for the blurred copy as the FOOT of the photograph, at the
 // size of the deck, rather than as the whole screen: it stands over the part
@@ -1496,6 +1498,9 @@ static void paint_transport_tint(void) {
 		int deck_h = compact_deck_height(false);
 		vinyl_box_t b = vinyl_layout_box(screen_w, screen_h, deck_h);
 		vinyl_record_apply(&vinyl_record, &b, chrome_accent());
+		if (cover_art_group) {
+			lv_obj_set_style_border_color(cover_art_group, chrome_accent(), 0);
+		}
 	}
 }
 
@@ -2357,8 +2362,13 @@ static void lyrics_progress_apply(int32_t progress) {
 	// sibling at the same centre point.
 	lyrics_shift(cover_art_group, away);
 	lyrics_shift(cover_placeholder_icon, away);
-	if (layout_vinyl_now && vinyl_record.disc) {
-		lyrics_shift(vinyl_record.disc, away);
+	if (layout_vinyl_now) {
+		if (vinyl_record.disc) {
+			lyrics_shift(vinyl_record.disc, away);
+		}
+		if (vinyl_record.spindle) {
+			lyrics_shift(vinyl_record.spindle, away);
+		}
 	}
 	if (!layout_alt_now) {
 		return; // the names stay in their row below the sleeve
@@ -4538,7 +4548,32 @@ static void aam_build(void) {
 }
 
 static void vinyl_badges_apply(void) {
-	cover_badges_apply();
+	int badge_w = bp_pick(26, 36);
+	int inset = bp_pick(10, 14);
+	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
+	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
+		if (!marks[i]) {
+			continue;
+		}
+		if (cover_panel && lv_obj_get_parent(marks[i]) != cover_panel) {
+			lv_obj_set_parent(marks[i], cover_panel);
+		}
+		if (marks[i] == live_badge) {
+			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
+			lv_obj_set_style_pad_ver(live_badge, bp_pick(2, 3), 0);
+			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_16, 0);
+		} else {
+			const lv_image_dsc_t *src = badge_src_for(marks[i]);
+			if (src) {
+				iconscale_set(marks[i], src, badge_w);
+			}
+			lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_X, 0);
+			lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_Y, 0);
+			lv_obj_set_size(marks[i], badge_w, badge_w);
+		}
+		lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -inset, inset);
+		lv_obj_move_foreground(marks[i]);
+	}
 }
 
 static void vinyl_put(void) {
@@ -4557,18 +4592,36 @@ static void vinyl_put(void) {
 	cover_box_h = b.deck_y;
 	cover_art_w = b.art_side;
 	cover_art_h = b.art_side;
+
 	lv_obj_set_size(cover_panel, screen_w, cover_box_h);
 	lv_obj_align(cover_panel, LV_ALIGN_TOP_MID, 0, 0);
-	lv_obj_set_size(cover_art_group, b.art_side, b.art_side);
-	lv_obj_align(cover_art_group, LV_ALIGN_TOP_MID, 0, b.art_y);
-	lv_obj_set_style_radius(cover_art_group, VINYL_ART_RADIUS, 0);
-	lv_obj_set_style_radius(cover_img, VINYL_ART_RADIUS, 0);
-	lv_obj_set_size(player_menu, screen_w, menu_height);
-	lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
+
 	if (vinyl_record.disc) {
 		vinyl_record_apply(&vinyl_record, &b, chrome_accent());
 		lv_obj_move_to_index(vinyl_record.disc, 0);
 	}
+
+	/* Circular album art in the center of the vinyl record */
+	lv_obj_set_size(cover_art_group, b.art_side, b.art_side);
+	lv_obj_set_pos(cover_art_group, b.art_x, b.art_y);
+	lv_obj_set_style_radius(cover_art_group, LV_RADIUS_CIRCLE, 0);
+	lv_obj_set_style_clip_corner(cover_art_group, true, 0);
+	lv_obj_set_style_border_width(cover_art_group, 2, 0);
+	lv_obj_set_style_border_color(cover_art_group, chrome_accent(), 0);
+	lv_obj_set_style_border_opa(cover_art_group, LV_OPA_COVER, 0);
+	lv_obj_set_style_radius(cover_img, LV_RADIUS_CIRCLE, 0);
+	lv_obj_set_size(cover_img, b.art_side, b.art_side);
+	lv_obj_center(cover_img);
+	lv_obj_move_to_index(cover_art_group, 1);
+
+	/* Ensure spindle center hole sits on top of album art */
+	if (vinyl_record.spindle) {
+		lv_obj_move_foreground(vinyl_record.spindle);
+	}
+
+	lv_obj_set_size(player_menu, screen_w, menu_height);
+	lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
+
 	vinyl_badges_apply();
 	placeholder_rescale();
 	placeholder_place();
@@ -4584,10 +4637,21 @@ static bool vinyl_take_back(void) {
 	if (vinyl_record.disc) {
 		lv_obj_set_hidden(vinyl_record.disc, true);
 	}
+	if (vinyl_record.spindle) {
+		lv_obj_set_hidden(vinyl_record.spindle, true);
+	}
 	if (cover_art_group) {
 		lv_obj_set_style_radius(cover_art_group, bp_is_tempotec_v1() ? 14 : 18, 0);
-		lv_obj_set_style_radius(cover_img, bp_is_tempotec_v1() ? 14 : 18, 0);
+		lv_obj_set_style_border_width(cover_art_group, 0, 0);
+		int side = compact_sleeve_side();
+		cover_art_w = side;
+		cover_art_h = side;
+		lv_obj_set_size(cover_art_group, side, side);
 		compact_place_sleeve();
+	}
+	if (cover_img) {
+		lv_obj_set_style_radius(cover_img, bp_is_tempotec_v1() ? 14 : 18, 0);
+		lv_obj_center(cover_img);
 	}
 	if (cover_panel) {
 		lv_obj_align(cover_panel, LV_ALIGN_TOP_MID, 0, 0);
@@ -4596,6 +4660,8 @@ static bool vinyl_take_back(void) {
 		lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
 	}
 	cover_badges_apply();
+	placeholder_rescale();
+	placeholder_place();
 	cover_show(current_cover.pixels != NULL);
 	return true;
 }
@@ -4819,11 +4885,11 @@ static void update_layout(const device_state_t *state) {
 
 	// The blurred copy is made at the shape of whatever shows it, and the
 	// sleeve at the size the arrangement draws it, so moving in or out of
-	// Studio, Immersive, Poster or Album Art Max means the ones on hand are the
+	// Studio, Immersive, Poster, Album Art Max or Vinyl means the ones on hand are the
 	// wrong shape and the picture is asked for again. Only on a change of
 	// arrangement, which is a setting the user has just touched.
 	if ((studio != backdrop_is_studio || immersive != cover_shape_immersive || poster != cover_shape_poster ||
-		 aam != cover_shape_aam) &&
+		 aam != cover_shape_aam || vinyl != cover_shape_vinyl) &&
 		cover_shown_path[0]) {
 		reload_cover(cover_shown_path);
 	}
@@ -5077,6 +5143,7 @@ static void reload_cover(const char *filepath) {
 		cover_shape_immersive = layout_immersive_now;
 		cover_shape_poster = layout_poster_now;
 		cover_shape_aam = layout_aam_now;
+		cover_shape_vinyl = layout_vinyl_now;
 		// The band faces the way the picture does, like every blur that is
 		// looked at rather than looked through, and it is cut from the foot of
 		// the photograph -- the part of it the deck stands over.
@@ -7404,7 +7471,7 @@ static void placeholder_place(void) {
 		// own box -- so the panel's middle is the sleeve's middle.
 		dy = 0;
 	} else if (layout_vinyl_now) {
-		dy = VINYL_TOP + cover_art_h / 2 - cover_box_h / 2;
+		dy = 0;
 	} else if (bp_is_tempotec_v1()) {
 		dy = compact_sleeve_top() + cover_art_h / 2 - cover_box_h / 2;
 	}
@@ -7861,7 +7928,7 @@ void player_init(gui_config_t *cfg) {
 	// moved up by hand from there lands on the clocks and the queue position
 	// above it -- which is what used to happen -- rather than in empty space.
 	if (compact) {
-		lv_obj_set_style_pad_column(player_controls_buttons, 8, 0);
+		lv_obj_set_style_pad_column(player_controls_buttons, 6, 0);
 	} else {
 		lv_obj_set_style_translate_y(player_controls_buttons, -8, 0);
 	}
@@ -8167,6 +8234,9 @@ void player_init(gui_config_t *cfg) {
 	vinyl_record_build(&vinyl_record, cover_panel);
 	if (vinyl_record.disc) {
 		lv_obj_set_hidden(vinyl_record.disc, true);
+	}
+	if (vinyl_record.spindle) {
+		lv_obj_set_hidden(vinyl_record.spindle, true);
 	}
 
 	poster_fade = lv_obj_create(cover_panel);
