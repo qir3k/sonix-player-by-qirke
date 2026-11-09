@@ -3787,6 +3787,20 @@ static void poster_put(void) {
 		lv_obj_set_style_bg_opa(player_menu, LV_OPA_COVER, 0);
 	}
 
+	// Align the favourite heart to the left edge of the sound quality line
+	// in the poster arrangement.
+	if (song_side_obj) {
+		lv_obj_set_flex_align(song_side_obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+	}
+	if (fav_btn_icon) {
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_align(fav_btn_icon, LV_ALIGN_LEFT_MID, 0, 0);
+	}
+	if (format_label) {
+		lv_obj_set_style_text_align(format_label, LV_TEXT_ALIGN_LEFT, 0);
+	}
+
 	placeholder_rescale();
 	cover_show(current_cover.pixels != NULL);
 	lyrics_layout(); // the words' page is measured against this one
@@ -3813,6 +3827,17 @@ static bool poster_take_back(void) {
 	}
 	if (player_menu) {
 		lv_obj_remove_local_style_prop(player_menu, LV_STYLE_BG_OPA, 0);
+	}
+	if (song_side_obj) {
+		lv_obj_set_flex_align(song_side_obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+	}
+	if (fav_btn_icon) {
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_center(fav_btn_icon);
+	}
+	if (format_label) {
+		lv_obj_set_style_text_align(format_label, LV_TEXT_ALIGN_RIGHT, 0);
 	}
 	placeholder_rescale();
 	cover_show(current_cover.pixels != NULL);
