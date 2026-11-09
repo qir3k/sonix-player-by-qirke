@@ -916,7 +916,7 @@ static sleeptimer_kind_t sleeptimer_kind_playing(void) {
 	}
 	char path[512];
 	audio_get_current_file(path, sizeof(path));
-	if (podcastcache_is_episode(path)) {
+	if (podcastcache_is_episode(path) || ytmusic_cache_is_podcast_episode(path)) {
 		return SLEEPTIMER_PODCAST;
 	}
 	return SLEEPTIMER_MUSIC;
@@ -3044,7 +3044,7 @@ static void lyrics_bg_prepare(void) {
 // needs, and an episode is speech at whatever bitrate the publisher chose:
 // "lossy" beside it is true and says nothing anyone would act on.
 static const lv_image_dsc_t *studio_quality_mark(const device_state_t *state) {
-	if (!state->live && podcastcache_is_episode(state->current_file)) {
+	if (!state->live && (podcastcache_is_episode(state->current_file) || ytmusic_cache_is_podcast_episode(state->current_file))) {
 		return NULL;
 	}
 	if (state->live) {
@@ -5345,7 +5345,8 @@ static bool podcast_current_feed(long long *id_out, podcast_feed_t *feed_out) {
 static bool current_podcast_episode(void) {
 	device_state_t state;
 	device_state_get(&state);
-	return state.current_file[0] && podcastcache_is_episode(state.current_file);
+	return state.current_file[0] &&
+	       (podcastcache_is_episode(state.current_file) || ytmusic_cache_is_podcast_episode(state.current_file));
 }
 
 // The playing episode's podcast, for callers outside the player (the control
@@ -6026,7 +6027,7 @@ static void update_progress(void) {
 	led_update_playback(state.status == AUDIO_STATUS_PLAYING, state.stream_sample_rate,
 						state.live ? live_lossy : audio_stream_is_lossy(),
 						state.live ? live_bits : audio_get_stream_bits(),
-						!state.live && podcastcache_is_episode(state.current_file),
+						!state.live && (podcastcache_is_episode(state.current_file) || ytmusic_cache_is_podcast_episode(state.current_file)),
 						!state.live && audio_get_dsd_multiple() > 0);
 
 	// Where the book got to. Not the same thing as "remember track" below and

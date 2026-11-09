@@ -12,6 +12,7 @@
 #include "src/system/playback/playlist.h"
 #include "src/system/streaming/podcast.h"
 #include "src/system/streaming/podcastcache.h"
+#include "src/system/streaming/ytmusic.h"
 #include "src/system/streaming/qobuzcache.h"
 #include "src/system/streaming/subsonicstream.h"
 #include "src/system/streaming/tidalcache.h"
@@ -162,6 +163,7 @@ static bool restored_uncounted;
 
 static void record_current_track_play(void) {
 	if (!current_metadata_file[0] || audiobook_is_playing() || podcastcache_is_episode(current_metadata_file) ||
+		ytmusic_cache_is_podcast_episode(current_metadata_file) ||
 		qobuzcache_owns(current_metadata_file) || tidalcache_owns(current_metadata_file) ||
 		subsonicstream_owns(current_metadata_file)) {
 		return;
@@ -503,7 +505,8 @@ void device_state_note_storage_gone(void) {
 static void apply_track_speed(void) {
 	if (audiobook_is_playing()) {
 		audio_set_speed(audiobook_speed());
-	} else if (podcastcache_is_episode(current_metadata_file)) {
+	} else if (podcastcache_is_episode(current_metadata_file) ||
+	           ytmusic_cache_is_podcast_episode(current_metadata_file)) {
 		audio_set_speed(podcast_speed());
 	} else {
 		audio_set_speed(1.0);

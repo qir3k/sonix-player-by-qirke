@@ -172,6 +172,13 @@ static void list_youtube(const char *kind, const char *id, const char *q, const 
 			return;
 		}
 		count = ytmusic_browse_items(id, items, STREAM_PAGE, error, sizeof(error));
+		if (strncmp(id, "MPSP", 4) == 0) {
+			for (int i = 0; i < count; i++) {
+				if (items[i].kind == YTMUSIC_ITEM_TRACK) {
+					items[i].podcast_episode = true;
+				}
+			}
+		}
 	} else {
 		snprintf(out->error, sizeof(out->error), "unknown_kind");
 		return;
@@ -645,6 +652,7 @@ static bool prepare_queue(play_job_t *job) {
 			snprintf(track->album, sizeof(track->album), "%s", row->album);
 			snprintf(track->thumbnail, sizeof(track->thumbnail), "%s", row->art);
 			track->duration = row->duration;
+			track->podcast_episode = strcmp(row->kind, "episode") == 0;
 			if (!ytmusic_cache_write_sidecars(track, path)) {
 				fprintf(stderr, "sonixlink: cannot write YouTube Music queue metadata for %s\n", row->id);
 				return false;

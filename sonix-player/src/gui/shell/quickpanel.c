@@ -403,6 +403,10 @@ static void refresh_now_playing_card(void) {
 					snprintf(podcast_artist, sizeof(podcast_artist), "%s", feed_title);
 				}
 			}
+		} else if (ytmusic_cache_is_podcast_episode(state.current_file)) {
+			if (state.metadata.artist[0]) {
+				snprintf(podcast_artist, sizeof(podcast_artist), "%s", state.metadata.artist);
+			}
 		}
 		const char *artist = podcast_artist[0] ? podcast_artist : metadata_shown_artist(&state.metadata);
 		scrolltext_set(np_artist, artist);
@@ -462,7 +466,7 @@ static void refresh_now_playing_card(void) {
 	// player.
 	long long podcast_feed_id = 0;
 	player_current_podcast_feed(&podcast_feed_id, NULL);
-	bool podcast = !state.live && !book && podcastcache_is_episode(state.current_file);
+	bool podcast = !state.live && !book && (podcastcache_is_episode(state.current_file) || ytmusic_cache_is_podcast_episode(state.current_file));
 	bool skips = book || podcast;
 	int back = book ? audiobook_skip_back() : podcast ? podcast_skip_back() : 0;
 	int forward = book ? audiobook_skip_forward() : podcast ? podcast_skip_forward() : 0;

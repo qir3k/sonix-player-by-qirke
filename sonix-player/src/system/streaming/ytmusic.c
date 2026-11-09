@@ -1576,7 +1576,12 @@ static bool read_item(const json_doc_t *doc, int renderer, ytmusic_item_t *item)
 			break;
 		}
 	}
-	if (item->kind == YTMUSIC_ITEM_TRACK) read_album(doc, renderer, item);
+	if (item->kind == YTMUSIC_ITEM_TRACK) {
+		read_album(doc, renderer, item);
+		if (json_path(doc, renderer, "episodePublisherText") >= 0) {
+			item->podcast_episode = true;
+		}
+	}
 	read_thumbnail(doc, renderer, item->thumbnail, sizeof(item->thumbnail));
 	char duration[32] = "";
 	json_str(doc, json_path(doc, renderer, "fixedColumns.0.musicResponsiveListItemFixedColumnRenderer.text.runs.0.text"), duration, sizeof(duration));
@@ -1739,6 +1744,12 @@ static int collect_items_compact(const char *response, ytmusic_item_t *items, in
 						if (is_item_key && (size_t)(key_end - p - 2) == sizeof(PODCAST_RENDERER) - 1 &&
 							memcmp(p + 1, PODCAST_RENDERER, sizeof(PODCAST_RENDERER) - 1) == 0) {
 							candidate.podcast_episode = true;
+						}
+						if (candidate.kind == YTMUSIC_ITEM_TRACK) {
+							if (strstr(item_json, "\"MPSP") != NULL ||
+							    strstr(item_json, "episodePublisherText") != NULL) {
+								candidate.podcast_episode = true;
+							}
 						}
 						bool duplicate = false;
 						for (int i = 0; i < count; i++) {
@@ -1953,6 +1964,13 @@ int ytmusic_search_items(const char *query, ytmusic_filter_t filter,
 	// even though the same query works signed out.
 	if (!youtubei_post_ex("search", request, false, true, &body, NULL, error, error_size)) return -1;
 	int count = collect_items_compact(body, items, limit);
+	if (count > 0 && filter == YTMUSIC_FILTER_PODCASTS) {
+		for (int i = 0; i < count; i++) {
+			if (items[i].kind == YTMUSIC_ITEM_TRACK) {
+				items[i].podcast_episode = true;
+			}
+		}
+	}
 	if (count <= 0) {
 		ytmusic_log_empty_body("search", body);
 	}
@@ -2006,6 +2024,13 @@ int ytmusic_browse_items(const char *browse_id, ytmusic_item_t *items, int limit
 			free(private_page);
 		}
 		if (error && error_size) error[0] = '\0';
+	}
+	if (count > 0 && strncmp(browse_id, "MPSP", 4) == 0) {
+		for (int i = 0; i < count; i++) {
+			if (items[i].kind == YTMUSIC_ITEM_TRACK) {
+				items[i].podcast_episode = true;
+			}
+		}
 	}
 	// The liked songs -- "VLLM" -- are the account's own list, and the only
 	// credential the music endpoints accept for it is the browser session
@@ -2453,18 +2478,30 @@ bool ytmusic_cache_whole(const char *path) {
 }
 
 bool ytmusic_cache_is_podcast_episode(const char *path) {
-	char id[YTMUSIC_ID_MAX], audio_path[512], tag_path[544];
-	if (!ytmusic_cache_track_id(path, id, sizeof(id)) ||
-		!ytmusic_cache_path_for(id, audio_path, sizeof(audio_path)) ||
-		snprintf(tag_path, sizeof(tag_path), "%s.tags", audio_path) >= (int)sizeof(tag_path)) {
-		return false;
+	if (!path || !path[0]) return false;
+	char tag_path[544];
+	FILE *file = NULL;
+
+	// Check if <path>.tags exists directly beside the audio file
+	if (snprintf(tag_path, sizeof(tag_path), "%s.tags", path) < (int)sizeof(tag_path)) {
+		file = fopen(tag_path, "r");
 	}
-	FILE *file = fopen(tag_path, "r");
+
+	// If not found beside path, try resolving via track ID and cache directory
+	if (!file) {
+		char id[YTMUSIC_ID_MAX], audio_path[512];
+		if (ytmusic_cache_track_id(path, id, sizeof(id)) && id[0] &&
+			ytmusic_cache_path_for(id, audio_path, sizeof(audio_path)) &&
+			snprintf(tag_path, sizeof(tag_path), "%s.tags", audio_path) < (int)sizeof(tag_path)) {
+			file = fopen(tag_path, "r");
+		}
+	}
 	if (!file) return false;
+
 	bool is_podcast = false;
 	char line[128];
 	while (fgets(line, sizeof(line), file)) {
-		if (strcmp(line, "podcast_episode=1\n") == 0 || strcmp(line, "podcast_episode=1") == 0) {
+		if (strncmp(line, "podcast_episode=1", 17) == 0) {
 			is_podcast = true;
 			break;
 		}

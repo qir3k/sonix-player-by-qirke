@@ -1498,7 +1498,7 @@ void trackmenu_open(lv_obj_t *anchor) {
 
 	device_state_t state;
 	device_state_get(&state);
-	bool podcast = state.current_file[0] && podcastcache_is_episode(state.current_file);
+	bool podcast = state.current_file[0] && (podcastcache_is_episode(state.current_file) || ytmusic_cache_is_podcast_episode(state.current_file));
 	bool tidal_track = tidalcache_owns(state.current_file);
 	// The Tidal Downloaded list is made of files already present on the card.
 	// Offering "Download" again is both misleading and useless offline.

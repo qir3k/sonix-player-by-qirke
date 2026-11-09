@@ -27,6 +27,7 @@
 #include "src/system/bluetooth/btreceiver.h"
 #include "src/system/device/led.h"
 #include "src/system/streaming/podcastcache.h"
+#include "src/system/streaming/ytmusic.h"
 #include "src/system/device/power.h"
 #include "src/system/remote/sonixlink.h"
 #include "src/system/device/usb.h"
@@ -784,7 +785,7 @@ static void timer_update_cb(lv_timer_t *timer) {
 	// DAC mode.
 	led_update_playback(state.status == AUDIO_STATUS_PLAYING, state.stream_sample_rate,
 						audio_stream_is_lossy(), audio_get_stream_bits(),
-						!state.live && podcastcache_is_episode(state.current_file),
+						!state.live && (podcastcache_is_episode(state.current_file) || ytmusic_cache_is_podcast_episode(state.current_file)),
 						!state.live && audio_get_dsd_multiple() > 0);
 	// Wi-Fi transfer takes the same route: its pattern stays lit, screen off
 	// included, for as long as the transfer is on. The switch rather than the

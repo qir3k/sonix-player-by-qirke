@@ -1074,6 +1074,30 @@ static void test_song_row_names_its_album(void) {
 	CHECK(strcmp(items[0].album, "Random Access Memories") == 0);
 }
 
+
+static void test_mpsp_podcast_show_marks_episodes(void) {
+	fake_reset();
+	fake_reply("youtubei/v1/browse", 200, SEARCH_SONG_ROW);
+	ytmusic_item_t items[YTMUSIC_ITEMS_MAX];
+	char error[192] = "";
+	int count = ytmusic_browse_items("MPSPtest123", items, 4, error, sizeof(error));
+	CHECK(count == 1);
+	CHECK(items[0].kind == YTMUSIC_ITEM_TRACK);
+	CHECK(items[0].podcast_episode);
+}
+
+static void test_direct_tags_path_podcast_episode(void) {
+	char path[] = ".build/test_direct_ep.m4a";
+	char tag_path[] = ".build/test_direct_ep.m4a.tags";
+	FILE *f = fopen(tag_path, "w");
+	CHECK(f != NULL);
+	fprintf(f, "title=Direct Episode\nartist=Show\npodcast_episode=1\n");
+	fclose(f);
+	CHECK(ytmusic_cache_is_podcast_episode(path));
+	remove(tag_path);
+	CHECK(!ytmusic_cache_is_podcast_episode(path));
+}
+
 static void test_podcast_episode_row_keeps_creator_and_type(void) {
 	fake_reset();
 	fake_reply("youtubei/v1/search", 200, SEARCH_PODCAST_EPISODE);
@@ -1377,6 +1401,8 @@ int main(void) {
 	test_podcast_played_state_persists();
 	test_sidecars_create_a_fresh_cache_directory();
 	test_song_row_names_its_album();
+	test_mpsp_podcast_show_marks_episodes();
+	test_direct_tags_path_podcast_episode();
 	test_podcast_episode_row_keeps_creator_and_type();
 	test_netscape_cookie_file_is_imported();
 	test_two_row_card_extracts_artist_from_subtitle();

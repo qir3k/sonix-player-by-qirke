@@ -2035,6 +2035,15 @@ static void list_done(void *data) {
 		tracks_are_likes = false;
 		track_count = count;
 		memcpy(track_items, result->items, sizeof(track_items[0]) * (size_t)count);
+		bool is_podcast_container = (strncmp(result->browse_id, "MPSP", 4) == 0) ||
+		                            (result->filter == YTMUSIC_FILTER_PODCASTS);
+		if (is_podcast_container) {
+			for (int i = 0; i < track_count; i++) {
+				if (track_items[i].kind == YTMUSIC_ITEM_TRACK) {
+					track_items[i].podcast_episode = true;
+				}
+			}
+		}
 		// Episodes of the show just opened say whose they are. The subtitle a
 		// show page puts on its rows is a date, and the name of the show is
 		// worth more than that: it is what the listener recognises the show by,
