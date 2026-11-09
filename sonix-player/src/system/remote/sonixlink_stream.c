@@ -95,10 +95,8 @@ int sonixlink_stream_services(sonixlink_stream_service_t *out, int max) {
 		{"radio", "Internet radio", true, true, ""},
 	};
 	for (size_t i = 0; i < sizeof(list) / sizeof(list[0]) && n < max; i++) {
-		const char *addon = service_addon(list[i].id);
-		if (addon && !addons_enabled(addon)) {
-			continue;
-		}
+		// Expose all streaming services (YouTube Music, Tidal, Qobuz, Podcasts, Radio)
+		// so mobile and desktop clients can browse, configure, and stream them
 		memset(&out[n], 0, sizeof(out[n]));
 		snprintf(out[n].id, sizeof(out[n].id), "%s", list[i].id);
 		snprintf(out[n].name, sizeof(out[n].name), "%s", list[i].name);

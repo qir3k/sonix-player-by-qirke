@@ -1032,6 +1032,11 @@ static void route_state(client_t *c) {
 	buf_fmt(&j, "\"favourites_revision\":%u,\"playlists_revision\":%u,", s.favourites_revision,
 			s.playlists_revision);
 	buf_fmt(&j, "\"podcast\":%s,\"podcast_speed\":%d,", s.podcast ? "true" : "false", s.podcast_speed);
+	buf_fmt(&j, "\"mseb\":%s,\"eq\":%s,\"peq\":%s,\"peq_profile\":%d,",
+			s.mseb_enabled ? "true" : "false",
+			s.eq_enabled ? "true" : "false",
+			s.peq_enabled ? "true" : "false",
+			s.peq_profile > 0 ? s.peq_profile : 1);
 	buf_fmt(&j, "\"scanning\":%s,\"scan_count\":%u,\"tracks\":%u}", s.scanning ? "true" : "false", s.scan_count,
 			s.track_count);
 	reply_json(c, &j);
@@ -1337,6 +1342,39 @@ static void route_command(client_t *c, const char *query) {
 			return;
 		}
 		push_command(SONIXLINK_CMD_SPEED, number);
+	} else if (strcmp(what, "mseb") == 0) {
+		int want = -1;
+		if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "on") == 0) {
+			want = 1;
+		} else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "off") == 0) {
+			want = 0;
+		}
+		push_command(SONIXLINK_CMD_MSEB, want);
+	} else if (strcmp(what, "eq") == 0) {
+		int want = -1;
+		if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "on") == 0) {
+			want = 1;
+		} else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "off") == 0) {
+			want = 0;
+		}
+		push_command(SONIXLINK_CMD_EQ, want);
+	} else if (strcmp(what, "peq") == 0) {
+		int want = -1;
+		if (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "on") == 0) {
+			want = 1;
+		} else if (strcmp(value, "0") == 0 || strcmp(value, "false") == 0 || strcmp(value, "off") == 0) {
+			want = 0;
+		}
+		push_command(SONIXLINK_CMD_PEQ, want);
+	} else if (strcmp(what, "peq_profile") == 0) {
+		if (number == 1 || number == 2) {
+			push_command(SONIXLINK_CMD_PEQ_PROFILE, number);
+		} else if (strcmp(value, "next") == 0 || !value[0]) {
+			push_command(SONIXLINK_CMD_PEQ_PROFILE, 0);
+		} else {
+			reply_status(c, "400 Bad Request", "peq profile must be 1 or 2");
+			return;
+		}
 	} else if (strcmp(what, "scan") == 0) {
 		push_command(SONIXLINK_CMD_SCAN, 0);
 	} else {

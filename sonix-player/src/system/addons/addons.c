@@ -119,6 +119,11 @@ static bool addon_is_default_on(const char *id) {
 	// preserve behavior for effects users could already enable in older builds.
 	if (strcmp(id, "audiobooks") == 0) return true;
 	if (strcmp(id, "subsonic") == 0) return true;
+	if (strcmp(id, "tidal") == 0) return true;
+	if (strcmp(id, "qobuz") == 0) return true;
+	if (strcmp(id, "ytmusic") == 0) return true;
+	if (strcmp(id, "podcasts") == 0) return true;
+	if (strcmp(id, "radio") == 0) return true;
 	if (strcmp(id, "eq") == 0) return true;
 	if (strcmp(id, "peq") == 0) return true;
 	if (strcmp(id, "mseb") == 0) return true;

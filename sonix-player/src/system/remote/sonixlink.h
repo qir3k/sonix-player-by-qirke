@@ -112,6 +112,12 @@ typedef struct {
 	// applies to -- and the speed it is set to, in thousandths.
 	bool podcast;
 	int podcast_speed;
+
+	// DSP on/off states and parametric EQ active profile (1 or 2)
+	bool mseb_enabled;
+	bool eq_enabled;
+	bool peq_enabled;
+	int peq_profile;
 } sonixlink_state_t;
 
 // The five orders the player understands, in the order the phone cycles them.
@@ -157,6 +163,14 @@ typedef enum {
 	// episode is playing and it is heard at once; sent otherwise it is stored
 	// for the next one, which is what the player's own speed menu does.
 	SONIXLINK_CMD_SPEED,
+
+	// DSP toggles: arg 1 on, 0 off, -1 toggle
+	SONIXLINK_CMD_MSEB,
+	SONIXLINK_CMD_EQ,
+	SONIXLINK_CMD_PEQ,
+
+	// PEQ profile: arg 1 or 2 (or 0 for next / cycle)
+	SONIXLINK_CMD_PEQ_PROFILE,
 } sonixlink_command_kind_t;
 
 // The three rows of the circle-play menu.

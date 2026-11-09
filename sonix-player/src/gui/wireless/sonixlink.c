@@ -23,6 +23,7 @@
 #include "src/gui/bluetooth/btsettings.h"
 #include "src/system/audio/alsa-controls.h"
 #include "src/system/audio/audio.h"
+#include "src/system/audio/eq.h"
 #include "src/system/bluetooth/bluetooth.h"
 #include "src/system/device/power.h"
 #include "src/system/playback/device_state.h"
@@ -272,6 +273,11 @@ static void publish_state(void) {
 		: (podcastcache_is_episode(s.path) || ytmusic_cache_is_podcast_episode(s.path));
 	s.podcast_speed = podcast_speed_permille();
 
+	s.mseb_enabled = mseb_get_enabled();
+	s.eq_enabled = eq_get_enabled();
+	s.peq_enabled = peq_get_enabled();
+	s.peq_profile = peq_get_profile();
+
 	// The app wears the player's own accent.
 	lv_color_t accent = theme()->accent;
 	snprintf(s.accent, sizeof(s.accent), "#%02x%02x%02x", accent.red, accent.green, accent.blue);
@@ -489,6 +495,38 @@ static void apply_command(const sonixlink_command_t *cmd) {
 			audio_set_speed((double)podcast_speed_permille() / 1000.0);
 		}
 		player_refresh_now_playing();
+		break;
+	}
+	case SONIXLINK_CMD_MSEB: {
+		bool current = mseb_get_enabled();
+		bool want = cmd->arg < 0 ? !current : (cmd->arg != 0);
+		if (want != current) {
+			musicsettings_set_mseb_enabled(want);
+		}
+		break;
+	}
+	case SONIXLINK_CMD_EQ: {
+		bool current = eq_get_enabled();
+		bool want = cmd->arg < 0 ? !current : (cmd->arg != 0);
+		if (want != current) {
+			musicsettings_set_eq_enabled(want);
+		}
+		break;
+	}
+	case SONIXLINK_CMD_PEQ: {
+		bool current = peq_get_enabled();
+		bool want = cmd->arg < 0 ? !current : (cmd->arg != 0);
+		if (want != current) {
+			peq_set_enabled(want);
+		}
+		break;
+	}
+	case SONIXLINK_CMD_PEQ_PROFILE: {
+		if (cmd->arg == 1 || cmd->arg == 2) {
+			peq_select_profile(cmd->arg);
+		} else {
+			peq_next_profile();
+		}
 		break;
 	}
 	case SONIXLINK_CMD_PLAY_PATH: {
