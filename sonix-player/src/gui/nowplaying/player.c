@@ -3156,8 +3156,13 @@ static void studio_badges_move(lv_obj_t *parent) {
 		if (marks[i] == live_badge) {
 			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
 			lv_obj_set_style_pad_ver(live_badge, bp_pick(2, 3), 0);
-			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_12 : &font_ui_14, 0);
-			lv_obj_align(live_badge, LV_ALIGN_TOP_LEFT, cover_x + size - (bp_is_tempotec_v1() ? 42 : 56) - inset, by);
+			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_16, 0);
+			lv_obj_update_layout(live_badge);
+			int lw = lv_obj_get_width(live_badge);
+			if (lw <= 0) {
+				lw = bp_is_tempotec_v1() ? 44 : 56;
+			}
+			lv_obj_align(live_badge, LV_ALIGN_TOP_LEFT, cover_x + size - lw - inset, by);
 		} else {
 			lv_image_set_scale(marks[i], scale);
 			lv_obj_align(marks[i], LV_ALIGN_TOP_LEFT, bx, by);

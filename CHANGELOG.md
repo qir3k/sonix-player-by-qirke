@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [v1.1.46] - 2026-11-09
+
+### 🛠️ Fixed & Improved
+- **Compilation & CI Build**:
+  - Fixed undeclared font reference in player.c by referencing standard UI fonts (font_ui_14 on V1, font_ui_16 on V2) with dynamic width layout calculation.
+- **Alternative & Studio Layout Streaming Badges**:
+  - Scaled down badges via lv_image_set_scale to proportional dimensions (26 px on V1, 36 px on V2).
+  - Anchored badges cleanly to top-right corner of album sleeve with proper inset padding; badges dynamically slide with lyrics swipe.
+- **YouTube Music Quality Bitrate**:
+  - Implemented automatic calculation of bitrate from downloaded file size and length when completed, with fallback to nominal quality setting (128 kbps / 256 kbps AAC).
+- **Immersive & Studio Layout Polishing**:
+  - Immersive layout: raised track title, artist, and favorite heart icon higher above bottom sheet border.
+  - Studio layout: enlarged favorite heart icon, applied accent color, enabled album art tinting on controls, and vertically centered audio quality pill.
+  - Expanded hit-test area on top-right 3-dots button.
+  - Wired vinyl record sleeve layout in Music Settings.
+- **Smart Mix Dialog Styling**:
+  - Removed white border on loading modal dialog card.
+- **YouTube Music Podcast Playback**:
+  - Fixed podcast mode detection and restored playback speed control.
+
+---
+
 ## [v1.1.41] - 2026-11-09
 
 ### 🛠️ Fixed
