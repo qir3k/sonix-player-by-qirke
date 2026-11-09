@@ -1,5 +1,7 @@
 #include "screensaver.h"
 
+#include "src/system/addons/addons.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -208,6 +210,7 @@ static bool next_pending; // a request is out with the loader
 // ---------------------------------------------------------------------------
 
 static screensaver_style_t style;
+static screensaver_backdrop_t backdrop_mode;
 static int frame_side; // the sleeve's side, worked out once (see FRAME_MARGIN_SIDE)
 
 // Owned here, like a folder picture: freed here and nowhere else.
@@ -334,6 +337,26 @@ void screensaver_set_source(screensaver_source_t chosen) {
 }
 
 screensaver_style_t screensaver_style(void) { return style; }
+
+
+
+screensaver_backdrop_t screensaver_backdrop(void) { return backdrop_mode; }
+
+bool screensaver_backdrop_is_blur(void) {
+	if (!addons_enabled("visual_effects")) {
+		return false;
+	}
+	return backdrop_mode == SCREENSAVER_BACKDROP_BLUR;
+}
+
+void screensaver_set_backdrop(screensaver_backdrop_t chosen) {
+	backdrop_mode = chosen == SCREENSAVER_BACKDROP_OPACITY ? SCREENSAVER_BACKDROP_OPACITY : SCREENSAVER_BACKDROP_BLUR;
+	config_set_int("screen", "screensaver_backdrop", (int)backdrop_mode);
+	config_save();
+	if (screensaver_is_visible()) {
+		refresh_content();
+	}
+}
 
 void screensaver_set_style(screensaver_style_t chosen) {
 	style = chosen == SCREENSAVER_STYLE_FRAMED ? SCREENSAVER_STYLE_FRAMED : SCREENSAVER_STYLE_FILL;
@@ -610,7 +633,14 @@ static void set_info_strip_backdrop(const lv_image_dsc_t *backdrop) {
 		return;
 	}
 
-	if (theme_is_monochrome()) {
+	if (!screensaver_backdrop_is_blur()) {
+		lv_obj_set_style_bg_image_src(info_strip, NULL, 0);
+		lv_obj_set_style_bg_color(info_strip, lv_color_black(), 0);
+		lv_obj_set_style_bg_opa(info_strip, LV_OPA_60, 0);
+		return;
+	}
+
+	if (theme_is_monochrome() || true) {
 		bool screen_sized = backdrop && (int)backdrop->header.w == screen_w &&
 							(int)backdrop->header.h == screen_h;
 		if (screen_sized) {
@@ -800,7 +830,7 @@ static void draw_framed(const lv_image_dsc_t *backdrop) {
 	// when the player has a screen-sized one. Monochrome themes still colour
 	// the words and the field themselves, but the space around the sleeve
 	// should show the record rather than a flat black page.
-	bool blur = backdrop && (int)backdrop->header.w == screen_w && (int)backdrop->header.h == screen_h;
+	bool blur = screensaver_backdrop_is_blur() && backdrop && (int)backdrop->header.w == screen_w && (int)backdrop->header.h == screen_h;
 	set_page_backdrop(blur ? backdrop : NULL);
 	lv_obj_set_style_bg_opa(cover_box, blur ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
 	set_info_strip_backdrop(NULL); // framed: no strip of its own
@@ -1472,6 +1502,9 @@ void screensaver_init(gui_config_t *cfg) {
 	style = config_get_int("screen", "screensaver_style", SCREENSAVER_STYLE_FILL) == SCREENSAVER_STYLE_FRAMED
 				? SCREENSAVER_STYLE_FRAMED
 				: SCREENSAVER_STYLE_FILL;
+	backdrop_mode = config_get_int("screen", "screensaver_backdrop", SCREENSAVER_BACKDROP_BLUR) == SCREENSAVER_BACKDROP_OPACITY
+						? SCREENSAVER_BACKDROP_OPACITY
+						: SCREENSAVER_BACKDROP_BLUR;
 	cover_box_h = screen_h - strip_h;
 
 	// The framed sleeve's side: the largest square the margins leave inside
@@ -1552,7 +1585,7 @@ void screensaver_init(gui_config_t *cfg) {
 	// the sleeve. A child of the artwork's box, drawn over the sleeve and
 	// under the words (see set_info_strip_backdrop); hidden in every other
 	// theme and in Framed, which have their own backdrop.
-	strip_blur = lv_image_create(cover_box);
+	strip_blur = lv_image_create(saver);
 	lv_obj_set_size(strip_blur, screen_w, strip_h);
 	lv_obj_align(strip_blur, LV_ALIGN_BOTTOM_MID, 0, 0);
 	lv_image_set_inner_align(strip_blur, LV_IMAGE_ALIGN_BOTTOM_MID);

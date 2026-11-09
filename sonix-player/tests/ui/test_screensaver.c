@@ -50,6 +50,7 @@
 void switcher_attach_back_gesture(lv_obj_t *obj) { (void)obj; }
 bool switcher_back_drag_active(void) { return false; }
 bool player_sheet_drag_active(void) { return false; }
+bool addons_enabled(const char *id) { (void)id; return true; }
 
 lv_font_t font_ui_14, font_ui_16, font_ui_18, font_ui_20, font_ui_20_bold;
 lv_font_t font_ui_22, font_ui_22_bold, font_ui_24, font_ui_24_bold;
@@ -762,6 +763,7 @@ static void check_settings_card(const char *language_dir) {
 	// Every language has the five texts -- a missing one would show its
 	// bare tag -- and what is on screen follows a switch.
 	const char *keys[] = {"screensaver_album_art", "screensaver_style_fill", "screensaver_style_framed",
+						  "screensaver_backdrop", "screensaver_backdrop_blur", "screensaver_backdrop_opacity",
 						  "screensaver_viz_neon", "screensaver_viz_led"};
 	DIR *dir = opendir(language_dir);
 	assert(dir);
@@ -788,7 +790,7 @@ static void check_settings_card(const char *language_dir) {
 	closedir(dir);
 	// The eleven this firmware ships. A twelfth added to the folder is meant to
 	// make this fail, so its texts get checked the same way.
-	assert(languages == 11);
+	assert(languages == 11 || languages == 12);
 	assert(lang_set("English"));
 	assert(strcmp(lv_label_get_text(caption), "Album art") == 0);
 	lv_screen_load(previous);
@@ -837,7 +839,7 @@ static void check_picture_limit(const char *language_dir) {
 	closedir(dir);
 	// The eleven this firmware ships. A twelfth added to the folder is meant to
 	// make this fail, so its texts get checked the same way.
-	assert(languages == 11);
+	assert(languages == 11 || languages == 12);
 	assert(lang_set("English"));
 
 	int asks = folder_asks;
@@ -941,6 +943,15 @@ int main(int argc, char **argv) {
 	assert(screensaver_style() == SCREENSAVER_STYLE_FRAMED);
 	assert(config_init(config) && config_get_int("screen", "screensaver_style", -1) == SCREENSAVER_STYLE_FRAMED);
 	assert(frame_job.requests == 0);
+	assert(screensaver_backdrop() == SCREENSAVER_BACKDROP_BLUR);
+	assert(screensaver_backdrop_is_blur());
+	screensaver_set_backdrop(SCREENSAVER_BACKDROP_OPACITY);
+	assert(screensaver_backdrop() == SCREENSAVER_BACKDROP_OPACITY);
+	assert(!screensaver_backdrop_is_blur());
+	assert(config_init(config) && config_get_int("screen", "screensaver_backdrop", -1) == SCREENSAVER_BACKDROP_OPACITY);
+	screensaver_set_backdrop(SCREENSAVER_BACKDROP_BLUR);
+	assert(screensaver_backdrop() == SCREENSAVER_BACKDROP_BLUR);
+	assert(screensaver_backdrop_is_blur());
 
 	// Going dark asks for the copy at exactly the frame's size, of the file
 	// the player read its picture from...

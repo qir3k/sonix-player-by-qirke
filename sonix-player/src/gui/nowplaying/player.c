@@ -20,6 +20,7 @@
 #include "src/gui/fonts/fonts.h"
 #include "src/gui/board_profile.h"
 #include "src/gui/shell/confirm.h"
+#include "src/gui/settings/screensaver.h"
 #include "src/gui/shell/favmark.h"
 #include "src/gui/shell/gui.h"
 #include "src/gui/shell/icons.h"
@@ -554,7 +555,9 @@ static bool backdrop_is_band;
 // blurred sleeve through it, so on this board the screen-sized blur is not
 // wanted while Poster is in force: the sleeve itself covers everything above
 // the deck, and the deck covers the rest.
-static bool backdrop_fills_screen(void) { return layout_studio_now || (backdrop_full && !layout_poster_now); }
+static bool backdrop_fills_screen(void) {
+	return layout_studio_now || backdrop_full || (addons_enabled("visual_effects") && screensaver_backdrop_is_blur());
+}
 
 static double current_total_length = 0; // cached from the last device_state snapshot, so slider math works between polls
 static char progress_label_text[32];
@@ -1693,7 +1696,7 @@ static bool backdrop_blur_wanted(void) { return !theme_is_oled(); }
 // are already clear on this board (compact_clear_style), so there is nothing
 // else to switch.
 static void full_backdrop_apply(void) {
-	if (!backdrop_full || !studio_bg || layout_studio_now || lyrics_look_on) {
+	if (!backdrop_full || !studio_bg || layout_studio_now || lyrics_look_on || layout_poster_now || layout_immersive_now) {
 		return;
 	}
 	bool have = backdrop_blur_wanted() && current_backdrop.pixels != NULL && backdrop_is_full;
@@ -3531,7 +3534,8 @@ static void immersive_blur_apply(void) {
 	if (!immersive_blur) {
 		return;
 	}
-	bool have = layout_immersive_now && !lyrics_look_on && backdrop_is_band && current_backdrop.pixels != NULL;
+	bool have = layout_immersive_now && !lyrics_look_on && (backdrop_is_band || backdrop_is_full) && current_backdrop.pixels != NULL;
+	lv_image_set_inner_align(immersive_blur, LV_IMAGE_ALIGN_BOTTOM_MID);
 	lv_image_set_src(immersive_blur, have ? &current_backdrop.dsc : NULL);
 	lv_obj_set_hidden(immersive_blur, !have);
 	if (have) {
@@ -5023,7 +5027,7 @@ static void reload_cover(const char *filepath) {
 	if (filepath && filepath[0]) {
 		backdrop_is_studio = layout_studio_now;
 		backdrop_is_band = layout_immersive_now;
-		backdrop_is_full = backdrop_fills_screen() && !backdrop_is_band;
+		backdrop_is_full = backdrop_fills_screen();
 		cover_shape_immersive = layout_immersive_now;
 		cover_shape_poster = layout_poster_now;
 		cover_shape_aam = layout_aam_now;
@@ -5031,7 +5035,7 @@ static void reload_cover(const char *filepath) {
 		// looked at rather than looked through, and it is cut from the foot of
 		// the photograph -- the part of it the deck stands over.
 		cover_set_backdrop_upright(backdrop_is_full || backdrop_is_band);
-		cover_set_backdrop_from_bottom(backdrop_is_band);
+		cover_set_backdrop_from_bottom(!backdrop_is_full && backdrop_is_band);
 
 		// The sleeve is asked for at the size the arrangement in force will
 		// draw it. A picture that does not match its widget is resampled by
@@ -5194,11 +5198,11 @@ static void apply_cover_result(void) {
 				// at the foot of the screen under the deck, rather than behind
 				// a page or a block (immersive_blur_apply).
 				immersive_blur_apply();
-			} else if (backdrop_full) {
+			} else if (backdrop_full && !layout_poster_now) {
 				// The screen-sized copy goes behind the whole page; the deck
 				// is clear and shows it through (full_backdrop_apply).
 				full_backdrop_apply();
-			} else {
+			} else if (!layout_poster_now) {
 				lv_obj_set_style_bg_image_src(player_menu, &current_backdrop.dsc, 0);
 			}
 		}
@@ -8170,7 +8174,7 @@ void player_init(gui_config_t *cfg) {
 	immersive_blur = lv_image_create(cover_art_group);
 	lv_obj_set_size(immersive_blur, cover_box_w, menu_height);
 	lv_obj_align(immersive_blur, LV_ALIGN_BOTTOM_MID, 0, 0);
-	lv_image_set_inner_align(immersive_blur, LV_IMAGE_ALIGN_COVER);
+	lv_image_set_inner_align(immersive_blur, LV_IMAGE_ALIGN_BOTTOM_MID);
 	lv_obj_set_clickable(immersive_blur, false);
 	lv_obj_set_hidden(immersive_blur, true);
 

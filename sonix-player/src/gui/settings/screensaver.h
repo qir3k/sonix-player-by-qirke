@@ -97,6 +97,20 @@ typedef enum {
 screensaver_style_t screensaver_style(void);
 void screensaver_set_style(screensaver_style_t style);
 
+// How the screensaver background is drawn when Visual Effects plugin is enabled.
+// Config-backed ("screen"/"screensaver_backdrop").
+//
+// Blurred uses the screen-sized blurred album artwork.
+// Opacity uses the default dimmed opacity field (LV_OPA_60 scrim / flat page ground).
+typedef enum {
+	SCREENSAVER_BACKDROP_BLUR = 0,
+	SCREENSAVER_BACKDROP_OPACITY,
+} screensaver_backdrop_t;
+
+screensaver_backdrop_t screensaver_backdrop(void);
+void screensaver_set_backdrop(screensaver_backdrop_t backdrop);
+bool screensaver_backdrop_is_blur(void);
+
 // Where the card is mounted, for the Screensaver folder below. Called at
 // startup and again whenever a card is attached, like every other module that
 // keeps a path on the card (see card_databases_attach).
