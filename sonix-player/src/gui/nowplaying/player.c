@@ -4635,7 +4635,7 @@ static void vinyl_spin_update(void) {
 	if (should_spin) {
 		lv_anim_t a;
 		lv_anim_init(&a);
-		lv_anim_set_var(&a, vinyl_record.disc ? vinyl_record.disc : cover_panel);
+		lv_anim_set_var(&a, &vinyl_spinning);
 		lv_anim_set_exec_cb(&a, vinyl_spin_anim_cb);
 		lv_anim_set_values(&a, vinyl_spin_angle, vinyl_spin_angle + 3600);
 		lv_anim_set_duration(&a, 2500);
@@ -4643,7 +4643,7 @@ static void vinyl_spin_update(void) {
 		lv_anim_set_path_cb(&a, lv_anim_path_linear);
 		lv_anim_start(&a);
 	} else {
-		lv_anim_delete(vinyl_record.disc ? vinyl_record.disc : cover_panel, vinyl_spin_anim_cb);
+		lv_anim_delete(&vinyl_spinning, vinyl_spin_anim_cb);
 	}
 }
 
@@ -4709,7 +4709,7 @@ static bool vinyl_take_back(void) {
 	vinyl_up = false;
 	vinyl_spinning = false;
 	vinyl_spin_angle = 0;
-	lv_anim_delete(vinyl_record.disc ? vinyl_record.disc : cover_panel, vinyl_spin_anim_cb);
+	lv_anim_delete(&vinyl_spinning, vinyl_spin_anim_cb);
 	if (cover_img) {
 		lv_image_set_rotation(cover_img, 0);
 	}
@@ -4850,6 +4850,7 @@ static void apply_layout(void) {
 		lv_obj_set_hidden(song_text_obj, false);
 
 		if (fav_btn_obj && song_side_obj) {
+			const bool compact = bp_is_tempotec_v1();
 			lv_obj_set_parent(fav_btn_obj, song_side_obj);
 			lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 			lv_obj_move_to_index(fav_btn_obj, 0);
