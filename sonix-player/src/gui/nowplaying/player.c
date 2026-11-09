@@ -89,6 +89,7 @@ static lv_obj_t *fav_btn_icon; // the heart, in every layout
 
 static void update_fav_button(void);
 static void update_speed_button(void);
+static void update_qobuz_badge(void);
 
 // Whether what the player holds is a YouTube Music song, and its video id: the
 // key the player keeps its likes under.
@@ -5379,7 +5380,6 @@ static void player_refresh_theme(void) {
 	}
 }
 
-static void update_qobuz_badge(void);
 static bool podcast_current_feed(long long *id_out, podcast_feed_t *feed_out);
 
 static const char *shown_player_artist(const device_state_t *state) {
