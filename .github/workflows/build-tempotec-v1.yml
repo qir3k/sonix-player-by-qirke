@@ -485,7 +485,7 @@ jobs:
           NEW_TAG: ${{ steps.version.outputs.new_tag }}
         run: |
           set -euo pipefail
-          if [ -f "RELEASE_NOTES.md" ]; then
+          if [ -f "RELEASE_NOTES.md" ] && grep -q "${NEW_TAG}" "RELEASE_NOTES.md"; then
             cat "RELEASE_NOTES.md" > "$RUNNER_TEMP/release-notes.md"
           else
             if git rev-parse -q --verify "refs/tags/${OLD_TAG}^{commit}" >/dev/null; then
