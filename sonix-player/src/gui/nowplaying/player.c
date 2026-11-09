@@ -492,6 +492,7 @@ static void align_title_with_star(void);
 // words' page (immersive_blur_apply).
 static void immersive_deck_clear(void);
 static void immersive_blur_apply(void);
+static void compact_place_sleeve(void);
 static lv_obj_t *alt_text_col;	// the two pills, stacked at the foot of the sleeve
 static lv_obj_t *alt_title_pill;
 static lv_obj_t *alt_artist_pill;
