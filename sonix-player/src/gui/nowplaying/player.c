@@ -750,7 +750,7 @@ static void apply_audiobook_mode(bool book, bool podcast) {
 	// The audiobook glyphs include a 50 px artwork canvas, wider than the
 	// compact player's 42 px skip buttons. Scale only those alternate glyphs
 	// on the V1; the regular 34 px track-skip icons keep their original size.
-	int skip_icon_scale = skips && bp_is_tempotec_v1() ? 192 : 256;
+	int skip_icon_scale = skips && bp_is_tempotec_v1() ? 176 : 256;
 	if (prev_icon) {
 		lv_image_set_src(prev_icon, !skips                            ? &icon_skip_back
 									: back == AUDIOBOOK_SKIP_HUGE ? &icon_prev_60
@@ -3166,6 +3166,8 @@ static void studio_badges_move(lv_obj_t *parent) {
 			lv_obj_align(live_badge, LV_ALIGN_TOP_LEFT, cover_x + size - lw - inset, by);
 		} else {
 			lv_image_set_scale(marks[i], scale);
+			lv_image_set_pivot(marks[i], 0, 0);
+			lv_obj_set_size(marks[i], badge_w, badge_w);
 			lv_obj_align(marks[i], LV_ALIGN_TOP_LEFT, bx, by);
 		}
 		lv_obj_move_foreground(marks[i]);
@@ -3384,6 +3386,8 @@ static void studio_take_back(void) {
 					lv_obj_set_style_text_font(live_badge, &font_ui_18, 0);
 				} else {
 					lv_image_set_scale(marks[i], 256);
+					lv_image_set_pivot(marks[i], 26, 26);
+					lv_obj_set_size(marks[i], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 				}
 				lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
 			}
@@ -3452,8 +3456,8 @@ static void studio_put(void) {
 	if (fav_btn_obj && controls_row) {
 		lv_obj_set_parent(fav_btn_obj, controls_row);
 		lv_obj_set_ignore_layout(fav_btn_obj, true);
-		lv_obj_set_size(fav_btn_obj, compact ? COMPACT_MORE_BTN : 76, compact ? COMPACT_MORE_BTN : 76);
-		lv_obj_set_ext_click_area(fav_btn_obj, compact ? COMPACT_MORE_BTN_EXT_CLICK : CORNER_BTN_EXT_CLICK);
+		lv_obj_set_size(fav_btn_obj, compact ? COMPACT_CORNER_BTN : 76, compact ? COMPACT_CORNER_BTN : 76);
+		lv_obj_set_ext_click_area(fav_btn_obj, compact ? COMPACT_CORNER_BTN_EXT_CLICK : CORNER_BTN_EXT_CLICK);
 		lv_obj_align(fav_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
 	}
 
@@ -5614,8 +5618,14 @@ static void update_fav_button(void) {
 		favorite_color = theme_player_chrome_color(THEME_PLAYER_CHROME_MUTED);
 	} else if (starred) {
 		favorite_color = chrome_accent();
+	} else if (layout_studio_now) {
+		favorite_color = (cover_tint && album_tone)
+							 ? chrome_accent()
+							 : theme_player_chrome_color(THEME_PLAYER_CHROME_PRIMARY);
+	} else if (layout_alt_now) {
+		favorite_color = (cover_tint && album_tone) ? chrome_accent() : alt_ink();
 	} else {
-		favorite_color = layout_alt_now ? alt_ink() : lv_color_make(150, 150, 150);
+		favorite_color = (cover_tint && album_tone) ? chrome_accent() : lv_color_make(150, 150, 150);
 	}
 
 	// The one mark everywhere: the heart the control centre, the library and
