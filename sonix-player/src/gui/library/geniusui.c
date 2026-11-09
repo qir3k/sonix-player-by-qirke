@@ -192,6 +192,7 @@ static void genius_cancel_button(lv_obj_t *parent) {
 	lv_obj_add_style(row, &theme_style_card_pressed, LV_STATE_PRESSED);
 	lv_obj_set_style_radius(row, 12, 0);
 	lv_obj_set_style_border_width(row, 0, 0);
+	lv_obj_set_style_outline_width(row, 0, 0);
 	lv_obj_set_style_shadow_width(row, 0, 0);
 	lv_obj_set_style_pad_hor(row, bp_pick(10, 16), 0);
 	lv_obj_set_scrollable(row, false);
@@ -294,11 +295,16 @@ static void genius_begin(const char *seed_path, genius_mode_t mode, const char *
 	lv_obj_set_scrollable(genius_ui.overlay, false);
 	lv_obj_t *card = lv_obj_create(genius_ui.overlay);
 	lv_obj_set_size(card, bp_pick(210, 380), LV_SIZE_CONTENT);
-	lv_obj_add_style(card, &theme_style_screen, 0);
+	lv_obj_add_style(card, &theme_style_card, 0);
+	lv_obj_set_style_radius(card, bp_pick(bp_tile_radius(), 16), 0);
+	lv_obj_set_style_border_width(card, 0, 0);
+	lv_obj_set_style_outline_width(card, 0, 0);
+	lv_obj_set_style_shadow_width(card, 0, 0);
 	lv_obj_set_style_pad_all(card, bp_pick(14, 20), 0);
 	lv_obj_set_style_pad_gap(card, bp_pick(12, 20), 0);
 	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	lv_obj_set_scrollable(card, false);
 	lv_obj_center(card);
 	lv_obj_t *spinner = spinner_create(card, &icon_loader_big);
 	lv_obj_set_size(spinner, bp_pick(36, 48), bp_pick(36, 48));
