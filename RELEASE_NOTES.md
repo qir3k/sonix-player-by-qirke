@@ -1,30 +1,24 @@
-# Sonix OS v1.2.7 for TempoTec Variations V1
+# Sonix OS v1.2.8 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.2.7
+## 🛠️ Critical Fixes & Improvements in v1.2.8
 
-### 1. Gramophone Turntable Vinyl Layout Overhaul
-- **Root Cause**: Previously, the vinyl layout placed a square sleeve at the top (`VINYL_TOP = 10`) with only a bottom crescent of the vinyl disc peeking out underneath (`VINYL_PEEK_PERCENT`). The disc was static and partially cut off, the album art was square, and large streaming badges (e.g. YouTube Music, Tidal) spilled over the disc and cover frame.
+### 1. Gramophone Vinyl Layout Album Art Centering Fix
+- **Root Cause**: In Vinyl layout, `compact_place_sleeve()` had previously anchored `cover_art_group` to `LV_ALIGN_TOP_MID`. When `vinyl_put()` subsequently called `lv_obj_set_pos()`, LVGL applied the coordinates as an additional offset relative to `TOP_MID`, adding the horizontal center offset twice and displacing the circular cover art far to the top-right of the turntable.
 - **Resolution**:
-  - **Gramophone Turntable Design**: Completely redesigned the Vinyl player layout to look like an authentic gramophone turntable:
-    - Album art is now displayed as a circular center label (`LV_RADIUS_CIRCLE`) centered directly on the black vinyl record disc with a dynamic perimeter ring tinted in the active theme/artwork accent (`chrome_accent()`).
-    - Added 4 realistic concentric sound grooves (`grooves[4]`) and a subtle ambient light reflection (`shine`) across the vinyl surface.
-    - Added an authentic silver-rimmed center spindle pin hole (`spindle`) positioned directly over the center label axis.
-    - Streaming badges (YouTube Music, Tidal, Podcasts, Qobuz) are neatly positioned in the top-right corner (`-10, 10`) of the artwork panel with full clearance of the disc.
+  - Anchored `cover_art_group`, `vinyl_record.disc`, and `vinyl_record.spindle` explicitly to `LV_ALIGN_TOP_LEFT` using calculated box bounds.
+  - The circular album art now sits perfectly concentric in the dead center of the vinyl grooves and spindle hole.
 
-### 2. Seamless Vinyl Layout Switching & State Restoration Fix
-- **Root Cause**: When switching away from Vinyl layout to any other layout (Standard, Poster, Alternative, Studio, Immersive), `vinyl_put()` had left `cover_art_w`, `cover_art_h`, and `cover_art_group` shrunken to the small center label diameter (110 px), with circular radiuses and 2 px border. `vinyl_take_back()` never restored sleeve dimensions or removed the border, and `update_layout()` lacked `cover_shape_vinyl` tracking, leaving the cover image cached at small label resolution and corrupting subsequent layouts until a device reboot.
+### 2. Universal Favorite Heart Symbol Right-Alignment (Standard, Poster & Vinyl Layouts)
+- **Root Cause**: While Immersive layout used a compact 26 px button with `translate_x = 2` to align the heart flush with the right edge of the audio format line, Standard and Vinyl layouts kept a wider 34 px button with centered icon (shifting the heart 6 px to the left), and Poster layout had overridden column alignment to `LV_FLEX_ALIGN_START` (nearly centering the heart on the screen).
 - **Resolution**:
-  - `vinyl_take_back()` thoroughly restores sleeve dimensions (`compact_sleeve_side()`), border width (0), sleeve corner radius (`bp_is_tempotec_v1() ? 14 : 18`), centered image alignment, and resets placeholder geometry.
-  - Integrated `cover_shape_vinyl` tracking in `update_layout()` and `reload_cover()` to automatically trigger full-resolution cover image re-decoding whenever switching between Vinyl and standard rectangular sleeve arrangements.
+  - Reverted Poster layout to `LV_FLEX_ALIGN_END` and unified `fav_btn_obj` to 26 px width (`COMPACT_FAV_BTN_H 22`) with `translate_x = 2` and 8 px extended click padding across Standard, Poster, Vinyl, and Immersive layouts.
+  - The favorite heart is now pixel-perfect, right-aligned flush with the audio format label across all player layouts.
 
-### 3. Transport Controls & Podcast Seek Margin Spacing
-- **Root Cause**: In compact deck layouts (especially when playing podcasts or audiobooks in Studio and Standard layouts), the 42 px skip buttons (`COMPACT_SKIP_BTN`) with 8 px gap filled 144 px of the 216 px row, leaving exactly 36 px on each side. Because the corner buttons (speed indicator, repeat, and favorite heart) are also 36 px wide, the 30-second forward seek button (`(30)`) and the favorite heart touched with 0 px separation.
+### 3. Top-Right Three-Dots Menu Button Touch Interception Fix (Studio & Alternative Layouts)
+- **Root Cause**: The invisible pull-down gesture strip (`top_edge`), positioned at the very top of `player_screen` across the entire 240 px width, was moved to the foreground and captured `LV_EVENT_PRESSED`. This absorbed screen taps intended for the top-right overflow button (`more_btn_obj`) in the header bar, making the three dots almost impossible to trigger without swiping beneath the top strip.
 - **Resolution**:
-  - Refined `COMPACT_SKIP_BTN` to 38 px and column padding to 6 px.
-  - The centered transport now measures 132 px wide (38 + 6 + 44 + 6 + 38), leaving 42 px on each side and creating an exact, comfortable 6 px visual margin between transport buttons (`(10)`, `(30)`) and corner controls (speed gauge, repeat, and favorite heart).
-
-### 4. Build System & Compilation Stability
-- Forward-declared `compact_sleeve_side()` in `player.c` to maintain strict C99 compliance and ensure reliable cross-compilation across MIPS toolchains.
+  - Added an advanced hit-test handler (`top_edge_hit_test_cb`) using `LV_EVENT_HIT_TEST` on `top_edge`.
+  - Touches aimed at `more_btn_obj` (and `lyrics_find_btn`) bypass `top_edge` entirely (`info->res = false`), providing instant, effortless tap responsiveness with a generous 16 px touch radius.
 
 ---
 

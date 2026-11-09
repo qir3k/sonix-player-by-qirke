@@ -96,7 +96,7 @@ void vinyl_record_apply(vinyl_record_t *r, const vinyl_box_t *b, lv_color_t rim)
 		return;
 	int d = b->record_d;
 	lv_obj_set_size(r->disc, d, d);
-	lv_obj_set_pos(r->disc, b->record_x, b->record_y);
+	lv_obj_align(r->disc, LV_ALIGN_TOP_LEFT, b->record_x, b->record_y);
 	lv_obj_set_style_border_color(r->disc, rim, 0);
 
 	/* Concentric grooves between disc rim and center label */
@@ -123,7 +123,7 @@ void vinyl_record_apply(vinyl_record_t *r, const vinyl_box_t *b, lv_color_t rim)
 	if (r->spindle) {
 		int sp_d = 12;
 		lv_obj_set_size(r->spindle, sp_d, sp_d);
-		lv_obj_set_pos(r->spindle, b->record_cx - sp_d / 2, b->record_cy - sp_d / 2);
+		lv_obj_align(r->spindle, LV_ALIGN_TOP_LEFT, b->record_cx - sp_d / 2, b->record_cy - sp_d / 2);
 		lv_obj_clear_flag(r->spindle, LV_OBJ_FLAG_HIDDEN);
 	}
 

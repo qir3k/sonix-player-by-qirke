@@ -3465,8 +3465,13 @@ static void studio_take_back(void) {
 	if (fav_btn_obj) {
 		// Laid out by its row again: the next step decides which row that is.
 		lv_obj_set_ignore_layout(fav_btn_obj, false);
-		lv_obj_set_size(fav_btn_obj, compact ? 34 : 48, compact ? COMPACT_FAV_BTN_H : 44);
-		lv_obj_set_ext_click_area(fav_btn_obj, 0);
+		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
+	}
+	if (fav_btn_icon) {
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
+		lv_obj_center(fav_btn_icon);
 	}
 }
 
@@ -3699,14 +3704,14 @@ static bool immersive_take_back(void) {
 		lv_obj_move_to_index(player_menu, immersive_menu_index);
 	}
 	if (fav_btn_icon) {
-		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
 		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
 		lv_obj_center(fav_btn_icon);
 	}
 	if (fav_btn_obj) {
 		const bool compact = bp_is_tempotec_v1();
-		lv_obj_set_size(fav_btn_obj, compact ? 34 : 48, compact ? COMPACT_FAV_BTN_H : 44);
-		lv_obj_set_ext_click_area(fav_btn_obj, 0);
+		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
 	}
 	cover_show(current_cover.pixels != NULL);
 	return true;
@@ -3798,18 +3803,22 @@ static void poster_put(void) {
 		lv_obj_set_style_bg_opa(player_menu, LV_OPA_COVER, 0);
 	}
 
-	// Align the favourite heart to the left edge of the sound quality line
-	// in the poster arrangement.
+	// Right-align favourite heart flush with sound quality line in poster arrangement.
 	if (song_side_obj) {
-		lv_obj_set_flex_align(song_side_obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+		lv_obj_set_flex_align(song_side_obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+	}
+	if (fav_btn_obj) {
+		const bool compact = bp_is_tempotec_v1();
+		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
 	}
 	if (fav_btn_icon) {
-		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
 		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
-		lv_obj_align(fav_btn_icon, LV_ALIGN_LEFT_MID, 0, 0);
+		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
+		lv_obj_center(fav_btn_icon);
 	}
 	if (format_label) {
-		lv_obj_set_style_text_align(format_label, LV_TEXT_ALIGN_LEFT, 0);
+		lv_obj_set_style_text_align(format_label, LV_TEXT_ALIGN_RIGHT, 0);
 	}
 
 	placeholder_rescale();
@@ -3842,9 +3851,14 @@ static bool poster_take_back(void) {
 	if (song_side_obj) {
 		lv_obj_set_flex_align(song_side_obj, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
 	}
+	if (fav_btn_obj) {
+		const bool compact = bp_is_tempotec_v1();
+		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
+	}
 	if (fav_btn_icon) {
-		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
 		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
 		lv_obj_center(fav_btn_icon);
 	}
 	if (format_label) {
@@ -4604,7 +4618,7 @@ static void vinyl_put(void) {
 
 	/* Circular album art in the center of the vinyl record */
 	lv_obj_set_size(cover_art_group, b.art_side, b.art_side);
-	lv_obj_set_pos(cover_art_group, b.art_x, b.art_y);
+	lv_obj_align(cover_art_group, LV_ALIGN_TOP_LEFT, b.art_x, b.art_y);
 	lv_obj_set_style_radius(cover_art_group, LV_RADIUS_CIRCLE, 0);
 	lv_obj_set_style_clip_corner(cover_art_group, true, 0);
 	lv_obj_set_style_border_width(cover_art_group, 2, 0);
@@ -7266,6 +7280,41 @@ static void sheet_drag_cb(lv_event_t *e) {
 // Vertical dominance is required before it engages: a sideways drag across the
 // top of the artwork is somebody putting the player away, not somebody reaching
 // for the brightness or the records.
+static void top_edge_hit_test_cb(lv_event_t *e) {
+	lv_hit_test_info_t *info = lv_event_get_hit_test_info(e);
+	if (!info) {
+		return;
+	}
+	const lv_point_t *p = info->point;
+	// Do not intercept touches over the top-right menu button (more_btn_obj)
+	// when it is in the top header (Studio layout, AAM, etc.)
+	if (more_btn_obj && !lv_obj_is_hidden(more_btn_obj) &&
+	    (lv_obj_get_parent(more_btn_obj) == studio_head || (aam_top && lv_obj_get_parent(more_btn_obj) == aam_top))) {
+		lv_area_t coords;
+		lv_obj_get_coords(more_btn_obj, &coords);
+		coords.x1 -= 16;
+		coords.y1 -= 16;
+		coords.x2 += 16;
+		coords.y2 += 16;
+		if (p->x >= coords.x1 && p->x <= coords.x2 && p->y >= coords.y1 && p->y <= coords.y2) {
+			info->res = false;
+			return;
+		}
+	}
+	if (lyrics_find_btn && !lv_obj_is_hidden(lyrics_find_btn)) {
+		lv_area_t coords;
+		lv_obj_get_coords(lyrics_find_btn, &coords);
+		coords.x1 -= 12;
+		coords.y1 -= 12;
+		coords.x2 += 12;
+		coords.y2 += 12;
+		if (p->x >= coords.x1 && p->x <= coords.x2 && p->y >= coords.y1 && p->y <= coords.y2) {
+			info->res = false;
+			return;
+		}
+	}
+}
+
 static void player_top_sheet_pull_cb(lv_event_t *e) {
 	static lv_point_t start;
 	static bool tracking;
@@ -7780,7 +7829,8 @@ void player_init(gui_config_t *cfg) {
 
 	lv_obj_t *fav_btn = lv_btn_create(song_side);
 	fav_btn_obj = fav_btn;
-	lv_obj_set_size(fav_btn, compact ? 34 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+	lv_obj_set_size(fav_btn, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+	lv_obj_set_ext_click_area(fav_btn, bp_pick(8, 0));
 	lv_obj_set_style_bg_opa(fav_btn, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(fav_btn, 0, 0);
 	lv_obj_set_style_shadow_width(fav_btn, 0, 0);
@@ -7788,6 +7838,7 @@ void player_init(gui_config_t *cfg) {
 	lv_obj_add_event_cb(fav_btn, fav_btn_event_cb, LV_EVENT_CLICKED, NULL);
 
 	fav_btn_icon = lv_image_create(fav_btn);
+	lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
 	lv_obj_center(fav_btn_icon);
 	update_fav_button(); // which owns the marker's shape and size from here on
 
@@ -8398,6 +8449,8 @@ void player_init(gui_config_t *cfg) {
 	lv_obj_set_pos(top_edge, 0, 0);
 	lv_obj_set_scrollable(top_edge, false);
 	lv_obj_set_clickable(top_edge, true);
+	lv_obj_set_adv_hittest(top_edge, true);
+	lv_obj_add_event_cb(top_edge, top_edge_hit_test_cb, LV_EVENT_HIT_TEST, NULL);
 	lv_obj_add_event_cb(top_edge, player_top_sheet_pull_cb, LV_EVENT_PRESSED, NULL);
 	lv_obj_add_event_cb(top_edge, player_top_sheet_pull_cb, LV_EVENT_PRESSING, NULL);
 	lv_obj_add_event_cb(top_edge, player_top_sheet_pull_cb, LV_EVENT_RELEASED, NULL);
