@@ -511,6 +511,7 @@ static void immersive_deck_clear(void);
 static void immersive_blur_apply(void);
 static void compact_place_sleeve(void);
 static int compact_sleeve_side(void);
+static void vinyl_spin_update(void);
 static lv_obj_t *alt_text_col;	// the two pills, stacked at the foot of the sleeve
 static lv_obj_t *alt_title_pill;
 static lv_obj_t *alt_artist_pill;
@@ -951,7 +952,10 @@ static sleeptimer_kind_t sleeptimer_kind_playing(void) {
 	return SLEEPTIMER_MUSIC;
 }
 
+static audio_status_t player_current_status = AUDIO_STATUS_STOPPED;
+
 static void apply_playback_status(audio_status_t status) {
+	player_current_status = status;
 	bool playing = (status == AUDIO_STATUS_PLAYING);
 
 	// The glyph is the accent colour, always: play and pause are the same
@@ -1006,6 +1010,7 @@ static void apply_playback_status(audio_status_t status) {
 			lv_timer_pause(sleep_timer);
 		}
 	}
+	vinyl_spin_update();
 }
 
 // "3/24": which track of the queue is playing.
@@ -2258,8 +2263,14 @@ static void lyrics_star_to_head(bool up) {
 		lv_obj_set_parent(fav_btn_obj, lyrics_head);
 		lv_obj_align(fav_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
 	} else {
-		lv_obj_set_parent(fav_btn_obj, alt_fav_circle);
+			lv_obj_set_parent(fav_btn_obj, alt_fav_circle);
+			lv_obj_set_size(fav_btn_obj, alt_fav_size, alt_fav_size);
 		lv_obj_center(fav_btn_obj);
+		if (fav_btn_icon) {
+			lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
+			lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+			lv_obj_center(fav_btn_icon);
+		}
 	}
 }
 
@@ -3465,7 +3476,7 @@ static void studio_take_back(void) {
 	if (fav_btn_obj) {
 		// Laid out by its row again: the next step decides which row that is.
 		lv_obj_set_ignore_layout(fav_btn_obj, false);
-		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+			lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
 	}
 	if (fav_btn_icon) {
@@ -3710,7 +3721,7 @@ static bool immersive_take_back(void) {
 	}
 	if (fav_btn_obj) {
 		const bool compact = bp_is_tempotec_v1();
-		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+			lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
 	}
 	cover_show(current_cover.pixels != NULL);
@@ -3809,7 +3820,7 @@ static void poster_put(void) {
 	}
 	if (fav_btn_obj) {
 		const bool compact = bp_is_tempotec_v1();
-		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+			lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
 	}
 	if (fav_btn_icon) {
@@ -3853,7 +3864,7 @@ static bool poster_take_back(void) {
 	}
 	if (fav_btn_obj) {
 		const bool compact = bp_is_tempotec_v1();
-		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+			lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
 	}
 	if (fav_btn_icon) {
@@ -4591,6 +4602,51 @@ static void vinyl_badges_apply(void) {
 	}
 }
 
+static bool vinyl_spinning;
+static int32_t vinyl_spin_angle;
+static int vinyl_cached_art_side;
+
+static void vinyl_spin_anim_cb(void *var, int32_t val) {
+	(void)var;
+	vinyl_spin_angle = val % 3600;
+	if (layout_vinyl_now && vinyl_up) {
+		if (vinyl_record.shine) {
+			lv_obj_set_style_transform_rotation(vinyl_record.shine, -150 + vinyl_spin_angle, 0);
+		}
+		int pivot = vinyl_cached_art_side > 0 ? vinyl_cached_art_side / 2 : 50;
+		if (cover_img && !lv_obj_is_hidden(cover_img)) {
+			lv_image_set_pivot(cover_img, pivot, pivot);
+			lv_image_set_rotation(cover_img, vinyl_spin_angle);
+		}
+		if (cover_placeholder_icon && !lv_obj_is_hidden(cover_placeholder_icon)) {
+			lv_image_set_pivot(cover_placeholder_icon, pivot, pivot);
+			lv_image_set_rotation(cover_placeholder_icon, vinyl_spin_angle);
+		}
+	}
+}
+
+static void vinyl_spin_update(void) {
+	bool playing = (player_current_status == AUDIO_STATUS_PLAYING);
+	bool should_spin = layout_vinyl_now && vinyl_up && sheet_open && playing;
+	if (should_spin == vinyl_spinning) {
+		return;
+	}
+	vinyl_spinning = should_spin;
+	if (should_spin) {
+		lv_anim_t a;
+		lv_anim_init(&a);
+		lv_anim_set_var(&a, vinyl_record.disc ? vinyl_record.disc : cover_panel);
+		lv_anim_set_exec_cb(&a, vinyl_spin_anim_cb);
+		lv_anim_set_values(&a, vinyl_spin_angle, vinyl_spin_angle + 3600);
+		lv_anim_set_duration(&a, 2500);
+		lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+		lv_anim_set_path_cb(&a, lv_anim_path_linear);
+		lv_anim_start(&a);
+	} else {
+		lv_anim_delete(vinyl_record.disc ? vinyl_record.disc : cover_panel, vinyl_spin_anim_cb);
+	}
+}
+
 static void vinyl_put(void) {
 	if (!cover_panel || !cover_art_group) {
 		return;
@@ -4642,6 +4698,8 @@ static void vinyl_put(void) {
 	placeholder_place();
 	cover_show(current_cover.pixels != NULL);
 	lyrics_layout();
+	vinyl_cached_art_side = b.art_side;
+	vinyl_spin_update();
 }
 
 static bool vinyl_take_back(void) {
@@ -4649,6 +4707,18 @@ static bool vinyl_take_back(void) {
 		return false;
 	}
 	vinyl_up = false;
+	vinyl_spinning = false;
+	vinyl_spin_angle = 0;
+	lv_anim_delete(vinyl_record.disc ? vinyl_record.disc : cover_panel, vinyl_spin_anim_cb);
+	if (cover_img) {
+		lv_image_set_rotation(cover_img, 0);
+	}
+	if (cover_placeholder_icon) {
+		lv_image_set_rotation(cover_placeholder_icon, 0);
+	}
+	if (vinyl_record.shine) {
+		lv_obj_set_style_transform_rotation(vinyl_record.shine, -150, 0);
+	}
 	if (vinyl_record.disc) {
 		lv_obj_set_hidden(vinyl_record.disc, true);
 	}
@@ -4737,7 +4807,13 @@ static void apply_layout(void) {
 
 		if (fav_btn_obj && alt_fav_circle) {
 			lv_obj_set_parent(fav_btn_obj, alt_fav_circle);
+			lv_obj_set_size(fav_btn_obj, alt_fav_size, alt_fav_size);
 			lv_obj_center(fav_btn_obj);
+		}
+		if (fav_btn_icon) {
+			lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
+			lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+			lv_obj_center(fav_btn_icon);
 		}
 		if (format_label) {
 			lv_obj_set_hidden(format_label, true); // the sleeve is not the place for a bitrate
@@ -4775,7 +4851,12 @@ static void apply_layout(void) {
 
 		if (fav_btn_obj && song_side_obj) {
 			lv_obj_set_parent(fav_btn_obj, song_side_obj);
+			lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 			lv_obj_move_to_index(fav_btn_obj, 0);
+		}
+		if (fav_btn_icon) {
+			lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
+			lv_obj_center(fav_btn_icon);
 		}
 		if (format_label) {
 			lv_obj_set_hidden(format_label, false);
@@ -7094,6 +7175,7 @@ void player_sheet_open(bool animate) {
 		sheet_under = lv_screen_active();
 	}
 	sheet_open = true;
+	vinyl_spin_update();
 	back_btn_player_mode(true);
 	lyrics_screen_hold_update();
 	update_qobuz_badge();
@@ -7135,6 +7217,7 @@ static void sheet_hidden_anim_ready_cb(lv_anim_t *a) {
 void player_sheet_close(bool animate) {
 	bool was_open = sheet_open;
 	sheet_open = false;
+	vinyl_spin_update();
 	back_btn_player_ink_inset(0); // the chevron back in the middle of its slot
 	back_btn_player_mode(false);
 	lyrics_screen_hold_update();

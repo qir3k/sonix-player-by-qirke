@@ -36,8 +36,8 @@ vinyl_box_t vinyl_layout_box(int screen_w, int screen_h, int deck_h) {
 	b.record_x = b.record_cx - max_d / 2;
 	b.record_y = b.record_cy - max_d / 2;
 
-	/* Circular center label (album art): 50% of disc diameter */
-	int label_d = (max_d * 50 / 100) & ~1;
+	/* Circular center label (album art): 68% of disc diameter */
+	int label_d = (max_d * 68 / 100) & ~1;
 	if (label_d < 30) {
 		label_d = 30;
 	}
@@ -115,8 +115,8 @@ void vinyl_record_apply(vinyl_record_t *r, const vinyl_box_t *b, lv_color_t rim)
 		mark_h = 4;
 	lv_obj_set_size(r->shine, mark_w, mark_h);
 	lv_obj_set_pos(r->shine, d / 2 + label_d / 2 + 3, d / 2 - mark_h / 2);
-	lv_obj_set_style_transform_pivot_x(r->shine, lv_pct(50), 0);
-	lv_obj_set_style_transform_pivot_y(r->shine, lv_pct(50), 0);
+	lv_obj_set_style_transform_pivot_x(r->shine, -(label_d / 2 + 3), 0);
+	lv_obj_set_style_transform_pivot_y(r->shine, mark_h / 2, 0);
 	lv_obj_set_style_transform_rotation(r->shine, -150, 0);
 
 	/* Spindle center hole */

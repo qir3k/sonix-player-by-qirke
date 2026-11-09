@@ -1793,8 +1793,19 @@ static void order_apply(void) {
 		}
 	}
 
-		int extra = at > QP_SLOT_VISIBLE ? at - QP_SLOT_VISIBLE : 0;
+	int extra = at > QP_SLOT_VISIBLE ? at - QP_SLOT_VISIBLE : 0;
 	button_page_count = extra > 0 ? 2 : 1;
+	int first_count = at < QP_SLOT_VISIBLE ? at : QP_SLOT_VISIBLE;
+	if (quick_row) {
+		bool quick_single_row = (first_count <= 4);
+		lv_obj_set_flex_align(quick_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+									  quick_single_row ? LV_FLEX_ALIGN_CENTER : LV_FLEX_ALIGN_START);
+	}
+	if (extra_row) {
+		bool extra_single_row = (extra <= 4);
+		lv_obj_set_flex_align(extra_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+									  extra_single_row ? LV_FLEX_ALIGN_CENTER : LV_FLEX_ALIGN_START);
+	}
 	expand_full = 0;
 	expand_h = 0;
 
