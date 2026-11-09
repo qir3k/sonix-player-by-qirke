@@ -2335,6 +2335,9 @@ static void lyrics_progress_apply(int32_t progress) {
 	// sibling at the same centre point.
 	lyrics_shift(cover_art_group, away);
 	lyrics_shift(cover_placeholder_icon, away);
+	if (layout_vinyl_now && vinyl_record.disc) {
+		lyrics_shift(vinyl_record.disc, away);
+	}
 	if (!layout_alt_now) {
 		return; // the names stay in their row below the sleeve
 	}
@@ -4439,6 +4442,28 @@ static void aam_build(void) {
 	}
 }
 
+static void vinyl_badges_apply(void) {
+	int badge_w = bp_pick(26, 36);
+	int inset = bp_pick(6, 10);
+	int scale = badge_w * 256 / 52;
+	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
+	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
+		if (!marks[i]) {
+			continue;
+		}
+		if (marks[i] == live_badge) {
+			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
+			lv_obj_set_style_pad_ver(live_badge, bp_pick(2, 3), 0);
+			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_16, 0);
+		} else {
+			lv_image_set_scale(marks[i], scale);
+			lv_image_set_pivot(marks[i], 0, 0);
+			lv_obj_set_size(marks[i], badge_w, badge_w);
+		}
+		lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -inset, inset);
+	}
+}
+
 static void vinyl_put(void) {
 	if (!cover_panel || !cover_art_group) {
 		return;
@@ -4456,19 +4481,21 @@ static void vinyl_put(void) {
 	cover_art_w = b.art_side;
 	cover_art_h = b.art_side;
 	lv_obj_set_size(cover_panel, screen_w, cover_box_h);
-	lv_obj_set_pos(cover_panel, 0, 0);
+	lv_obj_align(cover_panel, LV_ALIGN_TOP_MID, 0, 0);
 	lv_obj_set_size(cover_art_group, b.art_side, b.art_side);
-	lv_obj_set_pos(cover_art_group, b.art_x, b.art_y);
+	lv_obj_align(cover_art_group, LV_ALIGN_TOP_MID, 0, b.art_y);
 	lv_obj_set_style_radius(cover_art_group, VINYL_ART_RADIUS, 0);
 	lv_obj_set_style_radius(cover_img, VINYL_ART_RADIUS, 0);
 	lv_obj_set_size(player_menu, screen_w, menu_height);
-	lv_obj_set_pos(player_menu, 0, b.deck_y);
+	lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
 	if (vinyl_record.disc) {
 		vinyl_record_apply(&vinyl_record, &b, chrome_accent());
 		lv_obj_move_to_index(vinyl_record.disc, 0);
 	}
+	vinyl_badges_apply();
 	placeholder_rescale();
 	placeholder_place();
+	cover_show(current_cover.pixels != NULL);
 	lyrics_layout();
 }
 
@@ -4483,7 +4510,30 @@ static bool vinyl_take_back(void) {
 	if (cover_art_group) {
 		lv_obj_set_style_radius(cover_art_group, bp_is_tempotec_v1() ? 14 : 18, 0);
 		lv_obj_set_style_radius(cover_img, bp_is_tempotec_v1() ? 14 : 18, 0);
+		compact_place_sleeve();
 	}
+	if (cover_panel) {
+		lv_obj_align(cover_panel, LV_ALIGN_TOP_MID, 0, 0);
+	}
+	if (player_menu) {
+		lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
+	}
+	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
+	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
+		if (marks[i]) {
+			if (marks[i] == live_badge) {
+				lv_obj_set_style_pad_hor(live_badge, 10, 0);
+				lv_obj_set_style_pad_ver(live_badge, 5, 0);
+				lv_obj_set_style_text_font(live_badge, &font_ui_18, 0);
+			} else {
+				lv_image_set_scale(marks[i], 256);
+				lv_image_set_pivot(marks[i], 26, 26);
+				lv_obj_set_size(marks[i], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+			}
+			lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
+		}
+	}
+	cover_show(current_cover.pixels != NULL);
 	return true;
 }
 
@@ -5549,6 +5599,8 @@ static void update_qobuz_badge(void) {
 	}
 	if (layout_studio_now) {
 		studio_badges_move(NULL);
+	} else if (layout_vinyl_now) {
+		vinyl_badges_apply();
 	}
 }
 
@@ -7308,6 +7360,8 @@ static void placeholder_place(void) {
 		// The frame IS the picture here -- the panel is placed at the sleeve's
 		// own box -- so the panel's middle is the sleeve's middle.
 		dy = 0;
+	} else if (layout_vinyl_now) {
+		dy = VINYL_TOP + cover_art_h / 2 - cover_box_h / 2;
 	} else if (bp_is_tempotec_v1()) {
 		dy = compact_sleeve_top() + cover_art_h / 2 - cover_box_h / 2;
 	}
@@ -7329,8 +7383,6 @@ static void player_apply_geometry(bool force) {
 	}
 
 	if (layout_vinyl_now) {
-		vinyl_put();
-		full_backdrop_apply();
 		return;
 	}
 
@@ -7390,7 +7442,9 @@ static void player_apply_geometry(bool force) {
 	backdrop_h = menu_height;
 
 	lv_obj_set_size(player_menu, cover_box_w, menu_height);
+	lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
 	lv_obj_set_size(cover_panel, cover_box_w, cover_box_h);
+	lv_obj_align(cover_panel, LV_ALIGN_TOP_MID, 0, 0);
 	lv_obj_set_size(cover_art_group, cover_art_w, cover_art_h);
 	compact_place_sleeve();
 	lv_obj_center(cover_img);
