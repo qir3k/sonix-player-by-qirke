@@ -1,6 +1,6 @@
-# Sonix OS v1.2.6 for TempoTec Variations V1
+# Sonix OS v1.2.7 for TempoTec Variations V1
 
-## 🛠️ Fixes & Improvements in v1.2.6
+## 🛠️ Fixes & Improvements in v1.2.7
 
 ### 1. Gramophone Vinyl Player Layout Overhaul
 - **Gramophone LP Design**: Completely redesigned the Vinyl player layout to look like an authentic gramophone turntable:
