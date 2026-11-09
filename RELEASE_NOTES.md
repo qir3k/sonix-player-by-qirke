@@ -17,14 +17,20 @@
   - Preserved right-aligned `translate_x = 2` flush positioning when returning to Standard, Poster, Vinyl, and Immersive layouts.
 
 ### 3. Control Center (Quick Panel) Page 2 Vertical Centering
-- **Root Cause**: In the Quick Panel swipeable button grid, `quick_row` and `extra_row` were statically configured with `LV_FLEX_ALIGN_START` for track cross alignment. When Page 2 contained only a single button or row (≤ 4 buttons), items were pinned to the top ceiling of the grid with an empty lower row area.
+- **Root Cause**: In the Quick Panel swipeable button grid, `quick_row` and `extra_row` were statically configured with `LV_FLEX_ALIGN_START` for track cross alignment. When Page 2 contained only a single button or row (≤ 4 buttons, e.g. a standalone library rescan button), items were pinned to the top ceiling of the grid with an empty lower row area.
 - **Resolution**:
   - In `order_apply()`, dynamically evaluate the button counts for both pages: if Page 2 (or Page 1) has only one row (≤ 4 buttons), `lv_obj_set_flex_align` sets `LV_FLEX_ALIGN_CENTER` on the cross axis, centering the row vertically in the card.
   - When 2 full rows (5–8 buttons) are present, alignment seamlessly uses `LV_FLEX_ALIGN_START`, ensuring identical appearance across fully-populated pages.
 
+### 4. Build System & Compilation Stability
+- **Root Cause**: In `apply_layout()` in `player.c`, the `compact` layout flag was not locally declared during favorite button sizing, triggering a fatal MIPS GCC compilation error on strict toolchains.
+- **Resolution**:
+  - Declared `const bool compact = bp_is_tempotec_v1();` matching the codebase standard across player layouts.
+  - Bound the vinyl animation lifecycle cleanly to static persistent storage (`&vinyl_spinning`) for guaranteed deletion on playback state transitions.
+
 ---
 
-## 📦 Flashing Instructions
+## 💾 Flashing Instructions
 1. Download `v1.upt` and verify its MD5 against `v1_md5.txt`.
 2. Copy `v1.upt` to the root directory of a FAT32/exFAT formatted MicroSD card.
 3. Insert the card into your TempoTec Variations V1 and select **System Update** from the recovery or settings menu.
