@@ -305,9 +305,9 @@ static void genius_begin(const char *seed_path, genius_mode_t mode, const char *
 	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
 	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	lv_obj_set_scrollable(card, false);
+	lv_obj_set_overflow_visible(card, true);
 	lv_obj_center(card);
-	lv_obj_t *spinner = spinner_create(card, &icon_loader_big);
-	lv_obj_set_size(spinner, bp_pick(36, 48), bp_pick(36, 48));
+	spinner_create(card, &icon_loader_big);
 	lv_obj_t *label = lv_label_create(card);
 	lv_label_set_text(label, tr("smartmix_building"));
 	lv_obj_set_width(label, lv_pct(100));
