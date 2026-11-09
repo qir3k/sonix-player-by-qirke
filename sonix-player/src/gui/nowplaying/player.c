@@ -441,6 +441,8 @@ static bool layout_aam_now;		  // and for the sixth: the sleeve over the page, t
 // layout, and kept when the words are shown over it.
 static bool layout_wave_now;
 static bool layout_vinyl_now;
+static vinyl_record_t vinyl_record;
+static int compact_deck_height(bool alternative);
 
 // AAM keeps the shell's status bar, which the player otherwise hides so the
 // artwork can reach the bezel; this is its height, kept from the board profile
@@ -1759,7 +1761,6 @@ static int menu_height;
 
 static lv_obj_t *immersive_blur; // the frosted foot the deck stands on
 static bool immersive_up;
-static vinyl_record_t vinyl_record;
 static bool vinyl_up;
 static void vinyl_put(void);
 static bool vinyl_take_back(void);
@@ -3177,6 +3178,7 @@ static void studio_place(void) {
 		return;
 	}
 
+	const bool compact = bp_is_tempotec_v1();
 	int screen_w = studio_box_w;
 	int head_top = back_btn_centre_y() - STUDIO_HEAD_H / 2;
 	if (head_top < 0) {
@@ -3334,6 +3336,7 @@ static void studio_take_back(void) {
 	if (!studio_box) {
 		return;
 	}
+	const bool compact = bp_is_tempotec_v1();
 	lv_obj_set_hidden(studio_box, true);
 	if (studio_bg) {
 		lv_obj_set_hidden(studio_bg, true);
@@ -3407,6 +3410,7 @@ static void studio_put(void) {
 	if (!studio_box) {
 		return;
 	}
+	const bool compact = bp_is_tempotec_v1();
 
 	if (song_title_label) {
 		lv_obj_set_parent(song_title_label, studio_text_col);
