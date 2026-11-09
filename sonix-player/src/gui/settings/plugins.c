@@ -37,7 +37,7 @@ static void addon_switch_cb(lv_event_t *e) {
 	if (!on && strncmp(id, "layout_", sizeof("layout_") - 1) == 0) {
 		static const char *const layouts[] = {
 			"layout_standard", "layout_waveform", "layout_alternative",
-			"layout_immersive", "layout_poster", "layout_aam",
+			"layout_immersive", "layout_poster", "layout_aam", "layout_vinyl",
 		};
 		bool another_enabled = false;
 		for (size_t i = 0; i < sizeof(layouts) / sizeof(layouts[0]); i++) {

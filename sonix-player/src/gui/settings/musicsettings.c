@@ -1712,6 +1712,7 @@ static lv_obj_t *layout_studio_pill;
 static lv_obj_t *layout_immersive_pill;
 static lv_obj_t *layout_poster_pill;
 static lv_obj_t *layout_aam_pill; // only built on the V1, the panel it is measured for
+static lv_obj_t *layout_vinyl_pill;
 // Album Art Max's own row: the band along the foot of the sleeve or up its left
 // edge. Shown only while that arrangement is the chosen one, and only where it
 // is offered at all -- it says nothing about the other five.
@@ -1740,6 +1741,7 @@ static void layout_refresh(void) {
 	if (layout_aam_pill) {
 		settingsrow_pill_active(layout_aam_pill, chosen == PLAYER_LAYOUT_ALBUM_ART_MAX);
 	}
+	if (layout_vinyl_pill) settingsrow_pill_active(layout_vinyl_pill, chosen == PLAYER_LAYOUT_VINYL);
 	aam_leftie_show();
 }
 
@@ -2532,6 +2534,10 @@ static void build_display_page(gui_config_t *cfg) {
 	if (player_layout_enabled(PLAYER_LAYOUT_ALBUM_ART_MAX)) {
 		layout_aam_pill = settingsrow_pill(layout_pills, "musicsettings_layout_aam",
 										   PLAYER_LAYOUT_ALBUM_ART_MAX, layout_pick_cb);
+	}
+	if (player_layout_enabled(PLAYER_LAYOUT_VINYL)) {
+		layout_vinyl_pill = settingsrow_pill(layout_pills, "musicsettings_layout_vinyl",
+											 PLAYER_LAYOUT_VINYL, layout_pick_cb);
 	}
 
 	layout_refresh();

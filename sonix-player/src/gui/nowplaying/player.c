@@ -12,6 +12,7 @@
 #include "src/gui/library/audiobookextras.h"
 #include "src/gui/nowplaying/chapters.h"
 #include "src/gui/nowplaying/aamlayout.h"
+#include "src/gui/nowplaying/vinylayout.h"
 #include "src/gui/nowplaying/cover.h"
 #include "src/gui/nowplaying/coverloader.h"
 #include "src/gui/nowplaying/lyricsearch.h"
@@ -439,6 +440,7 @@ static bool layout_aam_now;		  // and for the sixth: the sleeve over the page, t
 // The shape of the track and the sleeve's colour: up with the alternative
 // layout, and kept when the words are shown over it.
 static bool layout_wave_now;
+static bool layout_vinyl_now;
 
 // AAM keeps the shell's status bar, which the player otherwise hides so the
 // artwork can reach the bezel; this is its height, kept from the board profile
@@ -1463,6 +1465,14 @@ static void paint_transport_tint(void) {
 	paint_progress_tint();
 	wave_drawn = -1; // the bars, where they are up, are the old colour
 	lyrics_repaint_lit(); // the sung line wears it too
+	update_fav_button();
+	if (layout_vinyl_now && vinyl_record.disc) {
+		int screen_w = (int)lv_obj_get_width(player_screen);
+		int screen_h = (int)lv_obj_get_height(player_screen);
+		int deck_h = compact_deck_height(false);
+		vinyl_box_t b = vinyl_layout_box(screen_w, screen_h, deck_h);
+		vinyl_record_apply(&vinyl_record, &b, chrome_accent());
+	}
 }
 
 // Hides the artist's pill when there is no artist. An empty pill is a blank
@@ -1749,6 +1759,10 @@ static int menu_height;
 
 static lv_obj_t *immersive_blur; // the frosted foot the deck stands on
 static bool immersive_up;
+static vinyl_record_t vinyl_record;
+static bool vinyl_up;
+static void vinyl_put(void);
+static bool vinyl_take_back(void);
 // Where the controls' block sat among the page's children before this
 // arrangement lifted it to the front, so putting it down again is putting it
 // back and not merely below the picture (see immersive_take_back()).
@@ -3136,8 +3150,8 @@ static void studio_place(void) {
 
 	int screen_w = studio_box_w;
 	int head_top = back_btn_centre_y() - STUDIO_HEAD_H / 2;
-	if (head_top < 2) {
-		head_top = 2;
+	if (head_top < 0) {
+		head_top = 0;
 	}
 
 	int cover_y = 0;
@@ -3146,8 +3160,8 @@ static void studio_place(void) {
 
 	int cover_x = (screen_w - size) / 2;
 
-	lv_obj_set_pos(studio_head, STUDIO_INFO_MARGIN, head_top);
-	lv_obj_set_size(studio_head, screen_w - 2 * STUDIO_INFO_MARGIN, STUDIO_HEAD_H);
+	lv_obj_set_pos(studio_head, 0, head_top);
+	lv_obj_set_size(studio_head, screen_w, STUDIO_HEAD_H);
 
 	studio_badges_move(NULL, head_top + STUDIO_HEAD_H + STUDIO_BADGE_GAP);
 
@@ -3160,12 +3174,19 @@ static void studio_place(void) {
 	lv_obj_set_pos(studio_empty, cover_x, cover_y);
 	studio_empty_rescale(); // the mark scales with the square it sits in
 
-	// The line under the sleeve is as wide as the panel, not as wide as the
-	// sleeve: on the V1 the sleeve is narrower than "24/176.4 FLAC", and a
-	// line laid out at the sleeve's width clipped the format and the mark.
-	// Centred, so the mark stays under the middle of the sleeve.
+	// The line under the sleeve: vertically centered between the sleeve and the seek bar
+	int clock_h = LV_MAX(lv_font_get_line_height(bp_time_font()), lv_font_get_line_height(bp_queue_label_font()));
+	int deck_controls_h = (compact ? COMPACT_DECK_PAD_BOTTOM : PLAYER_MENU_PAD_VER) +
+						  COMPACT_PLAY_BTN + menu_gap + clock_h + menu_gap + PROGRESS_TRACK_HEIGHT;
+	int slider_top = (int)lv_obj_get_height(player_screen) - deck_controls_h;
+	int cover_bottom = cover_y + size;
+	int space = slider_top - cover_bottom;
+	int quality_y = cover_bottom + (space - STUDIO_QUALITY_H) / 2;
+	if (quality_y < cover_bottom + 2) {
+		quality_y = cover_bottom + 2;
+	}
 	lv_obj_set_size(studio_quality, screen_w - 2 * STUDIO_INFO_MARGIN, STUDIO_QUALITY_H);
-	lv_obj_set_pos(studio_quality, STUDIO_INFO_MARGIN, cover_y + size + STUDIO_QUALITY_GAP);
+	lv_obj_set_pos(studio_quality, STUDIO_INFO_MARGIN, quality_y);
 
 	lyrics_layout();
 }
@@ -3334,11 +3355,15 @@ static void studio_take_back(void) {
 	if (more_btn_obj && controls_row) {
 		lv_obj_set_parent(more_btn_obj, controls_row);
 		lv_obj_set_ignore_layout(more_btn_obj, true);
+		lv_obj_set_size(more_btn_obj, compact ? COMPACT_MORE_BTN : 76, compact ? COMPACT_MORE_BTN : 76);
+		lv_obj_set_ext_click_area(more_btn_obj, compact ? COMPACT_MORE_BTN_EXT_CLICK : CORNER_BTN_EXT_CLICK);
 		lv_obj_align(more_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
 	}
 	if (fav_btn_obj) {
 		// Laid out by its row again: the next step decides which row that is.
 		lv_obj_set_ignore_layout(fav_btn_obj, false);
+		lv_obj_set_size(fav_btn_obj, compact ? 34 : 48, compact ? COMPACT_FAV_BTN_H : 44);
+		lv_obj_set_ext_click_area(fav_btn_obj, 0);
 	}
 }
 
@@ -3379,11 +3404,16 @@ static void studio_put(void) {
 	if (more_btn_obj && studio_head) {
 		lv_obj_set_parent(more_btn_obj, studio_head);
 		lv_obj_set_ignore_layout(more_btn_obj, true);
+		lv_obj_set_size(more_btn_obj, bp_pick(48, 76), STUDIO_HEAD_H);
+		lv_obj_set_ext_click_area(more_btn_obj, 16);
 		lv_obj_align(more_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
+		lv_obj_move_foreground(more_btn_obj);
 	}
 	if (fav_btn_obj && controls_row) {
 		lv_obj_set_parent(fav_btn_obj, controls_row);
 		lv_obj_set_ignore_layout(fav_btn_obj, true);
+		lv_obj_set_size(fav_btn_obj, compact ? COMPACT_MORE_BTN : 76, compact ? COMPACT_MORE_BTN : 76);
+		lv_obj_set_ext_click_area(fav_btn_obj, compact ? COMPACT_MORE_BTN_EXT_CLICK : CORNER_BTN_EXT_CLICK);
 		lv_obj_align(fav_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
 	}
 
@@ -3510,6 +3540,7 @@ static void immersive_put(void) {
 	// over the controls it is the ground for. Where it was is written down
 	// above, on the way in.
 	if (player_menu) {
+		lv_obj_set_style_pad_top(player_menu, COMPACT_DECK_PAD_TOP + 8, 0);
 		lv_obj_move_foreground(player_menu);
 	}
 	// The frosted foot, at the deck's new rectangle: up if a band is on hand,
@@ -3542,6 +3573,7 @@ static bool immersive_take_back(void) {
 
 	lv_obj_remove_local_style_prop(cover_panel, LV_STYLE_BG_OPA, 0);
 	if (player_menu) {
+		lv_obj_set_style_pad_top(player_menu, COMPACT_DECK_PAD_TOP, 0);
 		lv_obj_remove_local_style_prop(player_menu, LV_STYLE_BG_OPA, 0);
 		lv_obj_remove_local_style_prop(player_menu, LV_STYLE_BG_IMAGE_OPA, 0);
 		// Back where the page was built with it: the block is a child of the
@@ -4363,6 +4395,54 @@ static void aam_build(void) {
 	}
 }
 
+static void vinyl_put(void) {
+	if (!cover_panel || !cover_art_group) {
+		return;
+	}
+	vinyl_up = true;
+	int screen_w = (int)lv_obj_get_width(player_screen);
+	int screen_h = (int)lv_obj_get_height(player_screen);
+	if (screen_w <= 0 || screen_h <= 0) {
+		return;
+	}
+	int deck_h = compact_deck_height(false);
+	vinyl_box_t b = vinyl_layout_box(screen_w, screen_h, deck_h);
+	menu_height = screen_h - b.deck_y;
+	cover_box_h = b.deck_y;
+	cover_art_w = b.art_side;
+	cover_art_h = b.art_side;
+	lv_obj_set_size(cover_panel, screen_w, cover_box_h);
+	lv_obj_set_pos(cover_panel, 0, 0);
+	lv_obj_set_size(cover_art_group, b.art_side, b.art_side);
+	lv_obj_set_pos(cover_art_group, b.art_x, b.art_y);
+	lv_obj_set_style_radius(cover_art_group, VINYL_ART_RADIUS, 0);
+	lv_obj_set_style_radius(cover_img, VINYL_ART_RADIUS, 0);
+	lv_obj_set_size(player_menu, screen_w, menu_height);
+	lv_obj_set_pos(player_menu, 0, b.deck_y);
+	if (vinyl_record.disc) {
+		vinyl_record_apply(&vinyl_record, &b, chrome_accent());
+		lv_obj_move_to_index(vinyl_record.disc, 0);
+	}
+	placeholder_rescale();
+	placeholder_place();
+	lyrics_layout();
+}
+
+static bool vinyl_take_back(void) {
+	if (!vinyl_up) {
+		return false;
+	}
+	vinyl_up = false;
+	if (vinyl_record.disc) {
+		lv_obj_set_hidden(vinyl_record.disc, true);
+	}
+	if (cover_art_group) {
+		lv_obj_set_style_radius(cover_art_group, bp_is_tempotec_v1() ? 14 : 18, 0);
+		lv_obj_set_style_radius(cover_img, bp_is_tempotec_v1() ? 14 : 18, 0);
+	}
+	return true;
+}
+
 static void apply_layout(void) {
 	if (!alt_title_pill || !song_text_obj) {
 		return;
@@ -4375,12 +4455,13 @@ static void apply_layout(void) {
 	bool was_immersive = immersive_take_back();
 	bool was_poster = poster_take_back();
 	bool was_aam = aam_take_back();
+	bool was_vinyl = vinyl_take_back();
 
 	// The panel split follows the arrangement (the alternative one leaves the
 	// names on the sleeve, so its deck is shorter and the sleeve taller).
 	// Before the pill room is worked out below, which is measured from the
 	// sleeve.
-	player_apply_geometry(was_immersive || was_poster || was_aam);
+	player_apply_geometry(was_immersive || was_poster || was_aam || was_vinyl);
 
 	if (layout_alt_now) {
 		// A pill each, and not one pill with two lines in it: the title and the
@@ -4489,6 +4570,9 @@ static void apply_layout(void) {
 		immersive_put(); // which places the words' page with it
 	} else if (layout_studio_now) {
 		studio_put(); // likewise, through studio_place()
+	} else if (layout_vinyl_now) {
+		vinyl_put();
+		full_backdrop_apply();
 	} else {
 		if (layout_poster_now) {
 			poster_put(); // which places the words' page with it
@@ -4548,9 +4632,11 @@ static void update_layout(const device_state_t *state) {
 	bool aam = layout_choice == PLAYER_LAYOUT_ALBUM_ART_MAX && bp_is_tempotec_v1();
 	bool wave = layout_choice == PLAYER_LAYOUT_ALTERNATIVE && local;
 	bool alt = wave;
+	bool vinyl = layout_choice == PLAYER_LAYOUT_VINYL;
 
 	if (studio == layout_studio_now && immersive == layout_immersive_now && poster == layout_poster_now &&
 		aam == layout_aam_now && alt == layout_alt_now && wave == layout_wave_now &&
+		vinyl == layout_vinyl_now &&
 		lyrics == lyrics_allowed && alt_title_pill) {
 		return;
 	}
@@ -4560,6 +4646,7 @@ static void update_layout(const device_state_t *state) {
 	layout_aam_now = aam;
 	layout_alt_now = alt;
 	layout_wave_now = wave;
+	layout_vinyl_now = vinyl;
 	lyrics_allowed = lyrics;
 	// Up only with words for this very file; while they are still being read,
 	// as they were, so a track change does not take the page down and up again.
@@ -5483,7 +5570,7 @@ static void update_fav_button(void) {
 	} else if (theme_is_monochrome()) {
 		favorite_color = theme_player_chrome_color(THEME_PLAYER_CHROME_MUTED);
 	} else if (starred) {
-		favorite_color = lv_color_make(246, 211, 45); // Adwaita yellow
+		favorite_color = chrome_accent();
 	} else {
 		favorite_color = layout_alt_now ? alt_ink() : lv_color_make(150, 150, 150);
 	}
@@ -5503,9 +5590,11 @@ static void update_fav_button(void) {
 	// as one of three marks in a row of its own, all of them AAM_HEAD_GLYPH
 	// px, so it takes that size rather than the deck's.
 	lv_image_set_scale(fav_btn_icon, layout_aam_now ? AAM_STAR_SCALE
-											: layout_poster_now
-												? bp_pick(POSTER_HEART_SCALE, POSTER_HEART_SCALE_WIDE)
-												: bp_pick(FAV_HEART_SCALE, FAV_HEART_SCALE_WIDE));
+											: layout_studio_now
+												? 256
+												: layout_poster_now
+													? bp_pick(POSTER_HEART_SCALE, POSTER_HEART_SCALE_WIDE)
+													: bp_pick(FAV_HEART_SCALE, FAV_HEART_SCALE_WIDE));
 	lv_obj_set_style_image_recolor(fav_btn_icon, favorite_color, 0);
 	lv_obj_set_style_image_recolor_opa(fav_btn_icon, LV_OPA_COVER, 0);
 }
@@ -6493,6 +6582,8 @@ bool player_layout_enabled(player_layout_t layout) {
 		return addons_enabled("layout_poster");
 	case PLAYER_LAYOUT_ALBUM_ART_MAX:
 		return bp_is_tempotec_v1() && addons_enabled("layout_aam");
+	case PLAYER_LAYOUT_VINYL:
+		return addons_enabled("layout_vinyl");
 	default:
 		return false;
 	}
@@ -6502,6 +6593,7 @@ static player_layout_t first_enabled_layout(void) {
 	static const player_layout_t layouts[] = {
 		PLAYER_LAYOUT_POSTER, PLAYER_LAYOUT_STANDARD, PLAYER_LAYOUT_ALTERNATIVE,
 		PLAYER_LAYOUT_STUDIO, PLAYER_LAYOUT_IMMERSIVE, PLAYER_LAYOUT_ALBUM_ART_MAX,
+		PLAYER_LAYOUT_VINYL,
 	};
 	for (size_t i = 0; i < sizeof(layouts) / sizeof(layouts[0]); i++) {
 		if (player_layout_enabled(layouts[i])) {
@@ -7081,7 +7173,8 @@ static int compact_deck_height(bool alternative) {
 		int info_h = LV_MAX(title_h + artist_h, COMPACT_FAV_BTN_H + format_h);
 		first = info_h + COMPACT_DECK_GAP + PROGRESS_TRACK_HEIGHT;
 	}
-	return COMPACT_DECK_PAD_TOP + first + COMPACT_DECK_GAP + clock_h + COMPACT_DECK_GAP + COMPACT_PLAY_BTN +
+	int pad_top = COMPACT_DECK_PAD_TOP + (layout_immersive_now ? 8 : 0);
+	return pad_top + first + COMPACT_DECK_GAP + clock_h + COMPACT_DECK_GAP + COMPACT_PLAY_BTN +
 		   COMPACT_DECK_PAD_BOTTOM + COMPACT_DECK_SLACK;
 }
 
@@ -7166,6 +7259,12 @@ static void placeholder_place(void) {
 // it were the whole screen.
 static void player_apply_geometry(bool force) {
 	if (!player_menu || !cover_panel || !bp_is_tempotec_v1()) {
+		return;
+	}
+
+	if (layout_vinyl_now) {
+		vinyl_put();
+		full_backdrop_apply();
 		return;
 	}
 
@@ -7900,6 +7999,11 @@ void player_init(gui_config_t *cfg) {
 	// meeting them at a line. Over the artwork's frame and under the words'
 	// page built below; hidden except when Poster has a sleeve to melt
 	// (poster_fade_apply, from cover_show).
+	vinyl_record_build(&vinyl_record, cover_panel);
+	if (vinyl_record.disc) {
+		lv_obj_set_hidden(vinyl_record.disc, true);
+	}
+
 	poster_fade = lv_obj_create(cover_panel);
 	lv_obj_set_size(poster_fade, cover_box_w, POSTER_FADE_HEIGHT);
 	lv_obj_align(poster_fade, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -8075,7 +8179,7 @@ void player_init(gui_config_t *cfg) {
 	aam_leftie = config_get_bool("screen", "player_aam_leftie", false);
 	int saved = (int)config_get_int("screen", "player_layout_alt", PLAYER_LAYOUT_POSTER);
 	player_layout_t requested =
-		(saved >= PLAYER_LAYOUT_STANDARD && saved <= PLAYER_LAYOUT_ALBUM_ART_MAX)
+		(saved >= PLAYER_LAYOUT_STANDARD && saved <= PLAYER_LAYOUT_VINYL)
 			? (player_layout_t)saved
 			: first_enabled_layout();
 	layout_choice = player_layout_enabled(requested) ? requested : first_enabled_layout();
@@ -8086,6 +8190,7 @@ void player_init(gui_config_t *cfg) {
 	layout_immersive_now = false;
 	layout_poster_now = false;
 	layout_aam_now = false;
+	layout_vinyl_now = false;
 	apply_layout();
 
 	theme_register_refresh(player_refresh_theme);

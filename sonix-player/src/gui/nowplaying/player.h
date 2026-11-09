@@ -88,6 +88,7 @@ typedef enum {
 	PLAYER_LAYOUT_IMMERSIVE = 3, // the sleeve from edge to edge, the controls on a fade over it
 	PLAYER_LAYOUT_POSTER = 4,	 // the sleeve at the width of the screen, whole from side to side, the deck below it
 	PLAYER_LAYOUT_ALBUM_ART_MAX = 5, // the sleeve over the screen, the media controls traded for it
+	PLAYER_LAYOUT_VINYL = 6,         // classic vinyl record sleeve layout
 } player_layout_t;
 
 player_layout_t player_layout_get(void);
