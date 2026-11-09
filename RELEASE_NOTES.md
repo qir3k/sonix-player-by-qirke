@@ -1,6 +1,6 @@
-# Sonix OS v1.2.3 for TempoTec Variations V1
+# Sonix OS v1.2.4 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.2.3
+## 🛠️ Critical Fixes & Improvements in v1.2.4
 
 ### 1. Three-Dots Menu Button Centering & Symmetry (Immersive, Standard & Waveform Layouts)
 - **Root Cause**: The bottom controls row (`player_controls_buttons`) sized the rightmost overflow/three-dots button (`more_btn_obj`) at 44 px wide (`COMPACT_MORE_BTN`) while the mirrored shuffle/repeat button (`repeat_btn_obj`) on the left was 36 px wide (`COMPACT_CORNER_BTN`). Because both corner buttons are edge-aligned (`LV_ALIGN_LEFT_MID` and `LV_ALIGN_RIGHT_MID`), the 44 px button placed the centered three-dots icon 22 px from the row edge, shifting it 4 px to the left compared to the shuffle icon (18 px from the edge) and making it noticeably off-center across the Immersive, Standard, and Waveform layouts.
