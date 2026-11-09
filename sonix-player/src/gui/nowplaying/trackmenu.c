@@ -35,6 +35,7 @@
 #include "src/gui/streaming/podcastpage.h"
 #include "src/system/streaming/podcastcache.h"
 #include "src/system/streaming/qobuzcache.h"
+#include "src/system/decode/growfile.h"
 #include "src/system/streaming/streamkeep.h"
 #include "src/system/streaming/tidalcache.h"
 #include "src/system/streaming/ytmusic.h"
@@ -1110,20 +1111,28 @@ static void details_rebuild(void) {
 	bool lossy = audio_stream_is_lossy();
 	int kbps = audio_get_stream_bitrate_kbps();
 
-	// A YouTube Music song is still arriving while it plays: the average is no
-	// use there, and the instance's own figure is what the stream is.
-	if (lossy && kbps <= 0 && ytmusic_cache_owns(state.current_file)) {
+	bool is_yt = state.current_file[0] && ytmusic_cache_owns(state.current_file);
+	if (lossy && kbps <= 0 && is_yt) {
 		kbps = ytmusic_last_bitrate_kbps();
 	}
 
-	// As in the player: when the file declares no bitrate, fall back to the real
-	// average, but only for a local file -- a streamed one may still be half
-	// downloaded and the number would climb by itself.
-	if (lossy && kbps <= 0 && !qobuzcache_owns(state.current_file) && !tidalcache_owns(state.current_file) &&
-		!ytmusic_cache_owns(state.current_file) && state.progress_total_secs > 0.5) {
+	if (lossy && kbps <= 0 && !growfile_is_growing(state.current_file) &&
+		!qobuzcache_owns(state.current_file) && !tidalcache_owns(state.current_file) &&
+		state.progress_total_secs > 0.5) {
 		struct stat st_lossy;
 		if (stat(state.current_file, &st_lossy) == 0 && st_lossy.st_size > 0) {
 			kbps = (int)((double)st_lossy.st_size * 8.0 / state.progress_total_secs / 1000.0 + 0.5);
+		}
+	}
+
+	if (lossy && kbps <= 0 && is_yt) {
+		kbps = ytmusic_quality_high() ? 256 : 128;
+	}
+	if (is_yt && kbps > 0) {
+		if (kbps >= 110 && kbps <= 150) {
+			kbps = 128;
+		} else if (kbps >= 220 && kbps <= 280) {
+			kbps = 256;
 		}
 	}
 

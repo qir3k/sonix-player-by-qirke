@@ -2323,6 +2323,10 @@ static void lyrics_progress_apply(int32_t progress) {
 		lyrics_shift(studio_cover, away);
 		lyrics_shift(studio_empty, away);
 		lyrics_shift(studio_quality, away);
+		lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
+		for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
+			lyrics_shift(marks[i], away);
+		}
 		return;
 	}
 	// The clipped group carries the sleeve, source badges, and alternative
@@ -3129,7 +3133,18 @@ static int studio_cover_geometry(int *top_out) {
 //
 // `parent` of NULL leaves them where they are and only re-places them, which
 // is what studio_place() wants on a relayout.
-static void studio_badges_move(lv_obj_t *parent, int y) {
+static void studio_badges_move(lv_obj_t *parent) {
+	int cover_y = 0;
+	int size = studio_cover_geometry(&cover_y);
+	int screen_w = studio_box_w;
+	int cover_x = (screen_w - size) / 2;
+
+	int badge_w = bp_pick(26, 36);
+	int inset = bp_pick(6, 10);
+	int bx = cover_x + size - badge_w - inset;
+	int by = cover_y + inset;
+	int scale = badge_w * 256 / 52;
+
 	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
 	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
 		if (!marks[i]) {
@@ -3138,7 +3153,16 @@ static void studio_badges_move(lv_obj_t *parent, int y) {
 		if (parent) {
 			lv_obj_set_parent(marks[i], parent);
 		}
-		lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -STUDIO_INFO_MARGIN, y);
+		if (marks[i] == live_badge) {
+			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
+			lv_obj_set_style_pad_ver(live_badge, bp_pick(2, 3), 0);
+			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_12 : &font_ui_14, 0);
+			lv_obj_align(live_badge, LV_ALIGN_TOP_LEFT, cover_x + size - (bp_is_tempotec_v1() ? 42 : 56) - inset, by);
+		} else {
+			lv_image_set_scale(marks[i], scale);
+			lv_obj_align(marks[i], LV_ALIGN_TOP_LEFT, bx, by);
+		}
+		lv_obj_move_foreground(marks[i]);
 	}
 }
 
@@ -3163,7 +3187,7 @@ static void studio_place(void) {
 	lv_obj_set_pos(studio_head, 0, head_top);
 	lv_obj_set_size(studio_head, screen_w, STUDIO_HEAD_H);
 
-	studio_badges_move(NULL, head_top + STUDIO_HEAD_H + STUDIO_BADGE_GAP);
+	studio_badges_move(NULL);
 
 	lv_obj_set_size(studio_cover, size, size);
 	lv_obj_set_pos(studio_cover, cover_x, cover_y);
@@ -3346,6 +3370,13 @@ static void studio_take_back(void) {
 		for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
 			if (marks[i]) {
 				lv_obj_set_parent(marks[i], cover_art_group);
+				if (marks[i] == live_badge) {
+					lv_obj_set_style_pad_hor(live_badge, 10, 0);
+					lv_obj_set_style_pad_ver(live_badge, 5, 0);
+					lv_obj_set_style_text_font(live_badge, &font_ui_18, 0);
+				} else {
+					lv_image_set_scale(marks[i], 256);
+				}
 				lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
 			}
 		}
@@ -3417,9 +3448,9 @@ static void studio_put(void) {
 		lv_obj_align(fav_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
 	}
 
-	// Onto the panel, so they draw over the sleeve rather than under it, and
-	// below the ellipsis. studio_place() settles where.
-	studio_badges_move(studio_box, 0);
+	// Onto the panel, so they draw over the sleeve rather than under it.
+	// studio_place() settles where.
+	studio_badges_move(studio_box);
 
 	// The blurred sleeve is the whole background here, so everything that would
 	// otherwise cover it gets out of the way: the two panels' own fills, the
@@ -5503,6 +5534,9 @@ static void update_qobuz_badge(void) {
 			lv_obj_set_hidden(ytmusic_badge, true);
 		}
 	}
+	if (layout_studio_now) {
+		studio_badges_move(NULL);
+	}
 }
 
 // Repaints the favourite marker: a filled heart when the loaded track is a
@@ -5789,23 +5823,36 @@ static void update_format_label(const device_state_t *state) {
 		// screen until the download finished and it settled.
 		int kbps = audio_get_stream_bitrate_kbps();
 
+		bool is_yt = (state->current_file[0] && ytmusic_cache_owns(state->current_file)) || current_yt_song(NULL, 0);
+
 		// A YouTube Music song arrives in chunks while it plays, so its file
 		// is a fraction of itself for the first minute: size over length read
 		// as "3 kbps AAC" on screen. What the instance said the stream is is
 		// the only honest figure there, so it stands in -- and the average is
 		// left out of it altogether.
-		if (kbps <= 0 && ytmusic_cache_owns(state->current_file)) {
+		if (kbps <= 0 && is_yt) {
 			kbps = ytmusic_last_bitrate_kbps();
 		}
 
 		// When the file does not declare one (a variable-bitrate MP3, a silent
-		// AAC) the real average stands in -- but only once the download has
-		// finished, for the reason just given.
+		// AAC, or a completed YouTube/stream download) the real average stands in -- but only once the download has
+		// finished, so the average does not climb while growing.
 		struct stat st;
-		if (kbps <= 0 && !qobuzcache_owns(state->current_file) && !tidalcache_owns(state->current_file) &&
-			!ytmusic_cache_owns(state->current_file) && !growfile_is_growing(state->current_file) &&
+		if (kbps <= 0 && !growfile_is_growing(state->current_file) &&
+			!qobuzcache_owns(state->current_file) && !tidalcache_owns(state->current_file) &&
 			state->progress_total_secs > 0.5 && stat(state->current_file, &st) == 0 && st.st_size > 0) {
 			kbps = (int)((double)st.st_size * 8.0 / state->progress_total_secs / 1000.0 + 0.5);
+		}
+
+		if (kbps <= 0 && is_yt) {
+			kbps = ytmusic_quality_high() ? 256 : 128;
+		}
+		if (is_yt && kbps > 0) {
+			if (kbps >= 110 && kbps <= 150) {
+				kbps = 128;
+			} else if (kbps >= 220 && kbps <= 280) {
+				kbps = 256;
+			}
 		}
 
 		if (kbps > 0) {
