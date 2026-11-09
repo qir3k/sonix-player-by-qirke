@@ -207,7 +207,7 @@ static int polls_since_stop = POLLS_FAST_AFTER_STOP;
 #define COMPACT_DECK_PAD_BOTTOM 4
 #define COMPACT_DECK_GAP 4
 #define COMPACT_DECK_SLACK 2 // Large text draws a size up; keep the last row on screen
-#define COMPACT_FAV_BTN_H 19
+#define COMPACT_FAV_BTN_H 22
 // The favourite marker's scale out of 256, from its 32 px source: the heart at
 // 26 px on the V1's deck and at its native size on the wide panels, and a step
 // under that in Poster, where the deck is a row of type rather than a picture
@@ -231,7 +231,7 @@ static int polls_since_stop = POLLS_FAST_AFTER_STOP;
 // 6 px inside the transport's own box and its glyph would touch the skip
 // glyph beside it. 36 keeps each corner at its edge, clear of the group.
 #define COMPACT_CORNER_BTN 36
-#define COMPACT_MORE_BTN 44
+#define COMPACT_MORE_BTN 36
 #define COMPACT_MORE_BTN_EXT_CLICK 10
 #define COMPACT_SLEEVE_MARGIN 2
 #define COMPACT_STANDARD_SLEEVE_MARGIN 14
@@ -3151,6 +3151,37 @@ static int studio_cover_geometry(int *top_out) {
 	return size;
 }
 
+// Sits the streaming source and live badges cleanly inside the top-right corner
+// of the album cover across standard, waveform, alternative, immersive, and poster layouts.
+static void cover_badges_apply(void) {
+	int badge_w = bp_pick(26, 36);
+	int inset = bp_pick(6, 10);
+	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
+	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
+		if (!marks[i]) {
+			continue;
+		}
+		if (cover_art_group && lv_obj_get_parent(marks[i]) != cover_art_group) {
+			lv_obj_set_parent(marks[i], cover_art_group);
+		}
+		if (marks[i] == live_badge) {
+			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
+			lv_obj_set_style_pad_ver(live_badge, bp_pick(2, 3), 0);
+			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_16, 0);
+		} else {
+			const lv_image_dsc_t *src = badge_src_for(marks[i]);
+			if (src) {
+				iconscale_set(marks[i], src, badge_w);
+			}
+			lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_X, 0);
+			lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_Y, 0);
+			lv_obj_set_size(marks[i], badge_w, badge_w);
+		}
+		lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -inset, inset);
+		lv_obj_move_foreground(marks[i]);
+	}
+}
+
 // The four marks that say where a track comes from -- Qobuz, Tidal, podcast,
 // and the red one for a live stream -- share the top right corner of the
 // artwork, which in this arrangement is where the ellipsis went. They move
@@ -3408,27 +3439,7 @@ static void studio_take_back(void) {
 		}
 		// The marks go back to the corner of the artwork they share with every
 		// other arrangement.
-		lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
-		for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
-			if (marks[i]) {
-				lv_obj_set_parent(marks[i], cover_art_group);
-				if (marks[i] == live_badge) {
-					lv_obj_set_style_pad_hor(live_badge, 10, 0);
-					lv_obj_set_style_pad_ver(live_badge, 5, 0);
-					lv_obj_set_style_text_font(live_badge, &font_ui_18, 0);
-				} else {
-					const lv_image_dsc_t *orig = badge_src_for(marks[i]);
-					if (orig) {
-						lv_image_set_src(marks[i], orig);
-					}
-					lv_image_set_scale(marks[i], 256);
-					lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_X, 0);
-					lv_obj_remove_local_style_prop(marks[i], LV_STYLE_TRANSFORM_PIVOT_Y, 0);
-					lv_obj_set_size(marks[i], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-				}
-				lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
-			}
-		}
+		cover_badges_apply();
 		set_over_cover(current_cover.pixels != NULL);
 	}
 
@@ -3625,12 +3636,15 @@ static void immersive_put(void) {
 		lv_obj_set_style_pad_top(player_menu, COMPACT_DECK_PAD_TOP + 8, 0);
 		lv_obj_move_foreground(player_menu);
 	}
-	if (fav_btn_icon) {
-		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(6, 0), 0);
-		lv_obj_set_style_translate_y(fav_btn_icon, bp_pick(-2, 0), 0);
-	}
+	const bool compact = bp_is_tempotec_v1();
 	if (fav_btn_obj) {
-		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(6, 0));
+		lv_obj_set_size(fav_btn_obj, compact ? 26 : 48, compact ? 26 : 44);
+		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(8, 0));
+	}
+	if (fav_btn_icon) {
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(2, 0), 0);
+		lv_obj_center(fav_btn_icon);
 	}
 	// The frosted foot, at the deck's new rectangle: up if a band is on hand,
 	// down until the worker brings one.
@@ -3675,8 +3689,11 @@ static bool immersive_take_back(void) {
 	if (fav_btn_icon) {
 		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
 		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+		lv_obj_center(fav_btn_icon);
 	}
 	if (fav_btn_obj) {
+		const bool compact = bp_is_tempotec_v1();
+		lv_obj_set_size(fav_btn_obj, compact ? 34 : 48, compact ? COMPACT_FAV_BTN_H : 44);
 		lv_obj_set_ext_click_area(fav_btn_obj, 0);
 	}
 	cover_show(current_cover.pixels != NULL);
@@ -4296,6 +4313,7 @@ static bool aam_take_back(void) {
 		lv_image_set_scale(repeat_btn_icon, 256);
 	}
 
+	const bool compact = bp_is_tempotec_v1();
 	if (format_label && song_side_obj) {
 		lv_obj_set_parent(format_label, song_side_obj);
 		lv_obj_set_ignore_layout(format_label, false);
@@ -4305,6 +4323,8 @@ static bool aam_take_back(void) {
 	if (more_btn_obj && controls_row) {
 		lv_obj_set_parent(more_btn_obj, controls_row);
 		lv_obj_set_ignore_layout(more_btn_obj, true);
+		lv_obj_set_size(more_btn_obj, compact ? COMPACT_MORE_BTN : 76, compact ? COMPACT_MORE_BTN : 76);
+		lv_obj_set_ext_click_area(more_btn_obj, compact ? COMPACT_MORE_BTN_EXT_CLICK : CORNER_BTN_EXT_CLICK);
 		lv_obj_align(more_btn_obj, LV_ALIGN_RIGHT_MID, 0, 0);
 	}
 	if (repeat_btn_obj && controls_row) {
@@ -4492,25 +4512,7 @@ static void aam_build(void) {
 }
 
 static void vinyl_badges_apply(void) {
-	int badge_w = bp_pick(26, 36);
-	int inset = bp_pick(6, 10);
-	int scale = badge_w * 256 / 52;
-	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
-	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
-		if (!marks[i]) {
-			continue;
-		}
-		if (marks[i] == live_badge) {
-			lv_obj_set_style_pad_hor(live_badge, bp_pick(5, 8), 0);
-			lv_obj_set_style_pad_ver(live_badge, bp_pick(2, 3), 0);
-			lv_obj_set_style_text_font(live_badge, bp_is_tempotec_v1() ? &font_ui_14 : &font_ui_16, 0);
-		} else {
-			lv_image_set_scale(marks[i], scale);
-			lv_image_set_pivot(marks[i], 0, 0);
-			lv_obj_set_size(marks[i], badge_w, badge_w);
-		}
-		lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -inset, inset);
-	}
+	cover_badges_apply();
 }
 
 static void vinyl_put(void) {
@@ -4567,21 +4569,7 @@ static bool vinyl_take_back(void) {
 	if (player_menu) {
 		lv_obj_align(player_menu, LV_ALIGN_BOTTOM_MID, 0, 0);
 	}
-	lv_obj_t *const marks[] = {live_badge, qobuz_badge, tidal_badge, podcast_badge, ytmusic_badge};
-	for (size_t i = 0; i < sizeof(marks) / sizeof(marks[0]); i++) {
-		if (marks[i]) {
-			if (marks[i] == live_badge) {
-				lv_obj_set_style_pad_hor(live_badge, 10, 0);
-				lv_obj_set_style_pad_ver(live_badge, 5, 0);
-				lv_obj_set_style_text_font(live_badge, &font_ui_18, 0);
-			} else {
-				lv_image_set_scale(marks[i], 256);
-				lv_image_set_pivot(marks[i], 26, 26);
-				lv_obj_set_size(marks[i], LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-			}
-			lv_obj_align(marks[i], LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
-		}
-	}
+	cover_badges_apply();
 	cover_show(current_cover.pixels != NULL);
 	return true;
 }
@@ -4733,6 +4721,7 @@ static void apply_layout(void) {
 	placeholder_place();
 	paint_alt_tint();
 	update_fav_button(); // the marker's shape and size follow the arrangement
+	update_qobuz_badge();
 
 	// Album Art Max keeps the shell's status bar, and the chevron belongs under
 	// it rather than in it; every other arrangement hides the bar so artwork
@@ -5650,6 +5639,8 @@ static void update_qobuz_badge(void) {
 		studio_badges_move(studio_box);
 	} else if (layout_vinyl_now) {
 		vinyl_badges_apply();
+	} else {
+		cover_badges_apply();
 	}
 }
 
@@ -8066,6 +8057,8 @@ void player_init(gui_config_t *cfg) {
 	lv_image_set_src(ytmusic_badge, &icon_ytmusic_badge);
 	lv_obj_align(ytmusic_badge, LV_ALIGN_TOP_RIGHT, -BADGE_INSET, BADGE_INSET);
 	lv_obj_set_hidden(ytmusic_badge, true);
+
+	cover_badges_apply();
 
 	// Shown while there is no artwork for the current track. The mark is drawn
 	// at 128x128 natively, which overflows a V1 sleeve, so it is scaled to a

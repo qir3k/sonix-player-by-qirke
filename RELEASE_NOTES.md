@@ -1,19 +1,27 @@
-# Sonix OS v1.2.2 for TempoTec Variations V1
+# Sonix OS v1.2.3 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.2.2
+## 🛠️ Critical Fixes & Improvements in v1.2.3
 
-### 1. Now Playing Favorite Heart Symbol Coloring & Tinting
-- **Root Cause**: In monochrome and OLED themes, `update_fav_button()` prematurely fell back to `THEME_PLAYER_CHROME_MUTED` (`#888888`), locking the favorite heart icon in a permanent dull gray across all player layouts even when "Tint controls from album art" or active accent colors were selected.
+### 1. Three-Dots Menu Button Centering & Symmetry (Immersive, Standard & Waveform Layouts)
+- **Root Cause**: The bottom controls row (`player_controls_buttons`) sized the rightmost overflow/three-dots button (`more_btn_obj`) at 44 px wide (`COMPACT_MORE_BTN`) while the mirrored shuffle/repeat button (`repeat_btn_obj`) on the left was 36 px wide (`COMPACT_CORNER_BTN`). Because both corner buttons are edge-aligned (`LV_ALIGN_LEFT_MID` and `LV_ALIGN_RIGHT_MID`), the 44 px button placed the centered three-dots icon 22 px from the row edge, shifting it 4 px to the left compared to the shuffle icon (18 px from the edge) and making it noticeably off-center across the Immersive, Standard, and Waveform layouts.
 - **Resolution**:
-  - Unified favorite heart coloring to dynamically use `chrome_accent()` across all player layouts.
-  - The heart icon (both outline when un-favorited and filled when favorited) now properly inherits the active theme accent color and dynamically adopts album cover tinting when enabled.
+  - Unified `COMPACT_MORE_BTN` to 36 px matching `COMPACT_CORNER_BTN`, achieving exact pixel-perfect horizontal symmetry (18 px from edge, 28 px from display bezel on both sides).
+  - Maintained `COMPACT_MORE_BTN_EXT_CLICK` (10 px padding) ensuring a generous 56x56 px touch hit target for comfortable thumb tapping.
+  - Ensured identical symmetrical sizing is restored cleanly when returning from Album Art Max and Studio layouts.
 
-### 2. Alternative Layout Streaming Badge Scaling & Clipping Fix
-- **Root Cause**: In the Alternative (Studio) player layout, scaling the 52x52 px streaming badges (YouTube Music, Podcasts, Tidal, Qobuz) via `lv_image_set_scale` with an explicit (0, 0) pivot displaced the scaled bitmap relative to the centered 26x26 px widget container, clipping ~75% of the badge and leaving only a distorted fragment visible. Furthermore, background cover updates did not re-assert badge Z-order.
+### 2. Immersive Layout Favorite Heart Symbol Cropping & Alignment Fix
+- **Root Cause**: In the Immersive layout, `immersive_put()` applied an artificial -2 px vertical translation (`translate_y`) to `fav_btn_icon` inside a compact 19 px button (`COMPACT_FAV_BTN_H`). With the heart icon scaled to 22 px high (`FAV_HEART_SCALE = 176`), this pushed the top lobes of the heart outside the button boundary, where container clipping cropped the top curves flat. Furthermore, the icon's color recolor and right edge alignment with the format label underneath needed seamless vertical centering without displacement.
 - **Resolution**:
-  - Leveraged `iconscale_set()` to cleanly pre-scale badge bitmaps on the FPU to the native 26 px (V1) / 36 px (V2) dimension, eliminating transform shifts and clipping.
-  - Ensured streaming badges are positioned and brought to the foreground over the album sleeve whenever the layout is drawn and whenever album art asynchronously finishes loading.
-  - Cleanly restored intrinsic 52 px source descriptors upon exiting to the standard layout in `studio_take_back()`.
+  - Removed negative vertical translate on `fav_btn_icon` and increased button height to 26 px (`COMPACT_FAV_BTN_H 22`), providing full top and bottom clearance for the 22 px heart icon without any clipping.
+  - Aligned the visual right edge of the heart icon flush with the format label while keeping it vertically centered on the row.
+  - Ensured favorite heart coloring dynamically uses `chrome_accent()` so that active theme colors and album art tinting apply immediately upon entering Immersive layout.
+
+### 3. Streaming Badges Scaling & Placement (Standard, Waveform & Vinyl Layouts)
+- **Root Cause**: While Studio layout had badge downscaling logic, Standard layout, Waveform layout, and Album Art Max never downscaled the streaming badges (YouTube Music, Tidal, Podcasts, Qobuz), rendering them at their massive unscaled 52x52 px native dimensions (~34% of sleeve width). This caused streaming badges to spill over album art and obstruct covers. Additionally, transitioning out of Studio or Vinyl layouts reset badges back to unscaled 52x52 px at static -14 px insets.
+- **Resolution**:
+  - Introduced unified `cover_badges_apply()` for cover art across Standard, Waveform, Alternative, Immersive, Poster, and Vinyl layouts.
+  - All streaming badges are cleanly downscaled via `iconscale_set()` to native 26 px (V1) / 36 px (wide displays) with a 6 px inset, sitting neatly and proportionally in the top-right corner of the artwork sleeve without overflowing.
+  - Guaranteed correct badge z-order and placement on layout switches and track changes.
 
 ---
 
