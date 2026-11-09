@@ -3590,6 +3590,13 @@ static void immersive_put(void) {
 		lv_obj_set_style_pad_top(player_menu, COMPACT_DECK_PAD_TOP + 8, 0);
 		lv_obj_move_foreground(player_menu);
 	}
+	if (fav_btn_icon) {
+		lv_obj_set_style_translate_x(fav_btn_icon, bp_pick(6, 0), 0);
+		lv_obj_set_style_translate_y(fav_btn_icon, bp_pick(-2, 0), 0);
+	}
+	if (fav_btn_obj) {
+		lv_obj_set_ext_click_area(fav_btn_obj, bp_pick(6, 0));
+	}
 	// The frosted foot, at the deck's new rectangle: up if a band is on hand,
 	// down until the worker brings one.
 	immersive_blur_apply();
@@ -3629,6 +3636,13 @@ static bool immersive_take_back(void) {
 		// Asking for the panel's own index instead would put it a place lower
 		// than it belongs, since a move takes the object out of the list first.
 		lv_obj_move_to_index(player_menu, immersive_menu_index);
+	}
+	if (fav_btn_icon) {
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_X, 0);
+		lv_obj_remove_local_style_prop(fav_btn_icon, LV_STYLE_TRANSLATE_Y, 0);
+	}
+	if (fav_btn_obj) {
+		lv_obj_set_ext_click_area(fav_btn_obj, 0);
 	}
 	cover_show(current_cover.pixels != NULL);
 	return true;
