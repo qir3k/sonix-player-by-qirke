@@ -112,11 +112,6 @@ static bool pairing_device_audio_connected(void) {
 		return true;
 	}
 	char source[BT_MAC_MAX];
-static bool pairing_device_audio_connected(void) {
-	if (bluetooth_device_audio_connected(pairing_mac)) {
-		return true;
-	}
-	char source[BT_MAC_MAX];
 	return bluetooth_receiver_device(source, sizeof(source), NULL, 0) && strcasecmp(source, pairing_mac) == 0;
 }
 

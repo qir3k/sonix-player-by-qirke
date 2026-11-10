@@ -39,8 +39,12 @@
 // clock, a missing certificate bundle -- because the point is a message worth
 // putting on the screen, not a log line.
 
+#ifndef HTTP_URL_PATH_MAX
 #define HTTP_URL_PATH_MAX 8192
+#endif
+#ifndef HTTP_URL_MAX
 #define HTTP_URL_MAX (HTTP_URL_PATH_MAX + 600)
+#endif
 
 static __thread char last_error[192];
 static __thread char agent_suffix[130];
@@ -529,12 +533,9 @@ static int read_headers(conn_t *c, char *headers, size_t headers_size, char *bod
 		char drain[4096];
 
 		while (!found && drained < 64 * 1024) {
-<<<<<<< HEAD
 			if (header_time_left_ms(&started, deadline_secs, c->fd) <= 0) {
 				return -1;
 			}
-=======
->>>>>>> 769816c9 (qobuz, http: fix post-login JWT truncation, query encoding & gzip replies)
 			int n = conn_read(c, drain, sizeof(drain));
 			if (n <= 0) {
 				return -1;

@@ -152,7 +152,8 @@ bool http_request(const char *url, const http_req_t *req, char **out, size_t *ou
 // the head of it and drops the tail, the signature no longer matches, and the
 // server answers 403 -- which the player used to report as "could not reach the
 // stream", from any source, with nothing in the log to say why.
-#define HTTP_URL_MAX 4301
+#define HTTP_URL_PATH_MAX 8192
+#define HTTP_URL_MAX (HTTP_URL_PATH_MAX + 600)
 
 // A stream whose body is read a piece at a time.
 typedef struct {
