@@ -49,7 +49,8 @@ typedef enum {
 	BT_OP_IDLE = 0,
 	BT_OP_BUSY,
 	BT_OP_OK,
-	BT_OP_PAIRED, // paired A2DP sender; receiver audio waits for its profile to be active
+	BT_OP_PAIRED,         // paired A2DP sender; receiver audio waits for its profile to be active
+	BT_OP_NEEDS_RECEIVER, // connect requested on an A2DP sender while still in TX mode
 	BT_OP_FAILED,
 } bt_op_t;
 
@@ -355,6 +356,7 @@ void bluetooth_notify_volume(int percent);
 // playing are asked for their stream again, and a phone or computer already
 // linked is asked to stream here when it goes on.
 void bluetooth_set_receiver_profile(bool on);
+bool bluetooth_receiver_profile(void);
 
 // Turns on bluetoothd's debug lines if it is running, for the Bluetooth log
 // (btlog.h). They stay on until bluetoothd is next started; with the log off

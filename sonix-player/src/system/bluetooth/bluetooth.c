@@ -1210,6 +1210,13 @@ static int codecs_to_ask_for(char out[][BT_CODEC_MAX], int max) {
 	return count;
 }
 
+bool bluetooth_receiver_profile(void) {
+	pthread_mutex_lock(&lock);
+	bool wanted = g_receiver_profile;
+	pthread_mutex_unlock(&lock);
+	return wanted;
+}
+
 static bool receiver_profile_wanted(void) { return bluetooth_receiver_profile(); }
 
 // A scan is also a pairing window: answer the car's inquiry while looking
@@ -1277,9 +1284,9 @@ static bool ensure_bluealsa(void) {
 	// A daemon left from before -- the stock bring-up, or a run of this player
 	// with the receiver open -- may carry the other set of profiles.
 	bool want_sink = receiver_profile_wanted();
-	if (process_running("bluealsa") && bluealsa_has_sink() != want_sink) {
-		fprintf(stderr, "bluetooth: bluealsa is running %s the A2DP sink; starting it again\n",
-				want_sink ? "without" : "with");
+	if (process_running("bluealsa") && !bluealsa_matches_profile(want_sink)) {
+		fprintf(stderr, "bluetooth: bluealsa profile does not match %s mode; starting it again\n",
+				want_sink ? "RX (a2dp-sink)" : "TX (a2dp-source)");
 		stop_process("bluealsa");
 		sleep_ms(300);
 	}
@@ -3758,13 +3765,13 @@ static void *bluetooth_worker(void *arg) {
 					break;
 				}
 				bool want = receiver_profile_wanted();
-				if (process_running("bluealsa") && bluealsa_has_sink() != want) {
+				if (process_running("bluealsa") && !bluealsa_matches_profile(want)) {
 					restart_bluealsa(want ? "receiver open" : "receiver closed");
 				}
 				// Opening the receiver is also a reconnect request. Do this even
 				// when the endpoint was already active, since the phone may have
 				// dropped its link before the page was opened.
-				if (want && process_running("bluealsa") && bluealsa_has_sink()) {
+				if (want && process_running("bluealsa") && bluealsa_matches_profile(true)) {
 					invite_sources();
 				}
 				break;
