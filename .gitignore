@@ -61,3 +61,6 @@ sonix-player/.ytmusic-key
 .freebuff/
 .kilo/
 repomix-output.xml
+
+.agent/
+library.db
