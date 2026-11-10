@@ -26,6 +26,13 @@
 #include "src/gui/nowplaying/trackmenu.h"
 #include "src/system/core/config.h"
 #include "src/system/playback/device_state.h"
+#include "src/system/streaming/qobuzcache.h"
+#include "src/system/streaming/qobuzsync.h"
+#include "src/system/streaming/streamkeep.h"
+#include "src/system/streaming/tidalcache.h"
+#include "src/system/streaming/tidalsync.h"
+#include "src/system/streaming/ytlikes.h"
+#include "src/system/streaming/ytmusic.h"
 #include "src/system/core/lang.h"
 #include "src/system/playback/playlist.h"
 #include "src/system/device/power.h"
@@ -3548,14 +3555,75 @@ static void menu_playlist_remove_action(void *user) {
 	}
 }
 
+bool medialist_fav_contains(const char *path) {
+	char yt_id[YTLIKES_ID_MAX];
+	if (!path || !path[0]) {
+		return false;
+	}
+	if (ytmusic_cache_track_id(path, yt_id, sizeof(yt_id))) {
+		return yt_id[0] && ytlikes_contains(yt_id);
+	}
+	long tidal_id = tidalcache_track_id(path);
+	if (tidal_id > 0) {
+		return tidalsync_is_favorite(tidal_id);
+	}
+	long qobuz_id = qobuzcache_track_id(path);
+	if (qobuz_id > 0) {
+		return qobuzsync_is_favorite(qobuz_id);
+	}
+	return library_fav_contains(path);
+}
+
+void medialist_fav_toggle(const char *path, const char *title, const char *artist) {
+	if (!path || !path[0]) {
+		return;
+	}
+	char yt_id[YTLIKES_ID_MAX];
+	if (ytmusic_cache_track_id(path, yt_id, sizeof(yt_id))) {
+		// shortcut: a copy kept before its id was written has none in its tags,
+		// so it can only be starred by playing it again; upgrade when old cards
+		// have to be honoured.
+		if (!yt_id[0]) {
+			return;
+		}
+		ytlike_t like;
+		memset(&like, 0, sizeof(like));
+		snprintf(like.id, sizeof(like.id), "%s", yt_id);
+		snprintf(like.title, sizeof(like.title), "%s", title && title[0] ? title : yt_id);
+		snprintf(like.artist, sizeof(like.artist), "%s", artist ? artist : "");
+		ytlikes_toggle(&like);
+		return;
+	}
+	long tidal_id = tidalcache_track_id(path);
+	if (tidal_id > 0) {
+		tidalsync_favorite_toggle(tidal_id, !tidalsync_is_favorite(tidal_id), NULL, NULL);
+		return;
+	}
+	long qobuz_id = qobuzcache_track_id(path);
+	if (qobuz_id > 0) {
+		qobuzsync_favorite_toggle(qobuz_id, !qobuzsync_is_favorite(qobuz_id), NULL, NULL);
+		return;
+	}
+	library_fav_toggle(path, title, artist);
+}
+
+bool medialist_fav_is_stream(const char *path) {
+	char yt_id[YTLIKES_ID_MAX];
+	if (!path || !path[0]) {
+		return false;
+	}
+	return ytmusic_cache_track_id(path, yt_id, sizeof(yt_id)) || tidalcache_track_id(path) > 0 ||
+		   qobuzcache_track_id(path) > 0 || streamkeep_is_stream_track(path);
+}
+
 static void menu_fav_action(void *user) {
 	(void)user;
 	if (!menu_path[0]) {
 		return;
 	}
 	// No notification popup -- the change itself is the feedback.
-	bool was_favourite = library_fav_contains(menu_path);
-	library_fav_toggle(menu_path, menu_name, "");
+	bool was_favourite = medialist_fav_contains(menu_path);
+	medialist_fav_toggle(menu_path, menu_name, "");
 
 	// Taken out of the favourites while looking at the favourites: the row is
 	// about to stand for something that is no longer in the list, so it goes.
@@ -3678,8 +3746,9 @@ static void menu_btn_cb(lv_event_t *e) {
 	// reason behind it. "Show album" goes with "Details" instead, both being
 	// ways of finding out more about the track rather than doing something to
 	// it.
-	items[n++] = (popover_item_t){
-		library_fav_contains(menu_path) ? "remove_from_favourites" : "medialist_add_to_favourites", menu_fav_action, NULL};
+	items[n++] = (popover_item_t){medialist_fav_contains(menu_path) ? "remove_from_favourites"
+																							: "medialist_add_to_favourites",
+								 menu_fav_action, NULL};
 	items[n++] = (popover_item_t){"add_to_queue", menu_queue_action, NULL};
 	items[n++] = (popover_item_t){"smartmix_start", medialist_mix_track, NULL};
 	// Inside a playlist the useful action is the opposite one: this list is

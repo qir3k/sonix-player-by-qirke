@@ -97,7 +97,8 @@ static bool current_yt_song(char *id, size_t size) {
 	device_state_t state;
 	device_state_get(&state);
 	if (!state.current_file[0]) return false;
-	if (strstr(state.current_file, "/Music/YouTube Music/") != NULL) return true;
+	// One question, not two: the card's copies are recognised here too, and
+	// their id comes from the tags written beside them.
 	return ytmusic_cache_track_id(state.current_file, id, size);
 }
 static void update_format_label(const device_state_t *state);
@@ -7003,14 +7004,7 @@ bool player_is_playing(void) {
 }
 
 void player_pause_for_loading(void) {
-	if (radio_is_active()) {
-		radio_stop();
-		player_refresh_now_playing();
-	}
-	if (audio_get_status() == AUDIO_STATUS_PLAYING) {
-		audio_pause();
-		apply_playback_status(AUDIO_STATUS_PAUSED);
-	}
+	// Keep audio playing while loading screens and busy spinners are shown.
 }
 
 // A pause and not a stop, and for the same reason as the one above: the point

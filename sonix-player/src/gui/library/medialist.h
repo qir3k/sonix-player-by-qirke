@@ -96,6 +96,18 @@ lv_obj_t *medialist_artist_screen(void);
 void medialist_open_years(void);
 void medialist_open_most_played(void);
 
+// Starring a track from a list, wherever the song lives.
+//
+// One rule: the card's favourites holds the card's own music and nothing else.
+// A streamed song is starred in its own service's list -- YouTube Music's on
+// the player, Tidal's and Qobuz's on the account -- so a star tapped here means
+// what the player's star means, and a song downloaded by a service never turns
+// up in Music > Favourites. `medialist_fav_is_stream` says whether a path
+// belongs to a service, which is what a bulk star needs to leave one out.
+bool medialist_fav_contains(const char *path);
+void medialist_fav_toggle(const char *path, const char *title, const char *artist);
+bool medialist_fav_is_stream(const char *path);
+
 // Re-reads what is playing and moves the accent mark to whichever rows now
 // carry it. Called from the player whenever the track changes; cheap enough
 // to call on a track that has not (it walks two dozen pool rows).

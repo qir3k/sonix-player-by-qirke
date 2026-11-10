@@ -1,32 +1,20 @@
-# Sonix OS v1.2.11 for TempoTec Variations V1
+# Sonix OS v1.2.18 for TempoTec Variations V1
 
-## 🛠️ Critical Fixes & Improvements in v1.2.11
+## 🛠️ Fixes in v1.2.18
 
-### 1. Gramophone Vinyl Layout Album Art Enlargement & Turntable Spin Animation
-- **Root Cause**: In Vinyl layout, the circular album art label was configured at only 50% of the vinyl disc diameter (`max_d * 50 / 100`), making the cover appear disproportionately small compared to the black outer grooves. In addition, no rotation animation was driving the record or artwork during playback.
+### 1. Music no longer stops when a loading screen appears
+- **Root Cause**: `player_pause_for_loading()` paused whatever was playing and stopped an active radio station. Every streaming page's spinner and the shared busy card (cover art, lyrics, artwork search, Wi-Fi work) called it, so a search or a spinner silenced the music that was already playing.
 - **Resolution**:
-  - Increased circular center album art label size to 68% of the vinyl disc diameter (`(max_d * 68 / 100) & ~1`), providing a prominent, beautifully proportioned cover display while keeping concentric grooves and the chrome rim visible.
-  - Implemented real-time turntable spin animation (`vinyl_spin_update` and `vinyl_spin_anim_cb`): when playback is active (`AUDIO_STATUS_PLAYING`) and the now-playing sheet is open, the album art spins smoothly in sync with the gliding groove shine line (`r->shine`) around the central spindle at a realistic, battery-friendly ~24 RPM (2.5s per turn).
-  - Pausing playback freezes the rotation in place without resetting the angle, and switching away from Vinyl layout smoothly resets artwork rotation back to 0°.
+  - The function is now a no-op, kept only so the pages that call it keep compiling; `show_busy()` no longer calls it at all.
+  - Starting a new stream still stops the previous one, where it belongs: in the page that starts it.
 
-### 2. Waveform Layout Favorite Heart Centering Fix
-- **Root Cause**: In Waveform/Alternative layout, the favorite button (`fav_btn_obj`) is reparented into a circular floating pill container (`alt_fav_circle`, 36×36 px). The button retained its compact rectangular geometry (26×22 px) with `translate_x = 2`, displacing the heart icon off-center relative to the dark background circle.
+### 2. Each service keeps its own favourites again
+- **Root Cause**: YouTube Music, Tidal and Qobuz songs saved to the card live in `Music/YouTube Music`, `Music/Tidal` and `Music/Qobuz`, which the music library indexes. Starring one of them from a list — the service's own *Downloaded* page, Music, Search, a playlist, or the phone app — wrote the path into the card's favourites table. YouTube Music hearts therefore turned up under **Music → Favourites**.
 - **Resolution**:
-  - In Waveform layout, `fav_btn_obj` is explicitly sized to match `alt_fav_size` (36×36 px) and centered inside `alt_fav_circle`.
-  - Removed local `translate_x` and `translate_y` offsets on `fav_btn_icon` in Waveform layout so the heart is centered with mathematical precision inside the circle.
-  - Preserved right-aligned `translate_x = 2` flush positioning when returning to Standard, Poster, Vinyl, and Immersive layouts.
-
-### 3. Control Center (Quick Panel) Page 2 Vertical Centering
-- **Root Cause**: In the Quick Panel swipeable button grid, `quick_row` and `extra_row` were statically configured with `LV_FLEX_ALIGN_START` for track cross alignment. When Page 2 contained only a single button or row (≤ 4 buttons, e.g. a standalone library rescan button), items were pinned to the top ceiling of the grid with an empty lower row area.
-- **Resolution**:
-  - In `order_apply()`, dynamically evaluate the button counts for both pages: if Page 2 (or Page 1) has only one row (≤ 4 buttons), `lv_obj_set_flex_align` sets `LV_FLEX_ALIGN_CENTER` on the cross axis, centering the row vertically in the card.
-  - When 2 full rows (5–8 buttons) are present, alignment seamlessly uses `LV_FLEX_ALIGN_START`, ensuring identical appearance across fully-populated pages.
-
-### 4. Build System & Compilation Stability
-- **Root Cause**: In `apply_layout()` in `player.c`, the `compact` layout flag was not locally declared during favorite button sizing, triggering a fatal MIPS GCC compilation error on strict toolchains.
-- **Resolution**:
-  - Declared `const bool compact = bp_is_tempotec_v1();` matching the codebase standard across player layouts.
-  - Bound the vinyl animation lifecycle cleanly to static persistent storage (`&vinyl_spinning`) for guaranteed deletion on playback state transitions.
+  - Starring a track is now decided by where the song lives: a YouTube Music song is liked in the player's own YouTube Music list (by video id), a Tidal or Qobuz song on its account, and only the card's own music reaches the card's favourites.
+  - The video id is written into the tags kept beside a YouTube Music download, and the Tidal/Qobuz track id into the tags kept beside theirs, so a saved song can still be starred after its playback cache has been swept.
+  - Favourites rows that older builds wrote for songs in those three folders are removed once at boot; the files themselves are untouched, and **Music → Favourites** is now the card's music only.
+  - Bulk "add to favourites" leaves service songs out, and the phone app's star follows the same rule.
 
 ---
 

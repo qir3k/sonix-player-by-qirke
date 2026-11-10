@@ -466,6 +466,11 @@ int library_fav_remove_many(const char *const *paths, int count);
 // startup. Returns how many rows it removed.
 int library_forget_under(const char *prefix);
 
+// The same, for the favourites rows only. Used for a service's downloads: the
+// files stay on the card and are still played, but their star belongs to the
+// service, so a row an older build wrote into the card's list goes.
+int library_fav_forget_under(const char *prefix);
+
 // Takes the rows of files that are no longer on the card out of the index, as
 // if Detect changes had looked and found them gone: the media rows (a cue
 // sheet's tracks included), their artist and genre links, the names nothing is

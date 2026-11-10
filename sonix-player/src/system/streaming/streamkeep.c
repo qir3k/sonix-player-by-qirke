@@ -413,6 +413,18 @@ static void *keep_worker(void *arg) {
 				snprintf(from, sizeof(from), "%s.tags", path);
 				snprintf(to, sizeof(to), "%s.tags", dest);
 				copy_bytes(from, to, NULL);
+				// The service's own id travels with the copy. Tidal and Qobuz keep a
+				// favourite on the account, and a file on the card that forgot its
+				// id would be starred into the card's own list instead.
+				long kept_id = tidalcache_owns(path) ? tidalcache_track_id(path)
+							 : qobuzcache_owns(path) ? qobuzcache_track_id(path) : 0;
+				if (kept_id > 0) {
+					FILE *tags_out = fopen(to, "a");
+					if (tags_out) {
+						fprintf(tags_out, "id=%ld\n", kept_id);
+						fclose(tags_out);
+					}
+				}
 				snprintf(from, sizeof(from), "%s.jpg", src_stem);
 				snprintf(to, sizeof(to), "%s.jpg", dest_stem);
 				copy_bytes(from, to, NULL);

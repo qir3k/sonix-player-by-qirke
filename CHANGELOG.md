@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ---
 
+## [v1.2.18] - 2026-11-10
+
+### 🛠️ Fixed
+- **Playback Stops on Loading Screens**: `player_pause_for_loading()` no longer pauses the music or stops a radio station when a streaming page's spinner or the shared busy card appears; it is kept as a no-op for its callers.
+- **Favourites Leaking Between Services and the Card**: YouTube Music, Tidal and Qobuz songs saved to the card no longer land in the card's favourites. A star on one of them now goes to that service's own list — YouTube Music's on the player (by video id), Tidal's and Qobuz's on the account — from the service pages, Music, Search, playlists and the phone app alike.
+- **Saved Songs Keep Their Id**: the video id is written into the tags kept beside a YouTube Music download and the Tidal/Qobuz track id into theirs, so a downloaded song can still be starred after its playback cache is swept.
+- **Old Rows Cleaned Once**: favourites the music database holds for the three service folders are removed at boot; the files stay on the card and stay playable.
+
+---
+
 ## [v1.1.46] - 2026-11-09
 
 ### 🛠️ Fixed & Improved

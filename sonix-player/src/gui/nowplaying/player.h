@@ -128,9 +128,9 @@ void player_aam_leftie_set(bool enabled);
 // that went away was the one in use; this only acts on the decision.
 void player_output_unplugged(const char *what);
 
-// Pauses whatever audio/radio is playing when loading/buffering begins,
-// freeing CPU resources and preventing stuttering while the network fetches.
 bool player_is_playing(void);
+// Retained for the streaming pages' loading spinners, which still call it.
+// Intentionally does nothing: a loading screen must not stop the music.
 void player_pause_for_loading(void);
 
 // ---------------------------------------------------------------------------

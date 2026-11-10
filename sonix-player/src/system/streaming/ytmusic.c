@@ -2418,8 +2418,12 @@ static bool write_playback_tags(const char *path, const ytmusic_track_t *track) 
 	clean_tag_value(album);
 	FILE *f = fopen(tmp, "w");
 	if (!f) return false;
-	bool wrote = fprintf(f, "title=%s\nartist=%s\nalbum=%s\npodcast_episode=%d\n",
-						 title, artist, album, track->podcast_episode ? 1 : 0) > 0;
+	// The id travels with the names: a copy kept on the card is still this
+	// service's song, and the star on it has to reach YouTube Music's own
+	// favourites rather than the card's. The file name there is the song's
+	// name, so this sidecar is the only place the id survives.
+	bool wrote = fprintf(f, "title=%s\nartist=%s\nalbum=%s\npodcast_episode=%d\nid=%s\n",
+						 title, artist, album, track->podcast_episode ? 1 : 0, track->id) > 0;
 	bool closed = fclose(f) == 0;
 	bool ok = wrote && closed;
 	if (!ok || rename(tmp, tags) != 0) {
@@ -2595,6 +2599,8 @@ void ytmusic_set_cache_root(const char *sd_root) {
 #endif
 	snprintf(cache_dir, sizeof(cache_dir), "%s/%s", sd_root, YTMUSIC_CACHE_DIR);
 }
+
+const char *ytmusic_cache_dir(void) { return playback_cache_dir(); }
 
 // mkdir -p over the two levels the cache needs: .local, then the folder.
 static bool ensure_cache_dir(void) {
@@ -3057,6 +3063,28 @@ bool ytmusic_cached_track(const char *id, char *out, size_t out_size) {
 	return true;
 }
 
+// Reads one key out of a sidecar's "key=value" lines. The sidecars are the
+// player's own small files: a line is the whole record.
+static bool sidecar_value(const char *tags_path, const char *key, char *out, size_t size) {
+	if (!tags_path || !key || !out || size == 0) return false;
+	out[0] = '\0';
+	FILE *f = fopen(tags_path, "r");
+	if (!f) return false;
+	size_t key_len = strlen(key);
+	char line[512];
+	bool found = false;
+	while (!found && fgets(line, sizeof(line), f)) {
+		if (strncmp(line, key, key_len) != 0 || line[key_len] != '=') continue;
+		char *value = line + key_len + 1;
+		char *end = value + strlen(value);
+		while (end > value && (end[-1] == '\n' || end[-1] == '\r')) *--end = '\0';
+		snprintf(out, size, "%s", value);
+		found = true;
+	}
+	fclose(f);
+	return found;
+}
+
 // Whether a path is one of this module's own finished downloads -- the file the
 // player was handed when a YouTube Music song started. That is what the
 // now-playing menu's "save to the card" copies out, and nothing else may be
@@ -3078,6 +3106,13 @@ bool ytmusic_cache_track_id(const char *path, char *out, size_t out_size) {
 		}
 	}
 	if (strstr(path, "/Music/YouTube Music/") != NULL) {
+		// A copy kept on the card: the file name is the song's name, so the id
+		// is the one the tags beside it carry.
+		char tags[600];
+		if (out && out_size && snprintf(tags, sizeof(tags), "%s.tags", path) < (int)sizeof(tags) &&
+			sidecar_value(tags, "id", out, out_size) && strlen(out) != 11) {
+			out[0] = '\0';
+		}
 		return true;
 	}
 	return false;

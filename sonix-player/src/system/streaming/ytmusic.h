@@ -233,6 +233,8 @@ bool ytmusic_cache_track_id(const char *path, char *out, size_t out_size);
 // without one the cache falls back to /tmp, which is memory on this device, so
 // a player with a card never pays for a song twice.
 void ytmusic_set_cache_root(const char *sd_root);
+// Where that cache is; the boot sweep drops favourites that pointed into it.
+const char *ytmusic_cache_dir(void);
 
 // Empties the playback cache. Called on the way down with the other streaming
 // caches: it is scratch that now lives on the card, and so has to be swept.

@@ -202,7 +202,6 @@ static void show_busy(const char *text, bool transparent) {
 	if (!card) {
 		return;
 	}
-	player_pause_for_loading();
 	busy_dismissable = false;
 	busy_transparent = transparent;
 	lv_timer_pause(hide_timer);

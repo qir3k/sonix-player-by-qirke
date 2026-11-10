@@ -512,7 +512,15 @@ bool qobuzcache_album_id(const char *path, char *out, size_t size) {
 // when the path is not from this cache or the name is not a number.
 long qobuzcache_track_id(const char *path) {
 	if (!qobuzcache_owns(path)) {
-		return 0;
+		// A copy kept on the card is still Qobuz's: the id sits in the tags
+		// streamkeep writes beside it, so the star there reaches the account
+		// rather than the card's own favourites.
+		char kept[24];
+		if (!path || !strstr(path, "/Music/Qobuz/") || !read_tag(path, "id", kept, sizeof(kept))) {
+			return 0;
+		}
+		long id = strtol(kept, NULL, 10);
+		return id > 0 ? id : 0;
 	}
 	const char *name = strrchr(path, '/');
 	name = name ? name + 1 : path;

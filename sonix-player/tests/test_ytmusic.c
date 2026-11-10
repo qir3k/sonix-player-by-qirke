@@ -1349,6 +1349,48 @@ static void test_playback_starts_before_the_download_ends(void) {
 	}
 }
 
+// A song saved to the card is still YouTube Music's. The folder it is kept in is
+// one the music library scans, so the heart on it has to reach the player's own
+// likes and never the card's favourites -- and for that it needs the id, which
+// the file's name (the song's name) does not carry. The sidecar does.
+static void test_kept_download_keeps_its_id(void) {
+	const char *dir = ".build/card/Music/YouTube Music/Artist/Album";
+	char path[512], tags[560];
+	mkdir(".build/card", 0700);
+	mkdir(".build/card/Music", 0700);
+	mkdir(".build/card/Music/YouTube Music", 0700);
+	mkdir(".build/card/Music/YouTube Music/Artist", 0700);
+	mkdir(dir, 0700);
+	snprintf(path, sizeof(path), "%s/01 Song.m4a", dir);
+	snprintf(tags, sizeof(tags), "%s.tags", path);
+
+	FILE *f = fopen(tags, "w");
+	CHECK(f != NULL);
+	if (f) {
+		fprintf(f, "title=Kept song\nartist=Kept artist\nalbum=Kept album\npodcast_episode=0\nid=dQw4w9WgXcQ\n");
+		fclose(f);
+	}
+	char id[16] = "unset";
+	CHECK(ytmusic_cache_track_id(path, id, sizeof(id)));
+	CHECK(strcmp(id, "dQw4w9WgXcQ") == 0);
+
+	// Kept before ids were written: it still answers "mine", with no id. The
+	// heart then has nothing to like it by and leaves it alone -- it must not
+	// fall back into the card's favourites.
+	f = fopen(tags, "w");
+	if (f) {
+		fprintf(f, "title=Older kept song\n");
+		fclose(f);
+	}
+	id[0] = '\0';
+	CHECK(ytmusic_cache_track_id(path, id, sizeof(id)));
+	CHECK(id[0] == '\0');
+	remove(tags);
+
+	// A file of the user's own is not YouTube Music's at all.
+	CHECK(!ytmusic_cache_track_id(".build/card/somewhere/else.m4a", id, sizeof(id)));
+}
+
 int main(void) {
 	FILE *seed = fopen(".build/test_ytmusic_config.ini", "w");
 	if (seed) {
@@ -1408,6 +1450,7 @@ int main(void) {
 	test_two_row_card_extracts_artist_from_subtitle();
 	test_album_browse_populates_tracks_with_header_metadata();
 	test_progress_is_cleared_when_the_download_ends();
+	test_kept_download_keeps_its_id();
 
 	if (failures) {
 		fprintf(stderr, "%d failure%s\n", failures, failures == 1 ? "" : "s");
