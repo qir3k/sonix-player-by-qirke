@@ -277,6 +277,7 @@ static void publish_state(void) {
 	s.eq_enabled = eq_get_enabled();
 	s.peq_enabled = peq_get_enabled();
 	s.peq_profile = peq_get_profile();
+	s.high_gain = musicsettings_high_gain();
 
 	// The app wears the player's own accent.
 	lv_color_t accent = theme()->accent;
@@ -526,6 +527,14 @@ static void apply_command(const sonixlink_command_t *cmd) {
 			peq_select_profile(cmd->arg);
 		} else {
 			peq_next_profile();
+		}
+		break;
+	}
+	case SONIXLINK_CMD_GAIN: {
+		bool current = musicsettings_high_gain();
+		bool want = cmd->arg < 0 ? !current : (cmd->arg != 0);
+		if (want != current) {
+			musicsettings_set_high_gain(want);
 		}
 		break;
 	}

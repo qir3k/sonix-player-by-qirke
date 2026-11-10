@@ -1032,11 +1032,14 @@ static void route_state(client_t *c) {
 	buf_fmt(&j, "\"favourites_revision\":%u,\"playlists_revision\":%u,", s.favourites_revision,
 			s.playlists_revision);
 	buf_fmt(&j, "\"podcast\":%s,\"podcast_speed\":%d,", s.podcast ? "true" : "false", s.podcast_speed);
-	buf_fmt(&j, "\"mseb\":%s,\"eq\":%s,\"peq\":%s,\"peq_profile\":%d,",
+	buf_fmt(&j, "\"mseb\":%s,\"eq\":%s,\"peq\":%s,\"peq_profile\":%d,\"gain\":\"%s\",\"gain_high\":%s,\"high_gain\":%s,",
 			s.mseb_enabled ? "true" : "false",
 			s.eq_enabled ? "true" : "false",
 			s.peq_enabled ? "true" : "false",
-			s.peq_profile > 0 ? s.peq_profile : 1);
+			s.peq_profile > 0 ? s.peq_profile : 1,
+			s.high_gain ? "high" : "low",
+			s.high_gain ? "true" : "false",
+			s.high_gain ? "true" : "false");
 	buf_fmt(&j, "\"scanning\":%s,\"scan_count\":%u,\"tracks\":%u}", s.scanning ? "true" : "false", s.scan_count,
 			s.track_count);
 	reply_json(c, &j);
@@ -1375,6 +1378,14 @@ static void route_command(client_t *c, const char *query) {
 			reply_status(c, "400 Bad Request", "peq profile must be 1 or 2");
 			return;
 		}
+	} else if (strcmp(what, "gain") == 0) {
+		int want = -1;
+		if (strcmp(value, "high") == 0 || strcmp(value, "1") == 0 || strcmp(value, "true") == 0) {
+			want = 1;
+		} else if (strcmp(value, "low") == 0 || strcmp(value, "0") == 0 || strcmp(value, "false") == 0) {
+			want = 0;
+		}
+		push_command(SONIXLINK_CMD_GAIN, want);
 	} else if (strcmp(what, "scan") == 0) {
 		push_command(SONIXLINK_CMD_SCAN, 0);
 	} else {

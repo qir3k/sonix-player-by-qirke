@@ -118,6 +118,7 @@ typedef struct {
 	bool eq_enabled;
 	bool peq_enabled;
 	int peq_profile;
+	bool high_gain;
 } sonixlink_state_t;
 
 // The five orders the player understands, in the order the phone cycles them.
@@ -171,6 +172,7 @@ typedef enum {
 
 	// PEQ profile: arg 1 or 2 (or 0 for next / cycle)
 	SONIXLINK_CMD_PEQ_PROFILE,
+	SONIXLINK_CMD_GAIN,
 } sonixlink_command_kind_t;
 
 // The three rows of the circle-play menu.
